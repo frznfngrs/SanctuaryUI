@@ -1254,11 +1254,13 @@ AURA_SCALE = 2.0
 AURA_RIM = 1 / AURA_SCALE
 
 
-def polar_noise(n_theta, n_rho, k_theta, k_rho, beta, seed, min_theta=0):
+def polar_noise(n_theta, n_rho, k_theta, k_rho, beta, seed, min_theta=0, fold=0):
     """Noise on a (rho, theta) grid, seamless around theta. k_theta / k_rho: the highest cycles
     across the grid on each axis; long and thin in rho when k_rho is small (streaks, rays).
     min_theta drops variations slower than that many cycles round the circle: without it the
-    1/f weighting lets one or two lobes take over and the sprite looks off centre."""
+    1/f weighting lets one or two lobes take over and the sprite looks off centre.
+    fold keeps only variations that repeat `fold` times round the circle: the pattern is then
+    exactly fold-way symmetric, so it can't lean any way however it turns."""
     np = _np()
     rng = np.random.default_rng(seed)
     f = np.fft.fft2(rng.standard_normal((n_rho, n_theta)))
@@ -1267,8 +1269,11 @@ def polar_noise(n_theta, n_rho, k_theta, k_rho, beta, seed, min_theta=0):
     r = np.sqrt(fr * fr + ft * ft)
     amp = np.exp(-r * r) / np.maximum(r, 1 / max(k_theta, k_rho)) ** (beta / 2)
     amp[0, 0] = 0
+    cycles = np.abs(np.fft.fftfreq(n_theta, 1 / n_theta)).round().astype(int)
     if min_theta:
-        amp[:, np.abs(np.fft.fftfreq(n_theta, 1 / n_theta)) < min_theta] = 0
+        amp[:, cycles < min_theta] = 0
+    if fold:
+        amp[:, cycles % fold != 0] = 0
     return normalise(np.real(np.fft.ifft2(f * amp)))
 
 
@@ -1370,7 +1375,7 @@ def globe_aura() -> None:
     # Wisps: ridged turbulence, warped so each tongue leans, cut off a short way past the rim.
     cells = []
     for seed in (31, 32):
-        base = polar_noise(n_theta, n_rho, 36, 9, 1.8, seed, min_theta=8)
+        base = polar_noise(n_theta, n_rho, 36, 9, 1.8, seed, min_theta=8, fold=4)
         warp = (polar_noise(n_theta, n_rho, 6, 3, 2.0, seed + 50) - 0.5) * 0.35
         shifted = np.empty_like(base)
         cols = np.arange(n_theta)
@@ -1379,7 +1384,7 @@ def globe_aura() -> None:
             shifted[i] = np.interp((cols - lean) % n_theta, cols, base[i], period=n_theta)
         ridge = 1 - np.abs(shifted * 2 - 1)
         tongues = smoothstep(0.55, 1.0, ridge) ** 1.3
-        reach_n = polar_noise(n_theta, 8, 40, 1, 1.2, seed + 100, min_theta=6)[0][None, :]
+        reach_n = polar_noise(n_theta, 8, 40, 1, 1.2, seed + 100, min_theta=6, fold=4)[0][None, :]
         reach = rim + 0.06 + 0.16 * reach_n
         t = np.clip((rho - rim + 0.01) / (reach - rim + 0.01), 0, 1)
         along = smoothstep(0.0, 0.12, t) * (1 - t) ** 1.25
@@ -1391,8 +1396,8 @@ def globe_aura() -> None:
     # Shockwave ring for the flashes (lit, rekindled, judged away): a hard leading edge on the
     # rim with a soft trail inside it, torn in places, hollow so it can swell past the globe
     # without painting a disc.
-    tear = polar_noise(n_theta, 8, 18, 1, 1.3, 41, min_theta=6)[0][None, :]
-    grain = polar_noise(n_theta, n_rho, 90, 6, 1.1, 42, min_theta=12)
+    tear = polar_noise(n_theta, 8, 24, 1, 1.3, 41, min_theta=6, fold=3)[0][None, :]
+    grain = polar_noise(n_theta, n_rho, 90, 6, 1.1, 42, min_theta=12, fold=3)
     d = rho - rim
     lead = np.exp(-((np.clip(d, 0, None) / 0.009) ** 2))
     trail = np.exp(np.clip(d, None, 0) / 0.035) * 0.8
@@ -1470,14 +1475,16 @@ def globe_shell() -> None:
 
 def globe_surge() -> None:
     """aura-spiral.png 512x512: arms of light curling in to the rim, turned and shrunk in Lua so
-    they pour into the globe (Evocation, Innervate, drinking). Same frame as the auras."""
+    they pour into the globe (Evocation, Innervate, drinking). Same frame as the auras.
+    aura-topweight.png 256x256: the mask that keeps a swirl's light over the top of the globe."""
     np = _np()
     rim = AURA_RIM
     n_theta, n_rho = 2048, 512
     rho = np.linspace(0, 1, n_rho)[:, None]
     theta = np.linspace(0, 2 * np.pi, n_theta, endpoint=False)[None, :]
     # Many thin arms all the way round, so it reads as a vortex rather than a few swooshes.
-    streak = polar_noise(n_theta, n_rho, 90, 4, 1.1, 61, min_theta=12)
+    # Five-way symmetric: varied within each fifth of the circle, centred however it turns.
+    streak = polar_noise(n_theta, n_rho, 90, 4, 1.1, 61, min_theta=12, fold=5)
     # Curl: shift each ring of the noise by an angle that grows with the log of the radius.
     curl = np.log(np.clip(rho, rim, 1) / rim) * 3.2
     cols = np.arange(n_theta)
@@ -1485,7 +1492,9 @@ def globe_surge() -> None:
     for i in range(n_rho):
         shifted[i] = np.interp((cols + curl[i, 0] / (2 * np.pi) * n_theta) % n_theta, cols, streak[i], period=n_theta)
     arms = smoothstep(0.45, 1.0, shifted) ** 1.3
-    t = np.clip((rho - rim) / (0.88 - rim), 0, 1)
+    # Close to the rim: the globe sits against the console, which hides everything to one side,
+    # so a wide swirl only ever shows as a wedge off to the other.
+    t = np.clip((rho - rim) / (0.72 - rim), 0, 1)
     along = smoothstep(0, 0.08, t) * (1 - t) ** 1.2
     spiral = np.clip(arms * along * 1.5, 0, 1) * (1 - smoothstep(0.86, 0.99, rho))
     save_glow(OUT / "aura-spiral.png", polar_to_square(spiral, 512), 8)
@@ -1550,6 +1559,16 @@ def _glow_lines(size, paths, ss=4):
     tight = np.asarray(big.filter(ImageFilter.GaussianBlur(ss * 2.2)).resize((size, size), Image.LANCZOS)).astype(float) / 255
     wide = np.asarray(big.filter(ImageFilter.GaussianBlur(ss * 7)).resize((size, size), Image.LANCZOS)).astype(float) / 255
     return np.clip(core * 1.4 + tight * 1.7 + wide * 1.5, 0, 1)
+
+    # aura-topweight.png 256x256: a mask, full over the top and fading down the sides to the
+    # bottom. It stays put while the swirl turns, so the swirl's light sits over the globe,
+    # where both sides are in view, instead of wherever the console and gargoyle leave a gap.
+    m = 256
+    c = (np.arange(m) + 0.5) / m * 2 - 1
+    x, y = np.meshgrid(c, -c)
+    up = y / np.maximum(np.hypot(x, y), 1e-6)  # sine of the angle: 1 straight up, -1 down
+    weight = 0.2 + 0.8 * smoothstep(-0.25, 0.95, up)
+    save_glow(OUT / "aura-topweight.png", weight, 9)
 
 
 def _jagged_arc(rng, c, radius, start, span, steps=96):
