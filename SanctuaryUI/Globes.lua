@@ -714,6 +714,18 @@ function ns.Globes.Layout()
 	place(ns.HealthGlobe, metrics.health)
 	place(ns.ResourceGlobe, metrics.resource)
 
+	-- The health globe's click button: on the globe's circle (anchored to the cluster, like
+	-- the globe), above the art. Unlocked, clicks go through to drag the console.
+	local click = ns.Globes.click
+	if click and not InCombatLockdown() then
+		local spot = metrics.health
+		click:SetSize(spot.size * 0.86, spot.size * 0.86)
+		click:ClearAllPoints()
+		click:SetPoint("CENTER", cluster, "BOTTOM", spot.x, base + spot.y)
+		click:SetFrameLevel(level + ns.LEVEL.chrome + 1)
+		click:EnableMouse(ns.DB().locked and true or false)
+	end
+
 	local resource = ns.ResourceGlobe
 	if resource.Halves then
 		local size = metrics.resource.size
@@ -841,6 +853,23 @@ function ns.Globes.Init()
 	local parent = ns.Cluster
 	ns.HealthGlobe = MakeGlobe("SanctuaryUIHealthGlobe", parent, { 0.72, 0.08, 0.08 })
 	ns.ResourceGlobe = MakeGlobe("SanctuaryUIResourceGlobe", parent, { 0.15, 0.4, 0.85 })
+
+	-- Click your health globe to target yourself; right-click for your unit menu (leave group,
+	-- loot, raid markers). It covers the globe, so it passes hover on for the numbers.
+	local click = CreateFrame("Button", "SanctuaryUIHealthClick", parent, "SecureUnitButtonTemplate")
+	click:SetAttribute("unit", "player")
+	click:SetAttribute("*type1", "target")
+	click:SetAttribute("*type2", "togglemenu")
+	click:RegisterForClicks("AnyUp")
+	click:SetScript("OnEnter", function()
+		ns.HealthGlobe.hovered = true
+		ns.Globes.ApplyNumbers()
+	end)
+	click:SetScript("OnLeave", function()
+		ns.HealthGlobe.hovered = false
+		ns.Globes.ApplyNumbers()
+	end)
+	ns.Globes.click = click
 
 	ns.ResourceGlobe.Halves = {
 		left = MakeHalf(ns.ResourceGlobe, "left"),

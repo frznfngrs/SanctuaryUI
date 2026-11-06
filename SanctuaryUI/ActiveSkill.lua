@@ -100,13 +100,31 @@ local auraBySpell, auraByName = {}, {}
 -- read for each buff is kept, so a buff cast before the values went hidden keeps its timer.
 local known = {}
 
+-- Every aura of one kind on the player, in the client's order. Same approach as TargetPlate:
+-- GetUnitAuras first; GetAuraDataByIndex can throw when auras are secret, so the fallback is
+-- pcall'd and stops quietly when the client refuses.
+local function ReadAuras(unit, filter)
+	local UA = C_UnitAuras
+	if not UA then return {} end
+	if UA.GetUnitAuras then
+		local ok, list = pcall(UA.GetUnitAuras, unit, filter)
+		if ok and type(list) == "table" then return list end
+	end
+	local list = {}
+	if not UA.GetAuraDataByIndex then return list end
+	for index = 1, 40 do
+		local ok, aura = pcall(UA.GetAuraDataByIndex, unit, index, filter)
+		if not ok or not aura then break end
+		aura.index = index
+		list[#list + 1] = aura
+	end
+	return list
+end
+
 local function ScanAuras()
 	wipe(auraBySpell)
 	wipe(auraByName)
-	if not C_UnitAuras or not C_UnitAuras.GetAuraDataByIndex then return end
-	for index = 1, 40 do
-		local aura = C_UnitAuras.GetAuraDataByIndex("player", index, "HELPFUL|PLAYER")
-		if not aura then break end
+	for _, aura in ipairs(ReadAuras("player", "HELPFUL|PLAYER")) do
 		local id, name = aura.spellId, aura.name
 		if Secret(id) then id = nil end
 		if Secret(name) then name = nil end

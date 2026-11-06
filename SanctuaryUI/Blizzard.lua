@@ -13,10 +13,14 @@ local FRAME_NAMES = {
 	"PossessActionBar",
 	"PossessBarFrame",
 	"OverrideActionBar",
-	"PlayerFrame",
-	"TargetFrame",
 	"StatusTrackingBarManager",
 	"MainStatusTrackingBarContainer",
+}
+
+-- Hidden only while the SanctuaryUI part that replaces them is on (portraits, target plate).
+local REPLACED_BY = {
+	PlayerFrame = function(db) return db.portraits.enabled end,
+	TargetFrame = function(db) return db.target.enabled end,
 }
 
 -- Hidden only while the "hide micro menu" option is on.
@@ -51,10 +55,12 @@ function ns.Blizzard.Hide()
 			pcall(Suppress, frame)
 		end
 	end
+	ns.Blizzard.Replaced()
 	for i = 1, 12 do
 		pcall(Suppress, _G["ActionButton" .. i])
 	end
 	ns.Blizzard.MicroMenu(not ns.DB().hideMicroMenu)
+	ns.Blizzard.Auras(not ns.DB().auras.enabled)
 	if ns.DB().totems.enabled and _G.TotemFrame then
 		pcall(_G.TotemFrame.SetParent, _G.TotemFrame, ns.Hider)
 		pcall(Suppress, _G.TotemFrame)
@@ -111,6 +117,44 @@ function ns.Blizzard.MicroMenu(show)
 					frame.sanctuaryAllow = nil
 					pcall(Suppress, frame)
 				end
+			end
+		end
+	end
+end
+
+-- Blizzard's buff, debuff and weapon enchant frames, hidden while the SanctuaryUI buffs are on.
+local AURA_NAMES = { "BuffFrame", "DebuffFrame", "TemporaryEnchantFrame" }
+
+function ns.Blizzard.Auras(show)
+	if InCombatLockdown() then return end
+	for _, name in ipairs(AURA_NAMES) do
+		local frame = _G[name]
+		if frame then
+			if show then
+				if frame:GetParent() == ns.Hider then
+					Restore(frame, UIParent)
+				end
+			else
+				frame.sanctuaryAllow = nil
+				pcall(frame.SetParent, frame, ns.Hider)
+				pcall(Suppress, frame)
+			end
+		end
+	end
+end
+
+function ns.Blizzard.Replaced()
+	if InCombatLockdown() then return end
+	local db = ns.DB()
+	for name, replaced in pairs(REPLACED_BY) do
+		local frame = _G[name]
+		if frame then
+			if replaced(db) then
+				frame.sanctuaryAllow = nil
+				pcall(frame.SetParent, frame, ns.Hider)
+				pcall(Suppress, frame)
+			elseif frame:GetParent() == ns.Hider then
+				Restore(frame, UIParent)
 			end
 		end
 	end

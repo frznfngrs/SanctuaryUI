@@ -3,12 +3,13 @@
 ## Notes: Diablo III combat HUD for WoW Forever
 ## Author: SanctuaryUI
 ## Version: 0.3.0
-## SavedVariables: SanctuaryUIDB
+## SavedVariables: SanctuaryUIDB, SanctuaryUILog
 ## LoadSavedVariablesFirst: 1
 ## AllowLoadGameType: camelot
 ## IconTexture: Interface\AddOns\SanctuaryUI\Art\icon
 ## OptionalDeps: Bartender4
 
+Log.lua
 libs/LibStub/LibStub.lua
 libs/CallbackHandler-1.0/CallbackHandler-1.0.lua
 libs/LibButtonGlow-1.0/LibButtonGlow-1.0.lua
@@ -34,10 +35,10 @@ Stance.lua
 Totem.lua
 Auras.lua
 TargetPlate.lua
+Portraits.lua
 Experience.lua
 InventoryWindow.lua
 Bags.lua
 Bank.lua
 Options.lua
 Minimap.lua
-Bindings.xml

@@ -100,6 +100,53 @@ ns.DEFAULTS = {
 		},
 		hearthItem = 6948,
 
+		-- target plate, top of the screen
+		target = {
+			enabled = true,
+			scale = 1, -- 1 = D3's own size (one art pixel per pixel at 1080p)
+			width = 1, -- frame and bar width, stretched between the ornaments
+			portrait = false, -- 3D portrait of the target in a skill socket, left of the bar
+			healthText = "percent", -- none | percent | current | both | max
+			cast = true,
+			liquid = true, -- the globes' liquid moving in the health bar
+			debuffs = true,
+			maxDebuffs = 16,
+			buffs = false,
+			maxBuffs = 8,
+			debuffSize = 26, -- debuff icon size (the aura* keys below are the debuffs' layout)
+			auraPos = "below", -- below | above the bar
+			auraAlign = "center", -- left | center | right edge of the bar
+			auraGrow = "right", -- right | left, from a left or right edge
+			auraPerLine = 12,
+			auraSpacing = 4,
+			auraX = 0,
+			auraY = 0,
+			-- the buffs' own layout; on the debuffs' side they start on the line after them
+			buffPos = "below",
+			buffAlign = "center",
+			buffGrow = "right",
+			buffSize = 26,
+			buffPerLine = 12,
+			buffSpacing = 4,
+			buffX = 0,
+			buffY = 0,
+			buffSplit = false, -- set once the shared aura layout has been copied to the buffs
+			moved = false,
+			mx = 0,
+			my = 0,
+		},
+
+		-- D3 party-style portraits, top left: your pet, and you if wanted
+		portraits = {
+			enabled = true,
+			scale = 1.25, -- 1 = D3's own size
+			player = false, -- your own portrait (no health bar: the globe is your health)
+			pet = true,
+			moved = false,
+			mx = 0,
+			my = 0,
+		},
+
 		-- stance / form bar
 		stance = {
 			enabled = true,
@@ -186,6 +233,24 @@ function ns.Migrate(p)
 		auras.enabled = p.auras ~= false
 		p.auras = auras
 	end
+	-- The target's health text used to be a percent on/off.
+	if type(p.target) == "table" and p.target.percent ~= nil then
+		if p.target.percent == false and rawget(p.target, "healthText") == nil then
+			p.target.healthText = "none"
+		end
+		p.target.percent = nil
+	end
+	-- Target buffs and debuffs used to share one layout; the buffs start with a copy of it.
+	if type(p.target) == "table" and not rawget(p.target, "buffSplit") then
+		local copy = { auraPos = "buffPos", auraAlign = "buffAlign", auraGrow = "buffGrow", debuffSize = "buffSize", auraPerLine = "buffPerLine", auraSpacing = "buffSpacing", auraX = "buffX" }
+		for from, to in pairs(copy) do
+			local value = rawget(p.target, from)
+			if value ~= nil and rawget(p.target, to) == nil then
+				p.target[to] = value
+			end
+		end
+		p.target.buffSplit = true
+	end
 	-- The console used to float 28 px up; it now sits on the screen edge by default.
 	if p.y == 28 and p.point == "BOTTOM" and p.rel == "BOTTOM" and not p.movedConsole then
 		p.y = 0
@@ -240,14 +305,16 @@ function ns.Refresh()
 	if InCombatLockdown() then
 		if not ns.pendingRefresh then
 			ns.Print("settings will apply when combat ends")
+			ns.Log("refresh deferred by combat")
 		end
 		ns.pendingRefresh = true
 		return
 	end
 	ns.pendingRefresh = nil
+	ns.Log("refresh")
 	local function Run(label, fn)
 		if not fn then return end
-		local ok, err = pcall(fn)
+		local ok, err = ns.Try("refresh " .. label, fn)
 		if not ok then
 			ns.Print(label .. " refresh failed: " .. tostring(err))
 		end
@@ -260,6 +327,8 @@ function ns.Refresh()
 	Run("globes", ns.Globes and ns.Globes.ApplySettings)
 	Run("rail", ns.Experience and ns.Experience.Update)
 	Run("auras", ns.Auras and ns.Auras.ApplySettings)
+	Run("target", ns.TargetPlate and ns.TargetPlate.ApplySettings)
+	Run("portraits", ns.Portraits and ns.Portraits.ApplySettings)
 	Run("menu", ns.Menu and ns.Menu.ApplySettings)
 	Run("bags", ns.Bags and ns.Bags.ApplySettings)
 	Run("bank", ns.Bank and ns.Bank.ApplySettings)

@@ -10,7 +10,7 @@ noted next to each file.
   liquid.png     256x256   healthBall_liquid as shaded luminance in a circle, tinted by vertex color
   hotline.png    256x32    surface band at the liquid level, white, tinted by vertex color
   xp-*.png       1024x8    rail fills (orange, gold, blue, neutral white), stretched from 744
-  menu.png       512x256   menu buttons + town portal + bag, 7 columns of 40x66, rows normal/hover/pressed
+  menu.png       512x256   menu buttons + town portal + bag + flyout tome, 8 columns of 40x66, rows normal/hover/pressed
   button-glow.png 256x256  bottomBar_buttonFX_frameGlow, the hover glow
   socket.png     128x128   one empty skill socket with border (76x80 used)
   socket-hover/press.png 128x128  gold rim + glow; the button maps to the inner 96x96
@@ -21,6 +21,7 @@ noted next to each file.
   pips.png       512x64    socket, amethyst, emerald, ruby, topaz, diamond, round glow, socket ring alone (64 px cells)
   liquid-shimmer.png 128x128  seamless surface texture, scrolled inside the surface band
   pip-horn.png   128x128   D3 horned skull ring frame, hole (42 px) centred, rotated per small globe
+  target-rings.png 512x128 D3 hero portrait frames for the target portrait (normal, elite, boss), hole centred
   pip-sockets.png 512x64   Kanai's Cube socket rims, centres open: black, orange, green, red, blue
   blade.png      64x256    Demon Hunter split-globe blade, widened sheet x 1329..1393 (64x201 used)
   liquid-left/right.png 128x256  halves of liquid.png for the split resource globe (no-mask fallback)
@@ -33,6 +34,10 @@ noted next to each file.
   surface-glow.png / surface-shimmer.png 256x32  the liquid surface, sliced into a moving wave
   mote.png       32x32     soft glow for motes rising through the liquid
   (animated_liquid needs numpy and scipy)
+  menu-flyout.png 512x256  the menu flyout's buttons: menu plates with gold icons, 6 columns of 40x66, rows normal/hover/pressed
+  unit-fill(-white).png 512x16  the red health fill and its neutral copy (StatusBar textures)
+  cast-fill.png  512x16    D3's orange progress fill (2DUIControls), the target cast bar
+  unit-frames.png 1024x256 D3 enemy health frames (boss banner, elite gold, normal silver), red and neutral fills, party frames
   skill-timer.png 128x32   skill timer tab (steel, gold) and its amber and green fills, from 2DUIBottomBar
 """
 
@@ -469,6 +474,13 @@ def menu() -> None:
         icon = sack if row < 2 else sack.resize((int(sack.width * 0.9), int(sack.height * 0.9)), Image.LANCZOS)
         cell.alpha_composite(icon, ((CELL_W - icon.width) // 2, (CELL_H - icon.height) // 2 + 1))
         atlas.alpha_composite(cell, (len(MENU_CELLS) * CELL_W, row * CELL_H))
+    # Eighth column: the flyout button, D3's tome on the sword's plates.
+    book = tome()
+    for row, cx in enumerate(MENU_CELLS[0][1:]):
+        cell = blank_plate(sheet.crop((cx - CELL_W // 2, 58, cx + CELL_W // 2, 58 + CELL_H)))
+        icon = book if row < 2 else book.resize((int(book.width * 0.9), int(book.height * 0.9)), Image.LANCZOS)
+        cell.alpha_composite(icon, ((CELL_W - icon.width) // 2, (CELL_H - icon.height) // 2 + 1))
+        atlas.alpha_composite(cell, ((len(MENU_CELLS) + 1) * CELL_W, row * CELL_H))
     atlas.save(OUT / "menu.png")
 
 
@@ -484,6 +496,119 @@ def blank_plate(cell: Image.Image) -> Image.Image:
             t = (x - left) / (right - left)
             px[x, y] = tuple(int(a[k] * (1 - t) + b[k] * t) for k in range(4))
     return out
+
+
+def tome() -> Image.Image:
+    """The pentagram tome from the spellbook tab plate (2DUITabs, selected cell), cut off its red
+    plate and re-toned to the embossed gold of the other menu icons, about 36 px tall. Used
+    on the flyout button (Spellbook & Panels)."""
+    import numpy as np
+    from scipy import ndimage
+
+    sheet = np.array(load("2DUITabs")).astype(float)
+    row, col = divmod(TAB_ICONS[0] * 3 + 1, 19)
+    cell = sheet[row * 151:row * 151 + 151, col * 103:col * 103 + 100]
+    r, g, b, a = (cell[..., i] for i in range(4))
+    lum = 0.3 * r + 0.59 * g + 0.11 * b
+    # The book's four corners in the cell (it sits a little tilted on the plate).
+    from PIL import ImageDraw
+    outline = Image.new("L", (cell.shape[1], cell.shape[0]), 0)
+    ImageDraw.Draw(outline).polygon([(28, 46), (68, 44.5), (70, 103), (29.5, 104)], fill=255)
+    book = np.array(outline) > 127
+    return gold_icon(cell, book, fit=(21, 31))
+
+
+def gold_icon(cell: "np.ndarray", mask: "np.ndarray", fit=(22, 30)) -> Image.Image:
+    """Re-tone the masked pixels of a 2DUITabs cell to the menu icons' embossed gold and fit
+    them to the plate's open middle."""
+    import numpy as np
+
+    from scipy import ndimage
+
+    r, g, b = cell[..., 0], cell[..., 1], cell[..., 2]
+    lum = 0.3 * r + 0.59 * g + 0.11 * b
+    lo, hi = np.percentile(lum[mask], 2), np.percentile(lum[mask], 98)
+    # Clipped to 255: an overflow wraps the red channel and leaves green specks.
+    v = np.clip(np.clip((lum - lo) / max(1, hi - lo), 0, 1) ** 1.2 * 215 + 62, 0, 255)
+    out = np.zeros(cell.shape, dtype=np.uint8)
+    out[..., 0] = v
+    out[..., 1] = np.clip(v * 0.76, 0, 255)
+    out[..., 2] = np.clip(v * 0.32, 0, 255)
+    out[..., 3] = np.where(mask, 255, 0)
+    # A dark rim under the icon, as the embossed menu icons have.
+    rim = ndimage.binary_dilation(mask, iterations=2) & ~mask
+    out[rim] = (34, 20, 8, 200)
+    img = Image.fromarray(out, "RGBA")
+    img = img.crop(img.getbbox())
+    scale = min(fit[1] / img.height, fit[0] / img.width)
+    return img.resize((max(1, round(img.width * scale)), max(1, round(img.height * scale))), Image.LANCZOS)
+
+
+def tab_icon(icon: int, hull: bool = False) -> Image.Image:
+    """An icon lifted off its red 2DUITabs plate (selected cell): everything that isn't the red
+    background, cleaned up; hull fills the outline solid (the chest's dark wood reads as red)."""
+    import numpy as np
+    from scipy import ndimage
+
+    sheet = np.array(load("2DUITabs")).astype(float)
+    row, col = divmod(icon * 3 + 1, 19)
+    cell = sheet[row * 151:row * 151 + 151, col * 103:col * 103 + 100]
+    r, g, b, a = (cell[..., i] for i in range(4))
+    lum = 0.3 * r + 0.59 * g + 0.11 * b
+    red = (r > 1.6 * g) & (r > 1.6 * b) & (lum < 120)
+    mask = (~red) & (a > 200) & (lum > 22)
+    inner = np.zeros_like(mask)
+    inner[24:-24, 18:-24] = True
+    mask = ndimage.binary_opening(mask & inner, iterations=1)
+    lab, n = ndimage.label(mask)
+    sizes = ndimage.sum(mask, lab, range(1, n + 1))
+    mask = np.isin(lab, [i + 1 for i, size in enumerate(sizes) if size >= max(25, 0.1 * sizes.max())])
+    mask = ndimage.binary_fill_holes(ndimage.binary_closing(mask, iterations=1))
+    if hull:
+        from scipy.spatial import ConvexHull
+        from PIL import ImageDraw
+        ys, xs = np.nonzero(mask)
+        pts = np.column_stack([xs, ys])
+        poly = [tuple(pts[i]) for i in ConvexHull(pts).vertices]
+        outline = Image.new("L", (mask.shape[1], mask.shape[0]), 0)
+        ImageDraw.Draw(outline).polygon(poly, fill=255)
+        mask = np.array(outline) > 127
+    return gold_icon(cell, mask)
+
+
+# The flyout's buttons (Lua: ns.Art.FLYOUT_CELLS): the same menu plates with gold icons.
+# Panels a client lacks are left out in Lua; their cells stay in the atlas.
+FLYOUT_ICONS = ["spellbook", "professions", "collections", "achievements", "groupfinder", "pvp",
+                "legacy", "currency", "reputation"]
+
+
+def menu_flyout() -> None:
+    sheet = load("2DUIBottomBar")
+    icons = {
+        "spellbook": tome(),
+        "professions": tab_icon(11),
+        "collections": tab_icon(19, hull=True),
+        "achievements": tab_icon(25),
+        "groupfinder": tab_icon(8),
+        "pvp": None,  # D3's own sword plates (the menu's old character button)
+        "legacy": tab_icon(24),  # the rising arrow off the "ascend" plate
+        "currency": tab_icon(6),  # gem
+        "reputation": tab_icon(15),  # signet ring
+    }
+    atlas = Image.new("RGBA", (512, 256), (0, 0, 0, 0))
+    for i, key in enumerate(FLYOUT_ICONS):
+        for row, cx in enumerate(MENU_CELLS[0][1:]):
+            plate = sheet.crop((cx - CELL_W // 2, 58, cx + CELL_W // 2, 58 + CELL_H))
+            if icons[key] is None:
+                atlas.alpha_composite(plate, (i * CELL_W, row * CELL_H))
+                continue
+            cell = blank_plate(plate)
+            icon = icons[key]
+            if row == 2:  # pressed plates are drawn smaller
+                icon = icon.resize((max(1, int(icon.width * 0.9)), max(1, int(icon.height * 0.9))), Image.LANCZOS)
+            cell.alpha_composite(icon, ((CELL_W - icon.width) // 2, (CELL_H - icon.height) // 2 + 1))
+            atlas.alpha_composite(cell, (i * CELL_W, row * CELL_H))
+    atlas.save(OUT / "menu-flyout.png")
 
 
 def coin_sack() -> Image.Image:
@@ -718,6 +843,50 @@ def pip_frames() -> None:
     atlas.save(OUT / "pip-sockets.png")
 
 
+# Target portrait frames: D3's own hero portrait frames (2DUIPrestige, the paragon tiers), one
+# per target rank like the plate's frames: silver laurel and ram skull (normal), gold laurel and
+# red banner (elite, rare), the winged demon (boss). Each is pasted so its round hole (39 px,
+# D3's own size at 1080p) is centred in a 128 px cell; the Lua masks the WoW portrait into it.
+#   target-rings.png 512x128: cells 0 normal, 1 elite, 2 boss
+TARGET_RINGS = (
+    (1254, 101, 1344, 190),  # normal: silver laurel, ram skull
+    (940, 99, 1034, 188),    # elite / rare: gold laurel, red banner, horned skull
+    (836, 99, 930, 199),     # boss: winged demon
+)
+
+
+def ring_hole(frame: Image.Image) -> tuple:
+    # Flood the transparent hole from the frame's middle; returns its centre.
+    alpha = frame.getchannel("A")
+    w, h = frame.size
+    sx, sy = w // 2, h // 2
+    while alpha.getpixel((sx, sy)) >= 40:
+        sy += 1
+    seen, stack, xs, ys = {(sx, sy)}, [(sx, sy)], [], []
+    while stack:
+        x, y = stack.pop()
+        xs.append(x)
+        ys.append(y)
+        for n in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+            if 0 <= n[0] < w and 0 <= n[1] < h and n not in seen and alpha.getpixel(n) < 40:
+                seen.add(n)
+                stack.append(n)
+    return (min(xs) + max(xs) + 1) / 2, (min(ys) + max(ys) + 1) / 2
+
+
+def target_rings() -> None:
+    sheet = load("2DUIPrestige")
+    atlas = Image.new("RGBA", (512, 128), (0, 0, 0, 0))
+    for i, box in enumerate(TARGET_RINGS):
+        frame = sheet.crop(box)
+        cx, cy = ring_hole(frame)
+        x, y = i * 128 + 64 - round(cx), 64 - round(cy)
+        atlas.alpha_composite(frame, (x, y))
+        bb = frame.getbbox()
+        print(f"  ring {i}: hole centre {cx},{cy}; art spans x {bb[0] - cx:+.1f}..{bb[2] - cx:+.1f}, y {bb[1] - cy:+.1f}..{bb[3] - cy:+.1f}")
+    atlas.save(OUT / "target-rings.png")
+
+
 def shimmer() -> None:
     # D3's surface texture as a seamless luminance tile; scrolled inside the surface band.
     lum = load("health_hotline_liquid").convert("L")
@@ -790,9 +959,73 @@ def icon() -> None:
     canvas.save(OUT / "icon.tga")
 
 
+# 2DUITabs: 19 columns at a 103 px pitch, rows every 151 px; each icon is three cells in a row
+# (normal, selected, dim). The flyout's icons are lifted off the selected cells (tab_icon).
+TAB_ICONS = [27, 11, 19, 25, 8, 17]  # tome, hammer, chest, star, eye, crossed swords
+
+
+# unit-frames.png pieces: name -> (source sheet, source box, atlas position). Lua mirrors the
+# atlas boxes in ns.Art.UNIT (with each frame's bar interior).
+UNIT_PIECES = {
+    "boss": ("2DUIEnemyHPbar", (515, 0, 1006, 87), (0, 0)),
+    "elite": ("2DUIEnemyHPbar", (1023, 0, 1448, 47), (500, 0)),
+    "normal": ("2DUIEnemyHPbar", (6, 102, 300, 143), (0, 92)),
+    "fill": ("2DUIEnemyHPbar", (311, 101, 561, 118), (300, 92)),
+    "party": ("2DUIPartyUI", (0, 48, 106, 100), (0, 140)),
+    "partyGold": ("2DUIPartyUI", (106, 48, 212, 100), (110, 140)),
+    # D3's thin progress bar (2DUIControls), empty, for the target's cast bar.
+    "cast": ("2DUIControls", (1022, 57, 1318, 71), (0, 200)),
+}
+
+
+# Each frame's dark bar slot (relative to the piece), cut out so the health bar drawn under the
+# frame shows through. Same rects as ns.Art.UNIT[...].bar.
+UNIT_SLOTS = {
+    "boss": (76, 25, 339, 19),
+    "elite": (43, 17, 339, 17),
+    "normal": (21, 11, 252, 18),
+    "party": (18, 29, 70, 10),
+    "partyGold": (18, 29, 70, 10),
+    "cast": (3, 2, 290, 10),
+}
+
+
+def unit_frames() -> None:
+    atlas = Image.new("RGBA", (1024, 256), (0, 0, 0, 0))
+    for name, (src, box, pos) in UNIT_PIECES.items():
+        piece = load(src).crop(box)
+        slot = UNIT_SLOTS.get(name)
+        if slot:
+            x, y, w, h = slot
+            px = piece.load()
+            for j in range(y, y + h):
+                for i in range(x, x + w):
+                    r, g, b, a = px[i, j]
+                    # The dark slot goes clear; its glass sheen stays as a faint highlight over
+                    # the fill, and the gold or silver rim pixels stay solid.
+                    m = max(r, g, b)
+                    if m < 110:
+                        px[i, j] = (r, g, b, min(a, max(0, (m - 30) * 2)))
+        atlas.alpha_composite(piece, pos)
+    # Neutral copy of the red fill, tinted by vertex color (friendly green, pet health).
+    red = load("2DUIEnemyHPbar").crop(UNIT_PIECES["fill"][1])
+    lum = red.split()[0].point(lambda v: min(255, int(v * 1.05)))
+    white = Image.merge("RGBA", (lum, lum, lum, red.split()[3]))
+    atlas.alpha_composite(white, (560, 92))
+    atlas.save(OUT / "unit-frames.png")
+    # StatusBars rewrite their fill's texcoords, so the fills also go out as whole files. These
+    # use D3's wider red strip (340 px, x 1462-1802) so a stretched bar stays sharp.
+    wide = load("2DUIEnemyHPbar").crop((1462, 32, 1802, 49))
+    wide.resize((512, 16), Image.LANCZOS).save(OUT / "unit-fill.png")
+    wl = wide.split()[0].point(lambda v: min(255, int(v * 1.05)))
+    Image.merge("RGBA", (wl, wl, wl, wide.split()[3])).resize((512, 16), Image.LANCZOS).save(OUT / "unit-fill-white.png")
+    # The cast bar's glowing orange fill, from the same control filled (x 717-1006).
+    load("2DUIControls").crop((717, 59, 1006, 69)).resize((512, 16), Image.LANCZOS).save(OUT / "cast-fill.png")
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
-    for step in (frame_and_glass, liquid, liquid_halves, animated_liquid, hotline, xp_fills, menu, glow, blade, socket_glow, bag_frame, bank_frame, bag_cells, d3_button, pips, pip_frames, shimmer, socket, skill_timer, icon):
+    for step in (frame_and_glass, liquid, liquid_halves, animated_liquid, hotline, xp_fills, menu, glow, blade, socket_glow, bag_frame, bank_frame, bag_cells, d3_button, pips, pip_frames, shimmer, socket, skill_timer, icon, unit_frames, menu_flyout, target_rings):
         step()
         print("built", step.__name__)
 

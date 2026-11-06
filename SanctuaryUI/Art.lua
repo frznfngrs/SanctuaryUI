@@ -4,6 +4,8 @@ local ns = SanctuaryUI
 ns.Art = ns.Art or {}
 
 local ROOT = "Interface\\AddOns\\SanctuaryUI\\Art\\"
+-- D3's title face, for names on the plates and globes.
+ns.FONT = "Interface\\AddOns\\SanctuaryUI\\Media\\exocet.ttf"
 
 -- Slots the prep script fills. Missing files fall back to flat color and game chrome.
 ns.Art.slots = {
@@ -25,6 +27,7 @@ ns.Art.slots = {
 	bankFrame = { file = "bank-frame.png" },
 	pips = { file = "pips.png" },
 	pipHorn = { file = "pip-horn.png" },
+	targetRings = { file = "target-rings.png" },
 	pipSockets = { file = "pip-sockets.png" },
 	liquidShimmer = { file = "liquid-shimmer.png" },
 	bagCells = { file = "bag-cells.png" },
@@ -41,20 +44,138 @@ ns.Art.slots = {
 	globeShade = { file = "globe-shade.png" },
 	globeMask = { file = "globe-mask.png" },
 	skillTimer = { file = "skill-timer.png" },
+	menuFlyout = { file = "menu-flyout.png" },
+	unitFrames = { file = "unit-frames.png" },
+	unitFill = { file = "unit-fill.png" },
+	unitFillWhite = { file = "unit-fill-white.png" },
+	castFill = { file = "cast-fill.png" },
 }
 
 -- socket.png holds a 76x80 crop in a 128x128 PNG. The stone interior starts 4px in from the left and 7px down.
 ns.Art.SOCKET_TEXCOORD = { 0, 76 / 128, 0, 80 / 128 }
 ns.Art.SOCKET_INSET = { left = 4 / 76, right = 4 / 76, top = 7 / 80, bottom = 6 / 80 }
 
--- menu.png: seven 40x66 columns in a 512x256 atlas, one row per state. The third row is the
+-- menu.png: eight 40x66 columns in a 512x256 atlas, one row per state. The third row is the
 -- pressed plate for menu buttons and the disabled (grey) portal for the hearth.
-ns.Art.MENU_CELLS = { character = 0, spellbook = 1, talents = 2, social = 3, quests = 4, hearth = 5, bags = 6 }
+ns.Art.MENU_CELLS = { character = 0, spellbook = 1, talents = 2, social = 3, quests = 4, hearth = 5, bags = 6, flyout = 7 }
 ns.Art.MENU_STATES = { normal = 0, hover = 1, pressed = 2, disabled = 2 }
 function ns.Art.MenuTexCoord(name, state)
 	local i = ns.Art.MENU_CELLS[name] or 0
 	local row = ns.Art.MENU_STATES[state or "normal"] or 0
 	return i * 40 / 512, (i + 1) * 40 / 512, row * 66 / 256, (row + 1) * 66 / 256
+end
+
+-- menu-flyout.png: the flyout's menu plates with gold icons, laid out like menu.png (40x66
+-- columns, rows normal / hover / pressed).
+ns.Art.FLYOUT_CELLS = {
+	spellbook = 0, professions = 1, collections = 2, achievements = 3, groupfinder = 4, pvp = 5,
+	legacy = 6, currency = 7, reputation = 8,
+}
+function ns.Art.FlyoutTexCoord(name, state)
+	local i = ns.Art.FLYOUT_CELLS[name] or 0
+	local row = ns.Art.MENU_STATES[state or "normal"] or 0
+	return i * 40 / 512, (i + 1) * 40 / 512, row * 66 / 256, (row + 1) * 66 / 256
+end
+
+-- unit-frames.png (1024x256): D3 enemy health frames and party frames. x, y, w, h in the atlas;
+-- bar = the frame's dark bar slot, relative to the piece; well = the party portrait well.
+ns.Art.UNIT = {
+	boss = { 0, 0, 491, 87, bar = { 76, 25, 339, 19 } },
+	elite = { 500, 0, 425, 47, bar = { 43, 17, 339, 17 } },
+	normal = { 0, 92, 294, 41, bar = { 21, 11, 252, 18 } },
+	party = { 0, 140, 106, 52, bar = { 18, 29, 70, 10 }, well = { 17, 3, 72, 24 } },
+	partyGold = { 110, 140, 106, 52, bar = { 18, 29, 70, 10 }, well = { 17, 3, 72, 24 } },
+	cast = { 0, 200, 296, 14, bar = { 3, 2, 290, 10 } }, -- D3's thin progress bar
+}
+-- target-rings.png (512x128): D3's hero portrait frames, one 128 px cell per target rank, each
+-- centred on its 39 px round hole. reach: how far the art runs right of the hole's centre.
+ns.Art.TARGET_RING = {
+	normal = { cell = 0, reach = 45 }, -- silver laurel, ram skull
+	elite = { cell = 1, reach = 47 }, -- gold laurel, red banner
+	boss = { cell = 2, reach = 47 }, -- winged demon
+}
+ns.Art.TARGET_RING_CELL, ns.Art.TARGET_RING_HOLE = 128, 39
+
+function ns.Art.TargetRingTexCoord(rank)
+	local cell = (ns.Art.TARGET_RING[rank] or ns.Art.TARGET_RING.normal).cell
+	return cell * 128 / 512, (cell + 1) * 128 / 512, 0, 1
+end
+
+function ns.Art.UnitTexCoord(name)
+	local r = ns.Art.UNIT[name]
+	return r[1] / 1024, (r[1] + r[3]) / 1024, r[2] / 256, (r[2] + r[4]) / 256
+end
+
+-- Columns of each frame that must not stretch (end caps and ornaments, in piece pixels). The
+-- spans between them stretch evenly when a frame is drawn wider than the art.
+ns.Art.UNIT_FIXED = {
+	normal = { { 0, 24 }, { 128, 166 }, { 270, 294 } },
+	elite = { { 0, 58 }, { 118, 136 }, { 194, 231 }, { 291, 309 }, { 368, 425 } },
+	boss = { { 0, 102 }, { 155, 166 }, { 240, 251 }, { 324, 335 }, { 388, 491 } },
+	cast = { { 0, 6 }, { 290, 296 } },
+}
+
+-- Draw a unit frame piece across `box` (a Frame) at `width` UI units, k UI units per piece
+-- pixel vertically and for the fixed parts. Textures come from (and stay in) box.slices.
+-- Returns the extra width added to the stretch spans, so callers can widen the bar slot.
+function ns.Art.DrawSliced(box, name, width, k)
+	local r = ns.Art.UNIT[name]
+	local fixed = ns.Art.UNIT_FIXED[name] or { { 0, r[3] } }
+	local segments = {}
+	local x, stretchTotal = 0, 0
+	for _, f in ipairs(fixed) do
+		if f[1] > x then
+			segments[#segments + 1] = { x, f[1], true }
+			stretchTotal = stretchTotal + (f[1] - x)
+		end
+		segments[#segments + 1] = { f[1], f[2], false }
+		x = f[2]
+	end
+	if x < r[3] then
+		segments[#segments + 1] = { x, r[3], true }
+		stretchTotal = stretchTotal + (r[3] - x)
+	end
+	local extra = math.max(0, width - r[3] * k)
+	box.slices = box.slices or {}
+	local left = 0
+	local path = ns.Art.Path("unitFrames")
+	for i, seg in ipairs(segments) do
+		local tex = box.slices[i]
+		if not tex then
+			tex = box:CreateTexture(nil, "ARTWORK")
+			box.slices[i] = tex
+		end
+		local srcW = seg[2] - seg[1]
+		local w = srcW * k
+		if seg[3] and stretchTotal > 0 then
+			w = w + extra * srcW / stretchTotal
+		end
+		if path then
+			tex:SetTexture(path)
+			tex:SetTexCoord((r[1] + seg[1]) / 1024, (r[1] + seg[2]) / 1024, r[2] / 256, (r[2] + r[4]) / 256)
+		else
+			tex:SetColorTexture(0.05, 0.04, 0.03, 0.82)
+		end
+		tex:ClearAllPoints()
+		tex:SetPoint("TOPLEFT", box, "TOPLEFT", left, 0)
+		tex:SetSize(w, r[4] * k)
+		tex:Show()
+		left = left + w
+	end
+	for i = #segments + 1, #box.slices do
+		box.slices[i]:Hide()
+	end
+	box:SetSize(left, r[4] * k)
+	return extra
+end
+
+-- D3 draws its UI for a 1080-line screen and scales it with the resolution. This frame scale
+-- makes one art pixel one pixel at 1080p (and the same share of the screen at any size), so
+-- the art is never blown up past D3's own look. user multiplies it.
+function ns.Art.D3Scale(user)
+	local parent = UIParent:GetEffectiveScale()
+	if not parent or parent <= 0 then parent = 1 end
+	return (user or 1) * (768 / 1080) / parent
 end
 
 local CIRCLE_MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"

@@ -17,6 +17,7 @@ end
 
 function ns.Print(msg)
 	print("|cffd8b86aSanctuaryUI:|r " .. msg)
+	ns.Log("print: %s", msg)
 end
 
 local function ApplyScale()
@@ -27,9 +28,6 @@ local function ApplyScale()
 	db.scale = scale
 	if ns.Cluster then
 		ns.Cluster:SetScale(scale)
-	end
-	if ns.TargetPlate and ns.TargetPlate.frame then
-		ns.TargetPlate.frame:SetScale(scale)
 	end
 end
 
@@ -131,6 +129,7 @@ function ns.Layout()
 	if ns.Stance and ns.Stance.Layout then ns.Stance.Layout() end
 	if ns.Totem and ns.Totem.Layout then ns.Totem.Layout() end
 	if ns.TargetPlate and ns.TargetPlate.Layout then ns.TargetPlate.Layout() end
+	if ns.Portraits and ns.Portraits.Layout then ns.Portraits.Layout() end
 end
 
 function ns.Check()
@@ -168,7 +167,7 @@ local function Slash(msg)
 			ns.Options.Open()
 		end
 	elseif cmd == "help" then
-		ns.Print("/sanctuary opens options. Commands: lock, unlock, scale <n>, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, active")
+		ns.Print("/sanctuary opens options. Commands: lock, unlock, scale <n>, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, active, debug on|off, log")
 	elseif cmd == "lock" then
 		ns.SetLocked(true)
 	elseif cmd == "unlock" then
@@ -253,6 +252,15 @@ local function Slash(msg)
 		if ns.Totem and ns.Totem.SetPreview then
 			ns.Totem.SetPreview(not ns.Totem.preview)
 		end
+	elseif cmd == "log" then
+		ns.ShowLog()
+	elseif cmd == "debug" then
+		local arg = rest:lower()
+		local on
+		if arg == "on" then on = true elseif arg == "off" then on = false else on = not ns.LogEnabled() end
+		ns.SetLogEnabled(on)
+		ns.Print(on and "debug trace on. Reproduce the problem, then /sanctuary log to copy it, or /reload and send WTF\\Account\\<account>\\SavedVariables\\SanctuaryUI.lua"
+			or "debug trace off. Errors are still recorded. /sanctuary log shows them")
 	elseif cmd == "check" then
 		ns.Check()
 	elseif cmd == "active" then
@@ -301,7 +309,8 @@ loader:SetScript("OnEvent", function(_, event)
 
 		local function Safe(label, fn)
 			if not fn then return end
-			local ok, err = pcall(fn)
+			ns.Log("init %s", label)
+			local ok, err = ns.Try("init " .. label, fn)
 			if not ok then
 				ns.Print(label .. " failed: " .. tostring(err))
 			end
@@ -318,6 +327,7 @@ loader:SetScript("OnEvent", function(_, event)
 		Safe("totems", ns.Totem and ns.Totem.Init)
 		Safe("auras", ns.Auras and ns.Auras.Init)
 		Safe("target plate", ns.TargetPlate and ns.TargetPlate.Init)
+		Safe("portraits", ns.Portraits and ns.Portraits.Init)
 		Safe("experience", ns.Experience and ns.Experience.Init)
 		Safe("layout", ns.Layout)
 		Safe("position", ns.ApplyPosition)
@@ -328,6 +338,7 @@ loader:SetScript("OnEvent", function(_, event)
 		local loaded, total = ns.Art.loadedCount or 0, ns.Art.totalCount or 0
 		ns.Print(("loaded. Art %d/%d. /sanctuary for options."):format(loaded, total))
 	elseif event == "PLAYER_REGEN_ENABLED" then
+		ns.Log("combat ended, applying deferred work%s", ns.pendingRefresh and " (refresh pending)" or "")
 		if ns.Blizzard and ns.Blizzard.Hide then ns.Blizzard.Hide() end
 		if ns.ActionBar and ns.ActionBar.ReassignBindings then ns.ActionBar.ReassignBindings() end
 		if ns.Menu and ns.Menu.ReassignBindings then ns.Menu.ReassignBindings() end

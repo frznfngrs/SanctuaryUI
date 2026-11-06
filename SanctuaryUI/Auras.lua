@@ -35,9 +35,22 @@ local function FormatTime(seconds)
 end
 
 local function ShowTooltip(owner, icon)
-	if not icon.index or GameTooltip:IsForbidden() then return end
+	if GameTooltip:IsForbidden() then return end
+	if icon.enchantSlot then
+		GameTooltip:SetOwner(owner, "ANCHOR_BOTTOMLEFT")
+		GameTooltip:SetInventoryItem("player", icon.enchantSlot)
+		GameTooltip:Show()
+		return
+	end
+	if type(icon.auraID) == "nil" and not icon.index then return end
 	GameTooltip:SetOwner(owner, "ANCHOR_BOTTOMLEFT")
-	GameTooltip:SetUnitAura("player", icon.index, icon.harmful and "HARMFUL" or "HELPFUL")
+	local filter = icon.harmful and "HARMFUL" or "HELPFUL"
+	local byID = icon.harmful and GameTooltip.SetUnitDebuffByAuraInstanceID or GameTooltip.SetUnitBuffByAuraInstanceID
+	if type(icon.auraID) ~= "nil" and byID then
+		pcall(byID, GameTooltip, "player", icon.auraID, filter)
+	elseif icon.index then
+		pcall(GameTooltip.SetUnitAura, GameTooltip, "player", icon.index, filter)
+	end
 	if not icon.harmful and not InCombatLockdown() then
 		GameTooltip:AddLine("Right-click to cancel", 0.6, 0.6, 0.6)
 	end
@@ -85,19 +98,75 @@ local function MakeIcon(parent, name, harmful)
 	return button
 end
 
-local function Collect(filter, maxCount)
-	local list = {}
-	if not C_UnitAuras or not C_UnitAuras.GetAuraDataByIndex then
-		return list
+-- Every aura of one kind on the player, in the client's order. Same approach as TargetPlate:
+-- GetUnitAuras first; GetAuraDataByIndex can throw when auras are secret, so the fallback is
+-- pcall'd and stops quietly when the client refuses.
+local function ReadAuras(unit, filter)
+	local UA = C_UnitAuras
+	if not UA then return {} end
+	if UA.GetUnitAuras then
+		local ok, list = pcall(UA.GetUnitAuras, unit, filter)
+		if ok and type(list) == "table" then return list end
 	end
+	local list = {}
+	if not UA.GetAuraDataByIndex then return list end
 	for index = 1, 40 do
-		local aura = C_UnitAuras.GetAuraDataByIndex("player", index, filter)
-		if not aura then break end
+		local ok, aura = pcall(UA.GetAuraDataByIndex, unit, index, filter)
+		if not ok or not aura then break end
 		aura.index = index
 		list[#list + 1] = aura
-		if #list >= maxCount then break end
 	end
 	return list
+end
+
+local function Collect(filter, maxCount)
+	local list = ReadAuras("player", filter)
+	for i = maxCount + 1, #list do list[i] = nil end
+	return list
+end
+
+-- Temporary weapon enchants (poisons, oils, shaman imbues) are not auras; they lead the buff
+-- line the way Blizzard's frame shows them. Durations come only as time left, so the full
+-- length is the longest time left seen for that enchant.
+local enchantLength = {}
+
+local function WeaponEnchants()
+	local list = {}
+	if not GetWeaponEnchantInfo then return list end
+	local info = { GetWeaponEnchantInfo() }
+	local now = GetTime()
+	for k, slot in ipairs({ 16, 17, 18 }) do
+		local base = (k - 1) * 4
+		local has, msLeft, charges, id = info[base + 1], info[base + 2], info[base + 3], info[base + 4]
+		if has and not Secret(has) and msLeft and not Secret(msLeft) then
+			local left = msLeft / 1000
+			local key = slot .. ":" .. tostring(id)
+			if not enchantLength[key] or left > enchantLength[key] then
+				enchantLength[key] = left
+			end
+			list[#list + 1] = {
+				enchantSlot = slot,
+				icon = GetInventoryItemTexture("player", slot),
+				applications = charges,
+				duration = enchantLength[key],
+				expirationTime = now + left,
+			}
+		end
+	end
+	return list
+end
+
+-- What the enchants are, so the poll below only repaints when one comes or goes.
+local function EnchantSignature()
+	if not GetWeaponEnchantInfo then return "" end
+	local info = { GetWeaponEnchantInfo() }
+	local parts = {}
+	for k = 0, 2 do
+		local has, id = info[k * 4 + 1], info[k * 4 + 4]
+		if Secret(has) or Secret(id) then return "secret" end
+		parts[#parts + 1] = tostring(has and id or false)
+	end
+	return table.concat(parts, ",")
 end
 
 local function MakeCancel(parent, icon)
@@ -129,12 +198,13 @@ end
 
 local function Paint(button, aura)
 	if not aura then
-		button.index, button.expires, button.name = nil, nil, nil
+		button.index, button.auraID, button.expires, button.name, button.enchantSlot = nil, nil, nil, nil, nil
 		button:Hide()
 		button.time:SetText("")
 		return
 	end
-	button.index, button.name = aura.index, aura.name
+	button.index, button.name, button.enchantSlot = aura.index, aura.name, aura.enchantSlot
+	button.auraID = aura.auraInstanceID
 	button:Show()
 	button.icon:SetTexture(aura.icon)
 	local stacks = aura.applications
@@ -162,7 +232,11 @@ function ns.Auras.Update()
 		return
 	end
 	frame:Show()
-	local buffs = Collect("HELPFUL", opt.maxBuffs)
+	local buffs = WeaponEnchants()
+	for _, aura in ipairs(Collect("HELPFUL", opt.maxBuffs)) do
+		buffs[#buffs + 1] = aura
+	end
+	frame.enchants = EnchantSignature()
 	local debuffs = Collect("HARMFUL", opt.maxDebuffs)
 	for i = 1, MAX_BUFFS do
 		Paint(frame.buffs[i], i <= opt.maxBuffs and buffs[i] or nil)
@@ -289,8 +363,16 @@ function ns.Auras.Init()
 	ns.Auras.frame = frame
 	ns.Auras.mover = ns.MakeMover(frame, "Buffs", Opt, "Reset its position in /sanctuary > Buffs.")
 
-	local wait = 0
+	local wait, enchantWait = 0, 0
 	frame:SetScript("OnUpdate", function(_, elapsed)
+		-- Weapon enchants fire no aura event when they run out.
+		enchantWait = enchantWait - elapsed
+		if enchantWait <= 0 then
+			enchantWait = 0.5
+			if EnchantSignature() ~= frame.enchants then
+				ns.Auras.Update()
+			end
+		end
 		wait = wait - elapsed
 		if wait > 0 then return end
 		wait = 0.1 -- smooth countdown bars
@@ -299,6 +381,7 @@ function ns.Auras.Init()
 
 	local events = CreateFrame("Frame", nil, frame)
 	events:RegisterUnitEvent("UNIT_AURA", "player")
+	events:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
 	events:RegisterEvent("PLAYER_ENTERING_WORLD")
 	events:RegisterEvent("PLAYER_REGEN_DISABLED")
 	events:RegisterEvent("PLAYER_REGEN_ENABLED")

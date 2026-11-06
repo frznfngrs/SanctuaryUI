@@ -631,6 +631,12 @@ function ns.ActionBar.UpdateMovers()
 	if ns.ConsoleFrame then
 		ConsoleMover():SetShown(unlocked)
 	end
+	if ns.TargetPlate and ns.TargetPlate.mover then
+		ns.TargetPlate.mover:SetShown(unlocked and ns.DB().target.enabled)
+	end
+	if ns.Portraits and ns.Portraits.mover then
+		ns.Portraits.mover:SetShown(unlocked and ns.DB().portraits.enabled)
+	end
 	if ns.Auras and ns.Auras.mover then
 		ns.Auras.mover:SetShown(unlocked and ns.DB().auras.enabled)
 	end

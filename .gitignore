@@ -1,7 +1,6 @@
 .superpowers/
 art-src/
-SanctuaryUI/Art/*
-!SanctuaryUI/Art/.gitkeep
+dist/
 tools/casc
 __pycache__/
 *.pyc

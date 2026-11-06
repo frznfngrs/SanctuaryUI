@@ -28,18 +28,143 @@ local function ToggleTalents()
 	end
 end
 
+local function ToggleProfessions()
+	if ToggleProfessionsBook then
+		ToggleProfessionsBook()
+	elseif PlayerSpellsUtil and PlayerSpellsUtil.ToggleProfessionsBook then
+		PlayerSpellsUtil.ToggleProfessionsBook()
+	elseif ToggleSpellBook and BOOKTYPE_PROFESSION then
+		ToggleSpellBook(BOOKTYPE_PROFESSION)
+	end
+end
+
+-- Press one of Blizzard's (hidden) micro buttons the way the mouse does. On Forever several
+-- act from their mouse-down handler, so a plain :Click() does nothing.
+local function PressMicro(name)
+	local button = _G[name]
+	if not button then return end
+	local down, up = button:GetScript("OnMouseDown"), button:GetScript("OnMouseUp")
+	if down or up then
+		if down then down(button, "LeftButton") end
+		if up then up(button, "LeftButton") end
+	else
+		button:Click()
+	end
+end
+
+local function TogglePvP()
+	if TogglePVPUI then
+		TogglePVPUI()
+	elseif TogglePVPFrame then
+		TogglePVPFrame()
+	elseif PVPFrame then
+		ToggleFrame(PVPFrame)
+	else
+		PressMicro("PVPMicroButton")
+	end
+end
+
+-- Forever's group finder has its own toggle (ElvUI uses it here).
+local function ToggleGroupFinder()
+	if ToggleGroupFinderFrame then
+		ToggleGroupFinderFrame()
+	elseif PVEFrame_ToggleFrame then
+		PVEFrame_ToggleFrame()
+	elseif ToggleLFDParentFrame then
+		ToggleLFDParentFrame()
+	elseif ToggleLFGParentFrame then
+		ToggleLFGParentFrame()
+	else
+		PressMicro("LFDMicroButton")
+	end
+end
+
+-- The panels behind the flyout button (D3 tab plates, menu-tabs.png), left to right. Panels
+-- this client lacks are left out.
+local FLYOUT = {
+	{
+		key = "spellbook",
+		label = SPELLBOOK or "Spellbook", -- Professions has its own button
+		binding = "TOGGLESPELLBOOK",
+		toggle = ToggleSpells,
+		available = function() return PlayerSpellsUtil or ToggleSpellBook or SpellBookFrame end,
+	},
+	{
+		key = "professions",
+		label = PROFESSIONS_BUTTON or TRADE_SKILLS or "Professions",
+		binding = "TOGGLEPROFESSIONBOOK",
+		toggle = ToggleProfessions,
+		available = function()
+			return ToggleProfessionsBook or (PlayerSpellsUtil and PlayerSpellsUtil.ToggleProfessionsBook) or (ToggleSpellBook and BOOKTYPE_PROFESSION)
+		end,
+	},
+	{
+		key = "collections",
+		label = COLLECTIONS or "Collections",
+		binding = "TOGGLECOLLECTIONS",
+		toggle = function() ToggleCollectionsJournal() end,
+		available = function() return ToggleCollectionsJournal end,
+	},
+	{
+		-- Forever's Legacy system takes the achievements button's place.
+		key = "legacy",
+		label = LEGACY_BUTTON or "Legacy",
+		toggle = function() ToggleLegacySystemUI() end,
+		available = function() return ToggleLegacySystemUI end,
+	},
+	{
+		key = "achievements",
+		label = ACHIEVEMENTS or "Achievements",
+		binding = "TOGGLEACHIEVEMENT",
+		toggle = function() ToggleAchievementFrame() end,
+		available = function() return ToggleAchievementFrame and not ToggleLegacySystemUI end,
+	},
+	{
+		key = "groupfinder",
+		label = LFG_TITLE or DUNGEONS_BUTTON or "Group Finder",
+		binding = "TOGGLEGROUPFINDER",
+		toggle = ToggleGroupFinder,
+		available = function()
+			return ToggleGroupFinderFrame or PVEFrame_ToggleFrame or ToggleLFDParentFrame or ToggleLFGParentFrame or _G.LFDMicroButton
+		end,
+	},
+	{
+		key = "pvp",
+		label = PLAYER_V_PLAYER or PVP or "Player vs. Player",
+		binding = "TOGGLECHARACTER4",
+		toggle = TogglePvP,
+		available = function() return TogglePVPUI or TogglePVPFrame or PVPFrame or _G.PVPMicroButton end,
+	},
+	{
+		key = "currency",
+		label = CURRENCY or "Currency",
+		binding = "TOGGLECURRENCY",
+		toggle = function() ToggleCharacter("TokenFrame") end,
+		available = function() return _G.TokenFrame or (C_CurrencyInfo and C_CurrencyInfo.GetCurrencyListSize) end,
+	},
+	{
+		key = "reputation",
+		label = REPUTATION or "Reputation",
+		binding = "TOGGLECHARACTER2",
+		toggle = function() ToggleCharacter("ReputationFrame") end,
+		available = function() return _G.ReputationFrame or ToggleCharacter end,
+	},
+}
+
+-- The menu buttons. cell picks the plate art when it differs from the key: Character wears the
+-- figure (the "spellbook" plate); the flyout button has its own tome plate.
 local ENTRIES = {
 	{
 		key = "character",
+		cell = "spellbook",
 		label = CHARACTER_BUTTON or "Character",
 		binding = "TOGGLECHARACTER0",
 		toggle = function() ToggleCharacter("PaperDollFrame") end,
 	},
 	{
-		key = "spellbook",
-		label = SPELLBOOK_ABILITIES_BUTTON or "Spellbook & Abilities",
-		binding = "TOGGLESPELLBOOK",
-		toggle = ToggleSpells,
+		key = "flyout",
+		label = "Spellbook & Panels",
+		flyout = true,
 	},
 	{
 		key = "talents",
@@ -119,18 +244,22 @@ local function Art(button, cell)
 end
 
 local function Run(entry, fn)
-	local ok, err = pcall(fn)
+	local ok, err = ns.Try("menu " .. entry.label, fn)
 	if not ok and not entry.warned then
 		entry.warned = true
 		ns.Print(("%s button failed: %s"):format(entry.label, tostring(err)))
 	end
 end
 
+local ToggleFlyout
+
 local function MakeMenuButton(parent, entry)
 	local button = CreateFrame("Button", "SanctuaryUIMenu_" .. entry.key, parent)
 	button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 	button:SetScript("OnClick", function(_, mouseButton)
-		if mouseButton == "RightButton" and entry.right then
+		if entry.flyout then
+			ToggleFlyout()
+		elseif mouseButton == "RightButton" and entry.right then
 			Run(entry, entry.right)
 		else
 			Run(entry, entry.toggle)
@@ -140,6 +269,13 @@ local function MakeMenuButton(parent, entry)
 		GameTooltip:SetOwner(self, "ANCHOR_TOP")
 		GameTooltip:SetText(entry.label)
 		AddBindingLine(entry.binding)
+		if entry.flyout then
+			local names = {}
+			for _, item in ipairs(ns.Menu.flyoutItems or {}) do
+				names[#names + 1] = item.entry.label
+			end
+			GameTooltip:AddLine(table.concat(names, ", "), 0.7, 0.7, 0.7, true)
+		end
 		if entry.right then
 			GameTooltip:AddLine("Right-click: " .. entry.rightLabel, 0.7, 0.7, 0.7)
 		end
@@ -147,8 +283,137 @@ local function MakeMenuButton(parent, entry)
 	end)
 	button:SetScript("OnLeave", GameTooltip_Hide)
 	-- After SetScript: it replaces handlers, including hooks added before it.
-	Art(button, entry.key)
+	Art(button, entry.cell or entry.key)
 	return button
+end
+
+---------------------------------------------------------------------------
+-- Flyout: a row of the same D3 menu plates (menu-flyout.png, gold icons) on a dark panel above
+-- the flyout button, on the menu's own pitch. Plates switch by state like the menu buttons:
+-- muted at rest, bright on hover, smaller pressed. Click areas meet edge to edge.
+
+local function FlyoutState(button)
+	local state = "normal"
+	if button.sanctuaryDown then
+		state = "pressed"
+	elseif button.sanctuaryOver then
+		state = "hover"
+	end
+	if ns.Art.Path("menuFlyout") then
+		button.Art:SetTexCoord(ns.Art.FlyoutTexCoord(button.entry.key, state))
+	end
+end
+
+local function MakeFlyoutButton(flyout, entry)
+	local button = CreateFrame("Button", "SanctuaryUIMenuFlyout_" .. entry.key, flyout)
+	button.entry = entry
+	button:RegisterForClicks("LeftButtonUp")
+	button.Art = button:CreateTexture(nil, "ARTWORK")
+	button.Art:SetAllPoints()
+	if not ns.Art.Apply(button.Art, "menuFlyout") then
+		button.Art:SetColorTexture(0.35, 0.18, 0.05, 1)
+	end
+	button:SetScript("OnEnter", function(self)
+		self.sanctuaryOver = true
+		FlyoutState(self)
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip:SetText(entry.label)
+		AddBindingLine(entry.binding)
+		GameTooltip:Show()
+	end)
+	button:SetScript("OnLeave", function(self)
+		self.sanctuaryOver, self.sanctuaryDown = false, false
+		FlyoutState(self)
+		GameTooltip_Hide()
+	end)
+	button:SetScript("OnMouseDown", function(self) self.sanctuaryDown = true; FlyoutState(self) end)
+	button:SetScript("OnMouseUp", function(self) self.sanctuaryDown = false; FlyoutState(self) end)
+	button:SetScript("OnClick", function()
+		flyout:Hide()
+		Run(entry, entry.toggle)
+	end)
+	FlyoutState(button)
+	return button
+end
+
+local function MakeFlyout(parent)
+	local flyout = CreateFrame("Frame", "SanctuaryUIMenuFlyout", parent)
+	flyout:SetFrameStrata("DIALOG")
+	flyout:SetClampedToScreen(true)
+	flyout:EnableMouse(true) -- the panel itself takes clicks, so none fall through between plates
+	flyout:Hide()
+	-- The dark panel behind the plates, edged like the console's.
+	local edge = flyout:CreateTexture(nil, "BACKGROUND", nil, -1)
+	edge:SetAllPoints()
+	edge:SetColorTexture(0.42, 0.32, 0.17, 0.95)
+	local back = flyout:CreateTexture(nil, "BACKGROUND")
+	back:SetPoint("TOPLEFT", 1, -1)
+	back:SetPoint("BOTTOMRIGHT", -1, 1)
+	back:SetColorTexture(0.02, 0.015, 0.01, 0.94)
+	-- Escape closes it, like a panel.
+	tinsert(UISpecialFrames, flyout:GetName())
+	ns.Menu.flyoutItems = {}
+	for _, entry in ipairs(FLYOUT) do
+		if entry.available() then
+			ns.Menu.flyoutItems[#ns.Menu.flyoutItems + 1] = MakeFlyoutButton(flyout, entry)
+		end
+	end
+	-- A click anywhere else closes it.
+	flyout:SetScript("OnShow", function(self)
+		for _, button in ipairs(ns.Menu.flyoutItems) do
+			button.sanctuaryOver, button.sanctuaryDown = false, false
+			FlyoutState(button)
+		end
+		pcall(self.RegisterEvent, self, "GLOBAL_MOUSE_DOWN")
+	end)
+	flyout:SetScript("OnHide", function(self)
+		pcall(self.UnregisterEvent, self, "GLOBAL_MOUSE_DOWN")
+	end)
+	flyout:SetScript("OnEvent", function(self)
+		local button = ns.Menu.flyoutButton
+		if self:IsMouseOver() or (button and button:IsMouseOver()) then return end
+		self:Hide()
+	end)
+	return flyout
+end
+
+ToggleFlyout = function()
+	local flyout = ns.Menu.flyout
+	if not flyout then return end
+	-- No panel available on this client: the button is just the spellbook.
+	if #ns.Menu.flyoutItems == 0 then
+		ToggleSpells()
+		return
+	end
+	flyout:SetShown(not flyout:IsShown())
+	GameTooltip_Hide()
+end
+
+local FLYOUT_PAD = 3 -- panel margin around the plates, sheet px
+local FLYOUT_PER_ROW = 6 -- longer flyouts wrap upward into more rows
+
+local function LayoutFlyout(scale)
+	local flyout, button = ns.Menu.flyout, ns.Menu.flyoutButton
+	if not flyout or not button then return end
+	local items = ns.Menu.flyoutItems
+	-- Cells are 40 wide on a 31.3 pitch (the plates' transparent margins overlap, as in the
+	-- console); each click area is trimmed to the pitch so neighbours meet with no gap.
+	local w, h, pitch = CELL_W * scale, CELL_H * scale, PITCH * scale
+	local margin = (CELL_W - PITCH) / 2 * scale
+	local pad = FLYOUT_PAD * scale
+	local cols = math.min(FLYOUT_PER_ROW, math.max(1, #items))
+	local rows = math.max(1, math.ceil(#items / FLYOUT_PER_ROW))
+	flyout:SetSize(pitch * cols + 2 * pad, h * rows + 2 * pad)
+	flyout:ClearAllPoints()
+	flyout:SetPoint("BOTTOM", button, "TOP", 0, 3 * scale)
+	for i, item in ipairs(items) do
+		local row, col = math.floor((i - 1) / FLYOUT_PER_ROW), (i - 1) % FLYOUT_PER_ROW
+		item:SetSize(w, h)
+		item:ClearAllPoints()
+		item:SetPoint("TOPLEFT", flyout, "TOPLEFT", pad - margin + col * pitch, -(pad + row * h))
+		item:SetHitRectInsets(margin, margin, 0, 0)
+		FlyoutState(item)
+	end
 end
 
 -- LibKeyBound hover-binding for buttons that are not LibActionButton buttons.
@@ -266,6 +531,7 @@ function ns.Menu.Layout(metrics, base)
 	end
 	local c = HEARTH_CELL
 	place(ns.HearthButton, c[1], c[2], c[3], c[4])
+	LayoutFlyout(scale)
 end
 
 function ns.Menu.ApplySettings()
@@ -280,7 +546,11 @@ function ns.Menu.Init()
 	ns.Menu.buttons = {}
 	for i, entry in ipairs(ENTRIES) do
 		ns.Menu.buttons[i] = MakeMenuButton(parent, entry)
+		if entry.flyout then
+			ns.Menu.flyoutButton = ns.Menu.buttons[i]
+		end
 	end
+	ns.Menu.flyout = MakeFlyout(parent)
 	ns.HearthButton = MakeHearth(parent)
 	ns.Menu.KeyBindable(ns.HearthButton, "SANCTUARYUIHEARTH", "Hearthstone")
 

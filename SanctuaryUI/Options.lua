@@ -48,6 +48,12 @@ local function Select(order, name, desc, path, key, values)
 	return { type = "select", order = order, name = name, desc = desc, get = get, set = set, values = values }
 end
 
+-- Greys a target aura setting out while its buffs / debuffs are off.
+local function TargetAura(key, option)
+	option.disabled = function() return not ns.DB().target[key] end
+	return option
+end
+
 local function Header(order, name)
 	return { type = "header", order = order, name = name }
 end
@@ -456,7 +462,7 @@ local function Build()
 				order = 6.1,
 				name = "Buffs",
 				args = {
-					intro = Note(1, "Your buffs and debuffs, D3 style: a clock sweep on each icon, stacks in the corner, debuffs on their own line in red. Right-click a buff to cancel it (out of combat)."),
+					intro = Note(1, "Your buffs and debuffs, D3 style: a clock sweep on each icon, stacks in the corner, debuffs on their own line in red. Weapon enchants (poisons, oils, imbues) lead the buff line. Right-click a buff to cancel it (out of combat). Blizzard's buff frame is hidden while this is on."),
 					enabled = Toggle(2, "Enabled", nil, "auras", "enabled"),
 					duration = Toggle(3, "Show time left under each icon", nil, "auras", "duration"),
 					bars = Toggle(4, "Countdown bars", "A bar under each timed buff and debuff that runs down, turning red in its last 10 seconds.", "auras", "bars"),
@@ -475,6 +481,92 @@ local function Build()
 						name = "Reset position",
 						func = function() ns.Auras.ResetPosition() end,
 						disabled = function() return not DB().auras.moved end,
+					},
+				},
+			},
+			target = {
+				type = "group",
+				order = 6.12,
+				name = "Target",
+				args = {
+					intro = Note(1, "D3's monster bar at the top of the screen: a silver frame for ordinary monsters, gold for elites and rares, the gold banner for bosses, and every debuff on the target underneath (yours bright, the rest dimmed). Left-click targets, right-click opens the unit menu. Turning it off brings back Blizzard's target frame."),
+					enabled = Toggle(2, "Enabled", nil, "target", "enabled"),
+					preview = {
+						type = "toggle",
+						order = 3,
+						name = "Preview",
+						desc = "With no target, show a stand-in monster that cycles the normal, elite and boss frames while its health drops, to judge the look in game.",
+						get = function() return ns.TargetPlate.preview end,
+						set = function(_, value) ns.TargetPlate.SetPreview(value) end,
+						width = "full",
+					},
+					lookHeader = Header(5, "Look"),
+					scale = Range(6, "Scale", "100% is D3's own size: the art one-to-one at 1080p, the same share of the screen at any resolution.", "target", "scale", 0.5, 2, 0.05, true),
+					width = Range(7, "Width", "Stretches the frame and bar between their ornaments.", "target", "width", 0.6, 2.5, 0.05, true),
+					portrait = Toggle(8, "Target portrait", "The target's moving WoW portrait in a D3 hero portrait frame, left of the bar: silver for ordinary monsters, gold for elites and rares, the winged demon for bosses.", "target", "portrait"),
+					healthText = Select(9, "Health text", "What the bar's right end shows. Works in combat too, where enemy health is hidden from addons: the client fills the number in.", "target", "healthText", { none = "None", percent = "Percent", current = "Hitpoints", both = "Hitpoints and percent", max = "Hitpoints / max" }),
+					cast = Toggle(9.5, "Cast bar", nil, "target", "cast"),
+					liquid = Toggle(9.7, "Liquid in the bar", "The globes' liquid drifting through the health bar.", "target", "liquid"),
+					debuffHeader = Header(10, "Debuffs"),
+					debuffs = Toggle(10.1, "Debuffs", "Every debuff on the target: yours first and bright, the rest greyed.", "target", "debuffs"),
+					maxDebuffs = TargetAura("debuffs", Range(10.2, "How many debuffs", nil, "target", "maxDebuffs", 1, 24, 1)),
+					auraPos = TargetAura("debuffs", Select(10.3, "Position", nil, "target", "auraPos", { below = "Below the bar", above = "Above the bar" })),
+					auraAlign = TargetAura("debuffs", Select(10.4, "Align to", "Where each line starts: the bar's left end, centre or right end.", "target", "auraAlign", { left = "Left", center = "Centre", right = "Right" })),
+					auraGrow = TargetAura("debuffs", Select(10.5, "Grow", "From a left or right end, which way the icons run. Centred lines grow both ways.", "target", "auraGrow", { right = "To the right", left = "To the left" })),
+					debuffSize = TargetAura("debuffs", Range(10.6, "Icon size", nil, "target", "debuffSize", 14, 48, 1)),
+					auraPerLine = TargetAura("debuffs", Range(10.7, "Icons per line", nil, "target", "auraPerLine", 1, 24, 1)),
+					auraSpacing = TargetAura("debuffs", Range(10.8, "Spacing", nil, "target", "auraSpacing", 0, 16, 1)),
+					auraX = TargetAura("debuffs", Range(10.9, "Nudge left / right", nil, "target", "auraX", -300, 300, 1)),
+					auraY = TargetAura("debuffs", Range(10.95, "Nudge up / down", nil, "target", "auraY", -200, 200, 1)),
+					buffHeader = Header(20, "Buffs"),
+					buffs = Toggle(20.1, "Buffs", "The target's buffs, laid out on their own.", "target", "buffs"),
+					maxBuffs = TargetAura("buffs", Range(20.2, "How many buffs", nil, "target", "maxBuffs", 1, 24, 1)),
+					buffPos = TargetAura("buffs", Select(20.3, "Position", "On the same side as the debuffs, the buffs start on the line after them.", "target", "buffPos", { below = "Below the bar", above = "Above the bar" })),
+					buffAlign = TargetAura("buffs", Select(20.4, "Align to", "Where each line starts: the bar's left end, centre or right end.", "target", "buffAlign", { left = "Left", center = "Centre", right = "Right" })),
+					buffGrow = TargetAura("buffs", Select(20.5, "Grow", "From a left or right end, which way the icons run. Centred lines grow both ways.", "target", "buffGrow", { right = "To the right", left = "To the left" })),
+					buffSize = TargetAura("buffs", Range(20.6, "Icon size", nil, "target", "buffSize", 14, 48, 1)),
+					buffPerLine = TargetAura("buffs", Range(20.7, "Icons per line", nil, "target", "buffPerLine", 1, 24, 1)),
+					buffSpacing = TargetAura("buffs", Range(20.8, "Spacing", nil, "target", "buffSpacing", 0, 16, 1)),
+					buffX = TargetAura("buffs", Range(20.9, "Nudge left / right", nil, "target", "buffX", -300, 300, 1)),
+					buffY = TargetAura("buffs", Range(20.95, "Nudge up / down", "Sharing the debuffs' side, this is from the end of the debuffs.", "target", "buffY", -200, 200, 1)),
+					place = Header(30, "Position"),
+					placeNote = Note(31, "Top centre by default. Turn off General > Lock frames and drag its mover to place it anywhere."),
+					reset = {
+						type = "execute",
+						order = 32,
+						name = "Reset position",
+						func = function() ns.TargetPlate.ResetPosition() end,
+						disabled = function() return not DB().target.moved end,
+					},
+				},
+			},
+			portraits = {
+				type = "group",
+				order = 6.14,
+				name = "Portraits",
+				args = {
+					intro = Note(1, "D3 party portraits, top left: your pet, and you if you want it (no health bar on yours: the globe is your health). Left-click targets, right-click opens the unit menu (leave group, loot, raid markers). The frame turns gold on your target, and shows leader, combat, resting and raid marker icons. Turning it off brings back Blizzard's player frame."),
+					enabled = Toggle(2, "Enabled", nil, "portraits", "enabled"),
+					preview = {
+						type = "toggle",
+						order = 2.5,
+						name = "Preview",
+						desc = "Show both portraits (the pet's drawn from you when you have no pet) to judge them in game.",
+						get = function() return ns.Portraits.preview end,
+						set = function(_, value) ns.Portraits.SetPreview(value) end,
+						width = "full",
+					},
+					player = Toggle(3, "Your portrait", "Right-click it for your unit menu (leave group, loot, raid markers).", "portraits", "player"),
+					pet = Toggle(3.5, "Pet portrait", nil, "portraits", "pet"),
+					scale = Range(4, "Scale", "100% is D3's own size.", "portraits", "scale", 0.6, 2.5, 0.05, true),
+					place = Header(30, "Position"),
+					placeNote = Note(31, "Top left by default. Turn off General > Lock frames and drag its mover to place it anywhere."),
+					reset = {
+						type = "execute",
+						order = 32,
+						name = "Reset position",
+						func = function() ns.Portraits.ResetPosition() end,
+						disabled = function() return not DB().portraits.moved end,
 					},
 				},
 			},
