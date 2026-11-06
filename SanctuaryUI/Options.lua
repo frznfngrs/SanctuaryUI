@@ -493,6 +493,15 @@ local function PagingArgs()
 	return args
 end
 
+-- Bars > Main bar: the console's nine sockets, their icon size and paging.
+local function MainBarArgs()
+	local args = PagingArgs()
+	args.size = Header(0.1, "Size")
+	args.iconSize = Range(0.2, "Icon size", "Skill icons in the console's sockets, docked bars included. Below 100% they sit centred in the socket with its stone around them; the console keeps its size.", nil, "iconSize", 0.6, 1, 0.01, true)
+	args.pagingHeader = Header(0.5, "Paging")
+	return args
+end
+
 ---------------------------------------------------------------------------
 
 local function Build()
@@ -530,7 +539,6 @@ local function Build()
 						get = function() return not ns.db.global.minimap.hide end,
 						set = function(_, value) ns.Minimap.SetShown(value) end,
 					},
-					pets = Toggle(21, "Pet bar", "Pet actions above the bars when you have a pet.", nil, "pets"),
 					hearthItem = {
 						type = "input",
 						order = 23,
@@ -584,11 +592,12 @@ local function Build()
 					note = Note(3, "Reputation is tinted with your resource color. Watch a faction from the Reputation panel."),
 				},
 			},
-			buttons = {
+			bars = {
 				type = "group",
 				order = 4,
-				name = "Buttons",
+				name = "Bars",
 				args = {
+					intro = Note(0, "The main bar is the nine sockets in the console. Bars 2-9 stack above it, bar 2 at the bottom, or dock in the console. The settings on this page apply to every bar's buttons."),
 					text = Header(1, "Text"),
 					hotkeys = Toggle(2, "Show keybinds", nil, "buttons", "hotkeys"),
 					macroNames = Toggle(3, "Show macro names", nil, "buttons", "macroNames"),
@@ -599,26 +608,123 @@ local function Build()
 					cooldownNumbers = Select(14, "Cooldown numbers", nil, "buttons", "cooldownNumbers", { cvar = "Blizzard setting", show = "Show", hide = "Hide" }),
 					keyDown = CVarToggle(15, "Cast on key down", "Blizzard's ActionButtonUseKeyDown.", "ActionButtonUseKeyDown"),
 					lock = Toggle(16, "Lock buttons", "Locked buttons only pick up actions while holding Shift. Unlocked buttons drag freely.", "buttons", "lock"),
+					active = Header(16.9, "Active skills"),
 					activeGlow = Toggle(17, "Active skill glow", "While a skill's buff, channel or totem is up, its socket burns like D3's.", "buttons", "activeGlow"),
 					activeTimer = Toggle(18, "Active skill timer", "A tab in the socket with a yellow bar that drains until the effect ends.", "buttons", "activeTimer"),
 					activeTimerPos = Select(18.5, "Active skill timer position", nil, "buttons", "activeTimerPos", { top = "Top of the socket", bottom = "Bottom of the socket" }),
 					activeEndless = Toggle(20, "Light buffs with no duration", "Stances, paladin auras, aspects and other buffs that never run out glow too. Tracking (Find Minerals, Find Herbs) never does.", "buttons", "activeEndless"),
 					activeGlowMax = Range(19.5, "Glow only for buffs up to (seconds)", "Short effects (Bloodrage, trinkets) burn and show the timer. Longer buffs (Battle Shout) show just the timer tab. Channels, totems and buffs with no duration always glow.", "buttons", "activeGlowMax", 0, 600, 5),
 					activeMax = Range(19, "Longest buff to show (seconds)", "Buffs that last longer than this don't light their skill, so long buffs like Fortitude stay quiet. Channels and totems always show.", "buttons", "activeMax", 10, 600, 5),
-				},
-			},
-			paging = {
-				type = "group",
-				order = 5,
-				name = "Paging",
-				args = PagingArgs(),
-			},
-			rows = {
-				type = "group",
-				order = 6,
-				name = "Bars",
-				args = {
-					intro = Note(1, "Bars stack above the console, bar 2 at the bottom. The main bar (bar 1) is the nine sockets in the console."),
+					petHeader = Header(30, "Pet bar"),
+					pets = Toggle(31, "Show the pet bar", "Pet actions above the bars when you have a pet.", nil, "pets"),
+					main = { type = "group", order = 1, name = "Main bar", args = MainBarArgs() },
+					stance = {
+						type = "group",
+						order = 30,
+						name = "Stance bar",
+						args = {
+							intro = Note(1, "Stances, forms, auras, stealth: whatever your class has. Hidden for classes without any. Keybinds come from Blizzard's Stance Bar bindings, or use hover-binding."),
+							enabled = Toggle(2, "Enabled", nil, "stance", "enabled"),
+							size = Header(10, "Size"),
+							scale = Range(11, "Button size", "Relative to a main-bar socket.", "stance", "scale", 0.4, 1.2, 0.01, true),
+							spacing = Range(12, "Spacing", nil, "stance", "spacing", 0, 20, 1),
+							perLine = Range(13, "Buttons per line", "1 makes a vertical bar.", "stance", "perLine", 1, 10, 1),
+							show = Header(20, "Visibility"),
+							alpha = Range(21, "Opacity", nil, "stance", "alpha", 0, 1, 0.05, true),
+							mouseover = Toggle(22, "Show on mouseover only", nil, "stance", "mouseover"),
+							place = Header(30, "Position"),
+							placeNote = Note(31, "Above the health globe by default. Turn off General > Lock frames and drag its mover to place it anywhere."),
+							reset = {
+								type = "execute",
+								order = 32,
+								name = "Reset position",
+								func = function() ns.Stance.ResetPosition() end,
+								disabled = function() return not DB().stance.moved end,
+							},
+						},
+					},
+					totems = {
+						type = "group",
+						order = 31,
+						name = "Totem bar",
+						args = {
+							intro = Note(1, "One socket per element: earth, fire, water, air, framed like the combo point pips. Shown once you know a totem. A totem that is down lights its socket, and a round sweep runs out its time."),
+							enabled = Toggle(2, "Enabled", nil, "totems", "enabled"),
+							preview = {
+								type = "toggle",
+								order = 2.5,
+								name = "Preview",
+								desc = "Show the bar with every totem and two on timers, on any character. Nothing casts. Turns off on /reload.",
+								width = "full",
+								get = function() return ns.Totem.preview end,
+								set = function(_, value) ns.Totem.SetPreview(value) end,
+							},
+							mode = Select(3, "Mode", nil, "totems", "mode", {
+								bar = "Totem bar: cast, pick each socket's totem from a flyout",
+								tracker = "Tracker: only show totems that are down",
+							}),
+							modeNote = Note(4, "Bar mode: left-click casts. Right-click a socket to fan out that element's totems: left-click one to put it in the socket, right-click to cast it once. Shift + right-click dismisses. Tracker mode: right-click dismisses. Keybinds are under Key Bindings > AddOns > SanctuaryUI, or use hover-binding."),
+							ring = Header(5, "Globe"),
+							attach = Select(6, "Attach to", "Ring a globe's rim like the combo point pips, or stand free as a row you can drag anywhere.", "totems", "attach", {
+								none = "Nothing: a free row",
+								health = "Health globe",
+								resource = "Resource globe",
+							}),
+							arc = {
+								type = "range",
+								order = 7,
+								name = "Position on the rim",
+								desc = "Angle of the ring's centre, in degrees: 90 is the top of the globe, 180 its left side, 0 its right. Or turn off General > Lock frames and drag the totems around the globe.",
+								min = 0,
+								max = 359,
+								step = 1,
+								get = function()
+									local opt = DB().totems
+									return opt.attach == "health" and opt.arcHealth or opt.arcResource
+								end,
+								set = function(_, value)
+									local opt = DB().totems
+									if opt.attach == "health" then opt.arcHealth = value else opt.arcResource = value end
+									Changed()
+								end,
+								hidden = function() return DB().totems.attach == "none" end,
+							},
+							ringGap = (function()
+								local r = Range(8, "Distance from the rim", nil, "totems", "ringGap", -20, 40, 1)
+								r.hidden = function() return DB().totems.attach == "none" end
+								return r
+							end)(),
+							ringNote = {
+								type = "description",
+								order = 9,
+								name = "Attached, the sockets sit on the rim like the pips and follow the console; each picker fans out on a wider arc. Unlock frames to drag them around the globe. The picker direction and vertical settings apply to the free row only.",
+								hidden = function() return DB().totems.attach == "none" end,
+							},
+							size = Header(10, "Size"),
+							scale = Range(11, "Button size", "Relative to a main-bar socket.", "totems", "scale", 0.4, 1.2, 0.01, true),
+							spacing = Range(12, "Spacing", nil, "totems", "spacing", 0, 20, 1),
+							vertical = Toggle(13, "Vertical", "Stack the sockets instead of a row.", "totems", "vertical"),
+							flyout = Select(14, "Picker opens", nil, "totems", "flyout", { up = "Up", down = "Down" }),
+							show = Header(20, "Visibility"),
+							alpha = Range(21, "Opacity", nil, "totems", "alpha", 0, 1, 0.05, true),
+							mouseover = Toggle(22, "Show on mouseover only", nil, "totems", "mouseover"),
+							place = Header(30, "Position"),
+							placeNote = Note(31, "Free row: above the resource globe by default. Turn off General > Lock frames and drag its mover to place it anywhere."),
+							reset = {
+								type = "execute",
+								order = 32,
+								name = "Reset position",
+								func = function() ns.Totem.ResetPosition() end,
+								disabled = function() return not DB().totems.moved end,
+							},
+						},
+					},
+					keybinding = {
+						type = "group",
+						order = 40,
+						name = "Keybinds",
+						args = {},
+					},
 				},
 			},
 			auras = {
@@ -743,107 +849,6 @@ local function Build()
 					},
 				},
 			},
-			stance = {
-				type = "group",
-				order = 6.2,
-				name = "Stance bar",
-				args = {
-					intro = Note(1, "Stances, forms, auras, stealth: whatever your class has. Hidden for classes without any. Keybinds come from Blizzard's Stance Bar bindings, or use hover-binding."),
-					enabled = Toggle(2, "Enabled", nil, "stance", "enabled"),
-					size = Header(10, "Size"),
-					scale = Range(11, "Button size", "Relative to a main-bar socket.", "stance", "scale", 0.4, 1.2, 0.01, true),
-					spacing = Range(12, "Spacing", nil, "stance", "spacing", 0, 20, 1),
-					perLine = Range(13, "Buttons per line", "1 makes a vertical bar.", "stance", "perLine", 1, 10, 1),
-					show = Header(20, "Visibility"),
-					alpha = Range(21, "Opacity", nil, "stance", "alpha", 0, 1, 0.05, true),
-					mouseover = Toggle(22, "Show on mouseover only", nil, "stance", "mouseover"),
-					place = Header(30, "Position"),
-					placeNote = Note(31, "Above the health globe by default. Turn off General > Lock frames and drag its mover to place it anywhere."),
-					reset = {
-						type = "execute",
-						order = 32,
-						name = "Reset position",
-						func = function() ns.Stance.ResetPosition() end,
-						disabled = function() return not DB().stance.moved end,
-					},
-				},
-			},
-			totems = {
-				type = "group",
-				order = 6.3,
-				name = "Totem bar",
-				args = {
-					intro = Note(1, "One socket per element: earth, fire, water, air, framed like the combo point pips. Shown once you know a totem. A totem that is down lights its socket, and a round sweep runs out its time."),
-					enabled = Toggle(2, "Enabled", nil, "totems", "enabled"),
-					preview = {
-						type = "toggle",
-						order = 2.5,
-						name = "Preview",
-						desc = "Show the bar with every totem and two on timers, on any character. Nothing casts. Turns off on /reload.",
-						width = "full",
-						get = function() return ns.Totem.preview end,
-						set = function(_, value) ns.Totem.SetPreview(value) end,
-					},
-					mode = Select(3, "Mode", nil, "totems", "mode", {
-						bar = "Totem bar: cast, pick each socket's totem from a flyout",
-						tracker = "Tracker: only show totems that are down",
-					}),
-					modeNote = Note(4, "Bar mode: left-click casts. Right-click a socket to fan out that element's totems: left-click one to put it in the socket, right-click to cast it once. Shift + right-click dismisses. Tracker mode: right-click dismisses. Keybinds are under Key Bindings > AddOns > SanctuaryUI, or use hover-binding."),
-					ring = Header(5, "Globe"),
-					attach = Select(6, "Attach to", "Ring a globe's rim like the combo point pips, or stand free as a row you can drag anywhere.", "totems", "attach", {
-						none = "Nothing: a free row",
-						health = "Health globe",
-						resource = "Resource globe",
-					}),
-					arc = {
-						type = "range",
-						order = 7,
-						name = "Position on the rim",
-						desc = "Angle of the ring's centre, in degrees: 90 is the top of the globe, 180 its left side, 0 its right. Or turn off General > Lock frames and drag the totems around the globe.",
-						min = 0,
-						max = 359,
-						step = 1,
-						get = function()
-							local opt = DB().totems
-							return opt.attach == "health" and opt.arcHealth or opt.arcResource
-						end,
-						set = function(_, value)
-							local opt = DB().totems
-							if opt.attach == "health" then opt.arcHealth = value else opt.arcResource = value end
-							Changed()
-						end,
-						hidden = function() return DB().totems.attach == "none" end,
-					},
-					ringGap = (function()
-						local r = Range(8, "Distance from the rim", nil, "totems", "ringGap", -20, 40, 1)
-						r.hidden = function() return DB().totems.attach == "none" end
-						return r
-					end)(),
-					ringNote = {
-						type = "description",
-						order = 9,
-						name = "Attached, the sockets sit on the rim like the pips and follow the console; each picker fans out on a wider arc. Unlock frames to drag them around the globe. The picker direction and vertical settings apply to the free row only.",
-						hidden = function() return DB().totems.attach == "none" end,
-					},
-					size = Header(10, "Size"),
-					scale = Range(11, "Button size", "Relative to a main-bar socket.", "totems", "scale", 0.4, 1.2, 0.01, true),
-					spacing = Range(12, "Spacing", nil, "totems", "spacing", 0, 20, 1),
-					vertical = Toggle(13, "Vertical", "Stack the sockets instead of a row.", "totems", "vertical"),
-					flyout = Select(14, "Picker opens", nil, "totems", "flyout", { up = "Up", down = "Down" }),
-					show = Header(20, "Visibility"),
-					alpha = Range(21, "Opacity", nil, "totems", "alpha", 0, 1, 0.05, true),
-					mouseover = Toggle(22, "Show on mouseover only", nil, "totems", "mouseover"),
-					place = Header(30, "Position"),
-					placeNote = Note(31, "Free row: above the resource globe by default. Turn off General > Lock frames and drag its mover to place it anywhere."),
-					reset = {
-						type = "execute",
-						order = 32,
-						name = "Reset position",
-						func = function() ns.Totem.ResetPosition() end,
-						disabled = function() return not DB().totems.moved end,
-					},
-				},
-			},
 			bank = {
 				type = "group",
 				order = 6.6,
@@ -903,16 +908,10 @@ local function Build()
 					},
 				},
 			},
-			keybinding = {
-				type = "group",
-				order = 7,
-				name = "Keybinding",
-				args = {},
-			},
 		},
 	}
 	for i, n in ipairs(ns.ActionBar.ROW_IDS) do
-		options.args.rows.args["row" .. n] = RowGroup(n, 10 + i)
+		options.args.bars.args["row" .. n] = RowGroup(n, 10 + i)
 	end
 	options.args.profiles = LibStub("AceDBOptions-3.0"):GetOptionsTable(ns.db)
 	options.args.profiles.order = 100
@@ -923,7 +922,7 @@ end
 local function Table()
 	local options = ns.Options.table or Build()
 	ns.Options.table = options
-	options.args.keybinding.args = KeybindArgs()
+	options.args.bars.args.keybinding.args = KeybindArgs()
 	return options
 end
 
