@@ -26,6 +26,8 @@ noted next to each file.
   unit-gloss.png 8x32      inner shadow and glass band, over the whole health bar
   unit-glow.png  64x32     ember at the health bar's leading edge, ADD: bloom (0-18) and hot core (32-50), white, tinted in Lua
   target-rings.png 512x128 D3 hero portrait frames for the target portrait (normal, elite, boss), hole centred
+  console-base.png 2048x256 frame.png without the rail band (rail, ornaments, centre skull), for a lifted console
+  console-tiers.png 2048x512 the band lifted over 1 or 2 extra socket rows, walled in, globe panels and wings beside them (sheet x 200..1400, at y 0/208, 108 + 93k tall)
   pip-sockets.png 512x64   Kanai's Cube socket rims, centres open: black, orange, green, red, blue
   blade.png      64x256    Demon Hunter split-globe blade, widened sheet x 1329..1393 (64x201 used)
   liquid-left/right.png 128x256  halves of liquid.png for the split resource globe (no-mask fallback)
@@ -141,6 +143,137 @@ def pad(image: Image.Image, size: tuple[int, int]) -> Image.Image:
     out = Image.new("RGBA", size, (0, 0, 0, 0))
     out.alpha_composite(image)
     return out
+
+
+# The console's rail band (the XP rail, its ornaments and the centre skull) can lift to sit over
+# extra rows of sockets between the globes. CREST_CUT is the first row under the rail's bottom
+# border; everything above it between the globes is the band. A row is the stone socket row
+# under it (CREST_CUT..201, 93 px): twelve sockets on the console's own 74 px period, so they
+# line up with the sockets below, and a blank stone plaque (the hearth's lock plate without its
+# lock) filling the end over the menu's slot. The stack is walled in: an upright length of the
+# rail, channel closed, runs down each side from the band's end cap to the main row, the globe's
+# rim in front of it. The band's corners carry its end hook turned outward, so each top corner
+# stands with a horn. Over each globe's upper side, between rim and wall, the bracket from under
+# the main row is mirrored top to bottom, and the band's end hook and wing sit on it, the wing
+# running out over the globe's crown. Everything is built on the left and mirrored to the right
+# about the globes' midline, so both sides match.
+CREST_CUT = 108
+TIER_H = 201 - CREST_CUT
+TIER_X = (200, 1400)  # sheet span of the tier art
+TIER_Y = (0, 208)  # atlas rows of lifts 1, 2 (each CREST_CUT + k * TIER_H tall)
+GROUND_Y = 184  # the console's base strip starts here; the mirrored bracket is cut above it
+STACK_MIRROR = 1598  # a pixel at x mirrors to STACK_MIRROR - 1 - x (globe centres 243.5, 1354.5)
+WALL_X = (322, 338)  # left wall, the rim's outer edge to the first socket; right one mirrored
+RING_R = 88  # the rim ring's outer edge; its soft shadow runs to 94
+
+
+def console_tiers() -> None:
+    import math
+    frame = Image.open(OUT / "frame.png").crop((0, 0, 1595, 201)).convert("RGBA")
+    fpx = frame.load()
+    w0, w1 = WALL_X
+
+    def ring(x, y):
+        return min(math.hypot(x - cx, y - GLOBE_CY) for cx in GLOBE_CX)
+
+    def both(canvas, img, x, y):
+        canvas.alpha_composite(img, (x, y))
+        canvas.alpha_composite(img.transpose(Image.FLIP_LEFT_RIGHT), (STACK_MIRROR - x - img.width, y))
+
+    # The console without its band: everything above the main row between the rims goes, the
+    # band's end caps and rim curls too (the lifted art brings its own); rims and their shadow
+    # stay, and over the walls only the ring itself.
+    base = frame.copy()
+    bpx = base.load()
+    for y in range(CREST_CUT):
+        for x in range(290, 1308):
+            r = ring(x, y)
+            in_wall = w0 <= x < STACK_MIRROR - w0 and y >= 84
+            if r > 94 or (in_wall and r > RING_R + 0.5) or w1 <= x < STACK_MIRROR - w1:
+                bpx[x, y] = (0, 0, 0, 0)
+    pad(base, (2048, 256)).save(OUT / "console-base.png")
+
+    # The band between the walls; the wall caps are the rail's own end caps with their rivets.
+    crest = Image.new("RGBA", (1595, CREST_CUT), (0, 0, 0, 0))
+    cpx = crest.load()
+    for y in range(CREST_CUT):
+        for x in range(w1, STACK_MIRROR - w1):
+            cpx[x, y] = fpx[x, y]
+    cap = frame.crop((w0, 88, w1, CREST_CUT))
+
+    # Wall: the rail turned upright, its glass channel closed with iron, cut to the wall's width
+    # (bevel, iron, bevel).
+    rail = frame.crop((360, 84, 400, CREST_CUT)).copy()
+    rp = rail.load()
+    for y in range(95 - 84, 104 - 84):
+        for x in range(rail.width):
+            rp[x, y] = (22, 24, 27, 255)
+    seg = rail.rotate(90, expand=True).crop((4, 0, 4 + w1 - w0, rail.width))
+
+    def wall(h):
+        img = Image.new("RGBA", (w1 - w0, h), (0, 0, 0, 0))
+        for y in range(0, h, seg.height):
+            img.alpha_composite(seg, (0, y))
+        return img
+
+    # The panel: the bracket under the main row (rim to wall, above the base strip), flipped
+    # about the globes' centre line. On it, the band's end hook and the start of its wing.
+    bracket = frame.crop((240, CREST_CUT, w1, GROUND_Y)).copy()
+    kp = bracket.load()
+    for y in range(bracket.height):
+        for x in range(bracket.width):
+            if ring(x + 240, y + CREST_CUT) <= RING_R + 1 or x + 240 >= w0 + 2:
+                kp[x, y] = (0, 0, 0, 0)
+    panel = bracket.transpose(Image.FLIP_TOP_BOTTOM)
+    panel_y = 2 * GLOBE_CY - GROUND_Y
+    shoulder = frame.crop((334, 40, 420, 95)).transpose(Image.FLIP_LEFT_RIGHT)
+    horn = frame.crop((334, 52, 362, 92)).transpose(Image.FLIP_LEFT_RIGHT)
+
+    # A blank stone plaque, 34 wide: the lock plate's left half, the lock painted out with its
+    # own plain stone (rows shifted per column so it doesn't streak), and its mirror.
+    half = frame.crop((1006, CREST_CUT, 1023, 201)).copy()
+    hp = half.load()
+    src = half.copy().load()
+    lo, hi = 118 - CREST_CUT, 170 - CREST_CUT
+    for y in range(lo, hi):
+        for x in range(10, half.width):
+            hp[x, y] = src[6, lo + (y - lo + 17 * (x - 10)) % (hi - lo)]
+    plaque = Image.new("RGBA", (34, GROUND_Y - CREST_CUT), (0, 0, 0, 0))
+    plaque.alpha_composite(half, (0, 0))
+    plaque.alpha_composite(half.transpose(Image.FLIP_LEFT_RIGHT), (17, 0))
+
+    # One row of twelve sockets, wall to wall.
+    row = Image.new("RGBA", (1595, TIER_H), (0, 0, 0, 0))
+
+    def strip(x0, x1):
+        return frame.crop((x0, CREST_CUT, x1, 201))
+    row.alpha_composite(strip(w1, 410), (w1, 0))
+    for i in range(11):
+        row.alpha_composite(strip(410, 484), (410 + 74 * i, 0))
+    end = 410 + 74 * 11
+    row.alpha_composite(strip(end - 2, STACK_MIRROR - w1), (end - 2, 0))
+    row.alpha_composite(plaque, (end, 0))
+
+    atlas = Image.new("RGBA", (2048, 512), (0, 0, 0, 0))
+    for k, ay in zip((1, 2), TIER_Y):
+        h, off = CREST_CUT + TIER_H * k, TIER_H * k  # canvas y = sheet y + off
+        c = Image.new("RGBA", (1595, h), (0, 0, 0, 0))
+        both(c, panel, 240, off + panel_y)
+        both(c, wall(off + CREST_CUT - 88), w0, 88)
+        both(c, cap, w0, 88)
+        both(c, shoulder, w0 - shoulder.width + 4, off + panel_y - shoulder.height + 4)
+        for j in range(1, k + 1):
+            c.alpha_composite(row, (0, off + CREST_CUT - TIER_H * j))
+        c.alpha_composite(crest, (0, 0))
+        both(c, horn, w0 - 10, 88 - horn.height + 4)
+        # The globes stay clear: their rims are in the base, in front of the walls.
+        px = c.load()
+        for y in range(h):
+            for x in list(range(150, 345)) + list(range(1250, 1450)):
+                if ring(x, y - off) <= RING_R:
+                    px[x, y] = (0, 0, 0, 0)
+        atlas.alpha_composite(c.crop((TIER_X[0], 0, TIER_X[1], h)), (0, ay))
+    atlas.save(OUT / "console-tiers.png")
 
 
 def frame_and_glass() -> None:
@@ -1485,7 +1618,7 @@ def globe_storm() -> None:
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     only = set(sys.argv[1:])
-    for step in (frame_and_glass, liquid, liquid_halves, animated_liquid, hotline, xp_fills, menu, glow, blade, socket_glow, bag_frame, bank_frame, bag_cells, d3_button, pips, pip_frames, shimmer, socket, skill_timer, icon, unit_frames, menu_flyout, target_rings, globe_aura, globe_shell, globe_surge, globe_storm):
+    for step in (frame_and_glass, console_tiers, liquid, liquid_halves, animated_liquid, hotline, xp_fills, menu, glow, blade, socket_glow, bag_frame, bank_frame, bag_cells, d3_button, pips, pip_frames, shimmer, socket, skill_timer, icon, unit_frames, menu_flyout, target_rings, globe_aura, globe_shell, globe_surge, globe_storm):
         if only and step.__name__ not in only:
             continue
         step()
