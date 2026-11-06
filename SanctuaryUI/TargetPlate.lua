@@ -24,6 +24,12 @@ local BAR_Y = 34.5 -- bar centre, below the plate's top
 local SUB_Y = BAR_Y + 22 -- level / rank line (just under the normal and elite frames)
 local PLATE_H = 88
 local RING_OVERLAP = 6 -- how far the portrait's frame tucks under the bar frame's left end
+-- Target of target: a small copy of the ordinary monster bar with its portrait ring, right of
+-- the target's frame.
+local TOT_K = 0.6 -- its size against the target bar's
+local TOT_GAP = 6 -- between the target's frame and the ToT's portrait ring
+-- Friendly fill tint: a deep forest green (the old 0.25, 0.7, 0.3 read lime on the bar's art).
+local FRIEND_GREEN = { 0.13, 0.45, 0.16 }
 local SMOOTH = 10 -- health catch-up rate (per second, exponential)
 local TRAIL_HOLD, TRAIL_RATE = 0.45, 3 -- the pale damage trail: pause, then drain
 
@@ -212,9 +218,9 @@ local function SetPiece(plate, rank)
 		plate.edgeGlow.core:SetHeight(bar[4])
 	end
 	LayoutTexts(plate)
-	-- The target of target's name follows this frame's right end, on the bar's line.
-	plate.ToTText:ClearAllPoints()
-	plate.ToTText:SetPoint("LEFT", plate.Health, "RIGHT", (piece[3] - bar[1] - bar[3]) + 4, 0)
+	-- The target of target follows this frame's right end, on the bar's line.
+	plate.ToTArt:ClearAllPoints()
+	plate.ToTArt:SetPoint("LEFT", plate.Health, "RIGHT", (piece[3] - bar[1] - bar[3]) + TOT_GAP, 0)
 	if plate.liquid then
 		for _, layer in ipairs(plate.liquid.layers) do
 			layer:SetSize(plate.barW, plate.barH)
@@ -857,7 +863,7 @@ local function PlaceAuras(buttons, count, spec, ref)
 	return count > 0 and math.ceil(count / cols) * pitch or 0
 end
 
-local function UpdateAuras(plate)
+local function UpdateAuraIcons(plate)
 	local opt = Opt()
 	local debuffs = opt.debuffs and Collect("HARMFUL", math.min(MAX_AURAS, opt.maxDebuffs or 16)) or {}
 	local buffs = opt.buffs and Collect("HELPFUL", math.min(MAX_AURAS, opt.maxBuffs or 8)) or {}
@@ -889,27 +895,279 @@ local function UpdateAuras(plate)
 end
 
 ---------------------------------------------------------------------------
+-- Aura containers. On clients with the restricted aura API (this one) a target's auras can't
+-- be read by an addon at all in combat: every read above throws, and the rows come up empty.
+-- Blizzard's answer is the AuraContainer widget (Plater and ElvUI use it too): the client
+-- finds, sorts and fills the icons itself, and the addon only supplies the look. We never
+-- learn how many there are, so the container sizes itself and the cast bar hangs off it.
+--
+-- Debuffs: "mine" (bright) and "others" (dimmed) groups on one line, yours first. Buffs on the
+-- debuffs' side are a third group starting on a new line, else their own container.
 
--- The button shows and hides itself (RegisterUnitWatch); this keeps its text current.
-local function UpdateToT(plate)
-	local text = plate.ToTText
-	if UnitExists("targettarget") then
-		local name = ns.Or(UnitName("targettarget"), "")
-		local isYou = UnitIsUnit("targettarget", "player")
-		if not Secret(isYou) and isYou then
-			text:SetText("|cffff6040>> " .. (YOU or "You") .. "|r")
-		elseif not pcall(text.SetFormattedText, text, ">> %s", name) then
-			text:SetText("")
-		end
-		text:Show()
-	else
-		text:Hide()
-		plate.ToTHover:Hide()
+local function HasTemplate(name)
+	if not (C_XMLUtil and C_XMLUtil.GetTemplateInfo) then return false end
+	local ok, info = pcall(C_XMLUtil.GetTemplateInfo, name)
+	return ok and info ~= nil
+end
+
+local HAS_CONTAINERS = HasTemplate("CustomAuraContainerTemplate")
+local NO_LAYOUT_SCRIPTS = HasTemplate("DisableUntrustedLayoutScriptsTemplate") and "DisableUntrustedLayoutScriptsTemplate" or nil
+
+-- Socket tints: your debuffs gold, the others' grey, buffs plain.
+local AURA_LOOK = {
+	mine = { socket = { 1, 0.85, 0.5 }, alpha = 1 },
+	others = { socket = { 0.55, 0.5, 0.45 }, alpha = 0.6, grey = true },
+	buffs = { socket = { 1, 1, 1 }, alpha = 1 },
+}
+
+-- Size an aura button and fit its stone socket around it (no OnSizeChanged hook: aura buttons
+-- don't run addon layout scripts).
+local function SizeAuraButton(button, size)
+	button:SetSize(size, size)
+	local socket = button.sanctuarySocketTex
+	if socket then
+		local inset = ns.Art.SOCKET_INSET
+		local fw = size / (1 - inset.left - inset.right)
+		local fh = size / (1 - inset.top - inset.bottom)
+		socket:ClearAllPoints()
+		socket:SetPoint("TOPLEFT", button, "TOPLEFT", -fw * inset.left, fh * inset.top)
+		socket:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", fw * inset.right, -fh * inset.bottom)
 	end
 end
 
--- The target's moving 3D portrait, square, behind the D3 frame, which hides its corners; out of
+-- Called by the client for each button it makes, before it locks the button down. Everything
+-- about the look is set here: afterwards the button can't be touched while auras are secret.
+local function DressAuraButton(button, look, size)
+	local style = AURA_LOOK[look]
+	local socket = button:CreateTexture(nil, "BACKGROUND", nil, -7)
+	if ns.Art.Apply(socket, "socket") then
+		socket:SetTexCoord(unpack(ns.Art.SOCKET_TEXCOORD))
+	else
+		socket:SetColorTexture(0.05, 0.05, 0.05, 0.9)
+	end
+	socket:SetVertexColor(style.socket[1], style.socket[2], style.socket[3])
+	button.sanctuarySocketTex = socket
+
+	local icon = button:CreateTexture(nil, "ARTWORK")
+	icon:SetAllPoints()
+	icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	icon:SetDesaturated(style.grey or false)
+	button:SetIcon(icon)
+
+	local cooldown = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
+	cooldown:SetAllPoints()
+	cooldown:SetReverse(true)
+	cooldown:EnableMouse(false)
+	if cooldown.SetDrawEdge then cooldown:SetDrawEdge(false) end
+	if cooldown.SetDrawBling then cooldown:SetDrawBling(false) end
+	if cooldown.SetHideCountdownNumbers then cooldown:SetHideCountdownNumbers(true) end
+	button:SetDurationCooldown(cooldown)
+
+	-- The stack count above the sweep.
+	local over = CreateFrame("Frame", nil, button)
+	over:SetAllPoints()
+	over:EnableMouse(false)
+	over:SetFrameLevel(cooldown:GetFrameLevel() + 1)
+	local count = over:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+	count:SetPoint("BOTTOMRIGHT", 1, 1)
+	button:SetApplicationCount(count)
+
+	if button.SetTooltipAnchorPoint then button:SetTooltipAnchorPoint("ANCHOR_BOTTOMRIGHT", 0, 0) end
+	button:SetAlpha(style.alpha)
+	SizeAuraButton(button, size)
+end
+
+-- Layout per group: spacing between icons, between lines, and the icon size.
+local function GroupLayout(spec, newLine)
+	return {
+		elementSpacing = spec.gap, lineSpacing = spec.gap + 2,
+		groupLineSpacing = spec.gap + 2, forceNewLine = newLine or false,
+		elementWidth = spec.size, elementHeight = spec.size,
+	}
+end
+
+-- The groups each container holds, in display order. size() reads the current setting, so
+-- buttons made later (more than the first batch of auras) come out at the right size.
+local DEBUFF_GROUPS = {
+	{ key = "mine", filter = "HARMFUL", look = "mine", candidates = { isFromPlayerOrPlayerPet = true } },
+	{ key = "others", filter = "HARMFUL", look = "others", candidates = { isFromPlayerOrPlayerPet = false } },
+	{ key = "buffs", filter = "HELPFUL", look = "buffs", newLine = true, kind = "buff" },
+}
+local BUFF_GROUPS = {
+	{ key = "buffs", filter = "HELPFUL", look = "buffs", kind = "buff" },
+}
+
+local function MakeBox(plate, name, groups)
+	local box = CreateFrame("AuraContainer", name, plate, "CustomAuraContainerTemplate")
+	box:SetSize(1, 1)
+	for _, group in ipairs(groups) do
+		local kind = group.kind or "debuff"
+		local look = group.look
+		local opt = Opt()
+		local spec = AuraSpec(opt, kind)
+		-- A start (ConfigureBoxes sets the real one) in case the first update is in combat.
+		local max = kind == "buff" and (opt.maxBuffs or 8) or (opt.maxDebuffs or 16)
+		if group.newLine then max = 0 end
+		box:AddAuraGroup(group.key, group.filter, {
+			maxFrameCount = math.min(MAX_AURAS, max),
+			sortMethod = AuraContainerSortMethod and AuraContainerSortMethod.Default or 0,
+			sortDirection = AuraContainerSortDirection and AuraContainerSortDirection.Normal or 0,
+			candidateFilters = group.candidates,
+			initializeFrame = function(button)
+				DressAuraButton(button, look, AuraSpec(Opt(), kind).size)
+			end,
+			layout = GroupLayout(spec, group.newLine),
+		})
+	end
+	box:SetUnit("target")
+	box:SetEnabled(true)
+	return box
+end
+
+-- Builds the containers once. False when this client has none (or refuses), so the plain
+-- icons are used instead.
+local function MakeBoxes(plate)
+	if not HAS_CONTAINERS then return false end
+	local ok, debuffBox, buffBox = pcall(function()
+		return MakeBox(plate, "SanctuaryUITargetDebuffs", DEBUFF_GROUPS), MakeBox(plate, "SanctuaryUITargetBuffs", BUFF_GROUPS)
+	end)
+	if not ok then
+		if ns.LogError then ns.LogError("target", "aura containers: " .. tostring(debuffBox)) end
+		return false
+	end
+	plate.debuffBox, plate.buffBox = debuffBox, buffBox
+	return true
+end
+
+-- Flow: icons grow away from the anchored edge, lines away from the bar.
+local function FlowBox(box, spec, cols)
+	local above = spec.pos == "above"
+	local dirs = AnchorUtil and AnchorUtil.FlowDirection or { Left = -1, Right = 1, Up = 1, Down = -1 }
+	box:SetFlowLayoutAnchorPoint((above and "BOTTOM" or "TOP") .. (spec.grow == "left" and "RIGHT" or "LEFT"))
+	box:SetFlowLayoutGrowthDirection(spec.grow == "left" and dirs.Left or dirs.Right, above and dirs.Up or dirs.Down)
+	box:SetFlowLayoutMaximumLineSize(cols * spec.size + (cols - 1) * spec.gap)
+end
+
+-- Filters, counts, sizes and flow: only when a setting changed, and only out of combat (the
+-- buttons can't be resized while auras are secret).
+local function ConfigureBoxes(plate, opt, d, b, same)
+	local preview = Previewing() and true or false
+	local key = table.concat({
+		tostring(opt.debuffs), tostring(opt.buffs), tostring(same), tostring(preview),
+		opt.maxDebuffs or 16, opt.maxBuffs or 8,
+		d.pos, d.align, d.grow, d.size, d.cols, d.gap, b.pos, b.align, b.grow, b.size, b.cols, b.gap,
+	}, ":")
+	if plate.boxKey == key or InCombatLockdown() then return end
+	plate.boxKey = key
+	local maxD = math.min(MAX_AURAS, opt.maxDebuffs or 16)
+	local maxB = math.min(MAX_AURAS, opt.maxBuffs or 8)
+	-- Previewing (no target): your own buffs stand in for the debuffs, as before.
+	local unit = preview and "player" or "target"
+	local function Set(box, group, enabled, max, filter, spec)
+		box:SetAuraGroupEnabled(group.key, enabled)
+		box:SetAuraGroupMaxFrameCount(group.key, enabled and max or 0)
+		box:SetAuraGroupFilterString(group.key, filter)
+		box:SetAuraGroupLayout(group.key, GroupLayout(spec, group.newLine))
+		for i = 1, box:GetAuraGroupFrameCount(group.key) do
+			local button = box:GetAuraGroupFrame(group.key, i)
+			if button then SizeAuraButton(button, spec.size) end
+		end
+	end
+	local db = plate.debuffBox
+	for _, group in ipairs(DEBUFF_GROUPS) do
+		if group.key == "buffs" then
+			Set(db, group, same, maxB, "HELPFUL", b)
+		else
+			Set(db, group, opt.debuffs and true or false, maxD, preview and "HELPFUL" or "HARMFUL", d)
+		end
+	end
+	Set(plate.buffBox, BUFF_GROUPS[1], (opt.buffs and not same) and true or false, maxB, "HELPFUL", b)
+	-- The debuffs' flow sets the shared line's width when buffs join them.
+	FlowBox(db, d, d.cols)
+	FlowBox(plate.buffBox, b, b.cols)
+	db:SetUnit(unit)
+	plate.buffBox:SetUnit(unit)
+end
+
+-- Anchor a container to its start line. Centred, it sizes itself and is pinned by its middle.
+-- Left or right, it is a band as wide as the bar starting at the bar's end, the icons flowing
+-- from the band's edge. Either way its centre is known (the client keeps its size secret), so
+-- this returns that centre's offset from the plate's, for the cast bar to hang under it.
+local function AnchorBox(box, spec, ref, width)
+	local vpoint = spec.pos == "above" and "BOTTOM" or "TOP"
+	box:ClearAllPoints()
+	if spec.align == "center" then
+		box:SetPoint(vpoint, ref, vpoint, spec.x, 0)
+		return spec.x
+	end
+	local edge = vpoint .. (spec.align == "left" and "LEFT" or "RIGHT")
+	local from = spec.grow == "left" and spec.x - width or spec.x
+	box:SetPoint(vpoint .. "LEFT", ref, edge, from, 0)
+	box:SetPoint(vpoint .. "RIGHT", ref, edge, from + width, 0)
+	return (spec.align == "left" and -width / 2 or width / 2) + from + width / 2
+end
+
+local function UpdateBoxes(plate)
+	local opt = Opt()
+	local d, b = AuraSpec(opt, "debuff"), AuraSpec(opt, "buff")
+	local same = (opt.debuffs and opt.buffs and b.pos == d.pos) and true or false
+	ConfigureBoxes(plate, opt, d, b, same)
+
+	local width = plate.barW or 252
+	local dAway = d.pos == "above" and d.y or -d.y
+	PlaceRef(plate, plate.auraRef, d.pos, dAway)
+	local dMid = AnchorBox(plate.debuffBox, d, plate.auraRef, width)
+	local bAway = b.pos == "above" and b.y or -b.y
+	PlaceRef(plate, plate.buffRef, b.pos, bAway)
+	local bMid = AnchorBox(plate.buffBox, b, plate.buffRef, width)
+	plate.debuffBox:SetShown(opt.debuffs or same)
+	plate.buffBox:SetShown(opt.buffs and not same)
+	-- A target change: have the client read the new unit.
+	plate.debuffBox:UpdateAllAuras()
+	plate.buffBox:UpdateAllAuras()
+
+	-- The cast bar hangs under whichever container is below the bar (it may anchor to one:
+	-- it was made without layout scripts), else under the rank line.
+	local under, mid
+	if (opt.debuffs or same) and d.pos ~= "above" then
+		under, mid = plate.debuffBox, dMid
+	elseif opt.buffs and not same and b.pos ~= "above" then
+		under, mid = plate.buffBox, bMid
+	end
+	plate.Cast:ClearAllPoints()
+	if not (under and plate.castAnchorable and pcall(plate.Cast.SetPoint, plate.Cast, "TOP", under, "BOTTOM", -mid, -4)) then
+		plate.Cast:ClearAllPoints()
+		plate.Cast:SetPoint("TOP", plate, "TOP", 0, -(SUB_Y + ((plate.Sub:GetText() or "") ~= "" and 16 or 2)))
+	end
+end
+
+local function UpdateAuras(plate)
+	if plate.debuffBox then
+		local ok, err = pcall(UpdateBoxes, plate)
+		if not ok and ns.LogError then ns.LogError("target", "aura containers: " .. tostring(err)) end
+	else
+		UpdateAuraIcons(plate)
+	end
+end
+
+---------------------------------------------------------------------------
+
+-- A unit's moving 3D portrait, square, behind the D3 frame, which hides its corners; out of
 -- view (no model to draw) its round 2D portrait instead, masked into the hole.
+local function ShowPortrait(portrait, unit)
+	local visible = UnitIsVisible(unit)
+	if not Secret(visible) and visible then
+		portrait.model:SetUnit(unit)
+		pcall(portrait.model.SetPortraitZoom, portrait.model, 1)
+		portrait.model:Show()
+		portrait.face:Hide()
+	else
+		portrait.model:Hide()
+		SetPortraitTexture(portrait.face, unit)
+		portrait.face:Show()
+	end
+end
+
 local function UpdatePortrait(plate)
 	local portrait = plate.Portrait
 	if not Opt().portrait or not UnitExists(U()) then
@@ -917,16 +1175,76 @@ local function UpdatePortrait(plate)
 		return
 	end
 	portrait:Show()
-	local visible = UnitIsVisible(U())
-	if not Secret(visible) and visible then
-		portrait.model:SetUnit(U())
-		pcall(portrait.model.SetPortraitZoom, portrait.model, 1)
-		portrait.model:Show()
-		portrait.face:Hide()
+	ShowPortrait(portrait, U())
+end
+
+-- The ToT bar's fill: red for enemies, green for friends, amber for neutrals, grey if tapped,
+-- as the target bar colours them.
+local function ToTFill(bar, red, r, g, b)
+	local path = ns.Art.Path(red and "unitFill" or "unitFillWhite")
+	if path then
+		if bar.fillPath ~= path then
+			bar.fillPath = path
+			bar:SetStatusBarTexture(path)
+		end
+		if red then r, g, b = 1, 1, 1 end
 	else
-		portrait.model:Hide()
-		SetPortraitTexture(portrait.face, U())
-		portrait.face:Show()
+		bar.fillPath = nil
+		bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+		if red then r, g, b = 0.72, 0.1, 0.08 end
+	end
+	bar:SetStatusBarColor(r, g, b, 1)
+end
+
+-- The button shows and hides itself (RegisterUnitWatch, also in combat); this keeps what it
+-- shows current. Polled (the client sends no events for targettarget); full also redraws the
+-- portrait, which otherwise only changes when the unit does (its model would restart).
+local function UpdateToT(plate, full)
+	local art = plate.ToTArt
+	local unit = "targettarget"
+	if not UnitExists(unit) then
+		plate.totGUID = nil
+		return
+	end
+	local isYou = UnitIsUnit(unit, "player")
+	if Secret(isYou) then isYou = false end
+	local friendly = UnitIsFriend("player", unit)
+	if Secret(friendly) then friendly = false end
+	local reaction = UnitReaction("player", unit)
+	if Secret(reaction) then reaction = nil end
+	local tapped = UnitIsTapDenied and UnitIsTapDenied(unit)
+	if Secret(tapped) then tapped = false end
+	local color
+	if tapped then
+		color = NAME_COLORS.tapped
+		ToTFill(art.Health, false, 0.45, 0.45, 0.45)
+	elseif friendly then
+		color = NAME_COLORS.friend
+		ToTFill(art.Health, false, unpack(FRIEND_GREEN))
+	elseif reaction and reaction == 4 then
+		color = NAME_COLORS.neutral
+		ToTFill(art.Health, false, 0.85, 0.62, 0.18)
+	else
+		color = NAME_COLORS.normal
+		ToTFill(art.Health, true)
+	end
+	-- On you: your name in warning red, so a tank sees it at a glance.
+	if isYou then
+		art.Name:SetText(YOU or "You")
+		art.Name:SetTextColor(1, 0.38, 0.25)
+	else
+		if not pcall(art.Name.SetText, art.Name, ns.Or(UnitName(unit), "")) then art.Name:SetText("") end
+		art.Name:SetTextColor(color[1], color[2], color[3])
+	end
+	-- Health may be secret: the bar takes it as is.
+	local health, maxHealth = UnitHealth(unit), UnitHealthMax(unit)
+	pcall(art.Health.SetMinMaxValues, art.Health, 0, ns.Or(maxHealth, 1))
+	pcall(art.Health.SetValue, art.Health, ns.Or(health, 0))
+	local guid = UnitGUID(unit)
+	if Secret(guid) then guid = nil end
+	if full or (guid and guid ~= plate.totGUID) then
+		plate.totGUID = guid
+		ShowPortrait(art.Portrait, unit)
 	end
 end
 
@@ -951,7 +1269,7 @@ function ns.TargetPlate.Update(snap)
 		SetFillColor(plate, false, 0.45, 0.45, 0.45)
 	elseif friendly then
 		nameColor = NAME_COLORS.friend
-		SetFillColor(plate, false, 0.25, 0.7, 0.3)
+		SetFillColor(plate, false, unpack(FRIEND_GREEN))
 	elseif reaction and reaction == 4 then
 		nameColor = NAME_COLORS.neutral
 		SetFillColor(plate, false, 0.85, 0.62, 0.18)
@@ -990,7 +1308,7 @@ function ns.TargetPlate.Update(snap)
 	plate.Sub:SetText(RANK_LABEL[classification] or "")
 
 	SetHealth(plate, snap)
-	UpdateToT(plate)
+	UpdateToT(plate, true)
 	UpdatePortrait(plate)
 	UpdateAuras(plate)
 	StartCast(plate.Cast, false)
@@ -1016,14 +1334,25 @@ function ns.TargetPlate.Layout()
 		plate:SetPoint("TOP", UIParent, "TOP", 0, -12)
 	end
 	plate.rank = nil -- redraw the frame at the new width
-	-- Target of target click area: from the narrowest frame's right end (normal) to well past
-	-- the widest's (the boss banner), on the bar's line.
+	-- Target of target click area: from the narrowest frame's right end (normal) to the end of
+	-- the ToT bar hung off the widest's (the boss banner), on the bar's line.
 	local w = opt.width or 1
+	local art = plate.ToTArt
 	local from = ns.Art.UNIT.normal[3] * w / 2
-	local to = ns.Art.UNIT.boss[3] * w / 2 + 170
+	local to = ns.Art.UNIT.boss[3] * w / 2 + TOT_GAP + art.width
 	plate.ToT:ClearAllPoints()
 	plate.ToT:SetPoint("LEFT", plate, "TOP", from, -BAR_Y)
-	plate.ToT:SetSize(to - from, 22)
+	plate.ToT:SetSize(to - from, art.height)
+	local font = TEXT_FONTS[opt.nameFont] or ns.FONT or STANDARD_TEXT_FONT
+	local size = math.max(8, math.floor((opt.nameSize or 13) * 0.8 + 0.5))
+	art.Name:SetFont(font, size, "OUTLINE")
+	if not art.Name:GetFont() then art.Name:SetFont(STANDARD_TEXT_FONT, size, "OUTLINE") end
+	if opt.enabled and opt.tot ~= false then
+		RegisterUnitWatch(plate.ToT)
+	else
+		UnregisterUnitWatch(plate.ToT)
+		plate.ToT:Hide()
+	end
 	if opt.enabled and ns.TargetPlate.preview then
 		-- Previewing: shown whether or not there is a target.
 		UnregisterUnitWatch(plate)
@@ -1058,6 +1387,133 @@ function ns.TargetPlate.ResetPosition()
 	ns.Refresh()
 end
 
+-- Hovering the target or its target: the unit's tooltip where Blizzard puts unit tooltips (as
+-- the portraits do), and a warm wash over that bar.
+local function ShowUnitTooltip(owner, unit, hover)
+	if hover then hover:Show() end
+	if not UnitExists(unit) or GameTooltip:IsForbidden() then return end
+	if GameTooltip_SetDefaultAnchor then
+		GameTooltip_SetDefaultAnchor(GameTooltip, owner)
+	else
+		GameTooltip:SetOwner(owner, "ANCHOR_BOTTOMRIGHT")
+	end
+	GameTooltip:SetUnit(unit)
+	GameTooltip:AddLine("Right-click for options", 0.6, 0.6, 0.6)
+	GameTooltip:Show()
+end
+
+local function HideUnitTooltip(hover)
+	if hover then hover:Hide() end
+	GameTooltip_Hide()
+end
+
+-- D3's hero portrait frame around a unit's portrait, at k times D3's size. A model can only be
+-- clipped square, so it is a square a little wider than the 39 px hole; the frame's solid band
+-- hides its corners and the hole reads round (measured: up to 48 px stays hidden under all
+-- three frames).
+local function MakeRing(parent, k)
+	local cell, hole = ns.Art.TARGET_RING_CELL * k, ns.Art.TARGET_RING_HOLE * k
+	local MODEL = 46 * k
+	local portrait = CreateFrame("Frame", nil, parent)
+	portrait:SetSize(cell, cell)
+	portrait:SetFrameLevel(parent:GetFrameLevel() + 4)
+	-- The hole: a pixel wider than D3's 39 px all round, so the face runs under the rim.
+	local disc = CreateFrame("Frame", nil, portrait)
+	disc:SetSize(hole + 2 * k, hole + 2 * k)
+	disc:SetPoint("CENTER")
+	-- A dark disc behind, so a portrait still loading never shows the plate through the hole.
+	portrait.back = portrait:CreateTexture(nil, "BACKGROUND")
+	portrait.back:SetSize(MODEL, MODEL)
+	portrait.back:SetPoint("CENTER")
+	portrait.back:SetColorTexture(0.03, 0.02, 0.02, 1)
+	-- Out of view: the round 2D portrait.
+	portrait.face = portrait:CreateTexture(nil, "ARTWORK")
+	portrait.face:SetAllPoints(disc)
+	ns.Art.MaskCircle(portrait.face, disc)
+	portrait.face:Hide()
+	portrait.model = CreateFrame("PlayerModel", nil, portrait)
+	portrait.model:SetSize(MODEL, MODEL)
+	portrait.model:SetPoint("CENTER")
+	portrait.model:SetFrameLevel(portrait:GetFrameLevel() + 1)
+	-- The frame art on its own layer, above the model.
+	local over = CreateFrame("Frame", nil, portrait)
+	over:SetAllPoints()
+	over:SetFrameLevel(portrait:GetFrameLevel() + 2)
+	portrait.over = over
+	portrait.ring = over:CreateTexture(nil, "OVERLAY")
+	portrait.ring:SetAllPoints()
+	portrait.ringArt = ns.Art.Apply(portrait.ring, "targetRings")
+	if portrait.ringArt then
+		portrait.ring:SetTexCoord(ns.Art.TargetRingTexCoord("normal"))
+	else
+		-- No art: the model in a plain dark square frame.
+		portrait.ring:ClearAllPoints()
+		portrait.ring:SetSize(MODEL + 6 * k, MODEL + 6 * k)
+		portrait.ring:SetPoint("CENTER")
+		portrait.ring:SetDrawLayer("BACKGROUND", -1)
+		portrait.ring:SetColorTexture(0.1, 0.08, 0.06, 1)
+		portrait.ring:SetParent(portrait)
+	end
+	return portrait
+end
+
+-- The target of target, drawn: the ordinary monster bar (silver frame, health, name inside)
+-- at TOT_K with the portrait ring at its left end, as the target bar wears it. Its left edge
+-- is the ring's; SetPiece hangs it off the target frame's right end.
+local function MakeToTArt(plate, parent)
+	local k = TOT_K
+	local piece = ns.Art.UNIT.normal
+	local bar = piece.bar
+	local reach = ns.Art.TARGET_RING.normal.reach
+	local art = CreateFrame("Frame", nil, parent)
+	art:SetFrameLevel(parent:GetFrameLevel() + 1)
+	local frameLeft = (2 * reach - RING_OVERLAP) * k
+	art.width, art.height = frameLeft + piece[3] * k, 2 * reach * k
+	art:SetSize(art.width, art.height)
+	art:EnableMouse(false)
+	-- The frame box: its top sits so the bar's middle is on the art's middle line.
+	local box = CreateFrame("Frame", nil, art)
+	box:SetSize(piece[3] * k, piece[4] * k)
+	box:SetPoint("TOPLEFT", art, "LEFT", frameLeft, (bar[2] + bar[4] / 2) * k)
+	box:SetFrameLevel(art:GetFrameLevel() + 5)
+	ns.Art.DrawSliced(box, "normal", piece[3] * k, k)
+	art.FrameBox = box
+	local health = CreateFrame("StatusBar", nil, art)
+	health:SetFrameLevel(art:GetFrameLevel() + 2)
+	health:SetPoint("TOPLEFT", box, "TOPLEFT", bar[1] * k, -bar[2] * k)
+	health:SetSize(bar[3] * k, bar[4] * k)
+	health:SetMinMaxValues(0, 1)
+	health:SetValue(1)
+	art.Health = health
+	ToTFill(health, true)
+	local well = art:CreateTexture(nil, "BACKGROUND")
+	well:SetAllPoints(health)
+	if not ns.Art.Apply(well, "unitWell") then
+		well:SetColorTexture(0.05, 0.04, 0.04, 0.95)
+	end
+	local glass = CreateFrame("Frame", nil, art)
+	glass:SetAllPoints(health)
+	glass:SetFrameLevel(art:GetFrameLevel() + 4)
+	local gloss = glass:CreateTexture(nil, "OVERLAY")
+	gloss:SetAllPoints()
+	if not ns.Art.Apply(gloss, "unitGloss") then gloss:Hide() end
+	-- Hover: a warm wash over the bar while the mouse is on the button.
+	art.Hover = glass:CreateTexture(nil, "OVERLAY", nil, 1)
+	art.Hover:SetAllPoints()
+	art.Hover:SetColorTexture(1, 0.7, 0.3, 0.22)
+	art.Hover:SetBlendMode("ADD")
+	art.Hover:Hide()
+	art.Name = box:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	art.Name:SetPoint("CENTER", health, "CENTER", 0, 0)
+	art.Name:SetWidth(bar[3] * k - 6)
+	art.Name:SetWordWrap(false)
+	art.Name:SetShadowColor(0, 0, 0, 0.85)
+	art.Name:SetShadowOffset(1, -1)
+	art.Portrait = MakeRing(art, k)
+	art.Portrait:SetPoint("CENTER", art, "LEFT", reach * k, 0)
+	return art
+end
+
 function ns.TargetPlate.Init()
 	local plate = CreateFrame("Button", "SanctuaryUITargetPlate", UIParent, "SecureUnitButtonTemplate")
 	plate:SetSize(ns.Art.UNIT.boss[3], PLATE_H)
@@ -1066,6 +1522,9 @@ function ns.TargetPlate.Init()
 	plate:SetAttribute("*type1", "target")
 	plate:SetAttribute("*type2", "togglemenu")
 	plate:RegisterForClicks("AnyUp")
+	plate:EnableMouse(true)
+	plate:SetScript("OnEnter", function(self) ShowUnitTooltip(self, "target", self.Hover) end)
+	plate:SetScript("OnLeave", function(self) HideUnitTooltip(self.Hover) end)
 	-- The frame keeps Update and Layout: it lives in a field of the module table.
 	ns.TargetPlate.frame = plate
 
@@ -1157,6 +1616,12 @@ function ns.TargetPlate.Init()
 	if not ns.Art.Apply(plate.Gloss, "unitGloss") then
 		plate.Gloss:Hide()
 	end
+	-- Hover: the same warm wash the target of target gets.
+	plate.Hover = glass:CreateTexture(nil, "OVERLAY", nil, 1)
+	plate.Hover:SetAllPoints()
+	plate.Hover:SetColorTexture(1, 0.7, 0.3, 0.22)
+	plate.Hover:SetBlendMode("ADD")
+	plate.Hover:Hide()
 
 	-- The name inside the bar, as D3 writes it; the level at the left end and the health text at
 	-- the right by default. LayoutTexts places, sizes and fonts them from the options: numbers
@@ -1188,78 +1653,19 @@ function ns.TargetPlate.Init()
 	tot:SetAttribute("*type1", "target")
 	tot:SetAttribute("*type2", "togglemenu")
 	tot:RegisterForClicks("AnyUp")
-	-- The name is plain text on the frame (it follows the rank's frame end); the button is a
-	-- fixed click area over everywhere that end can be, since it can't move in combat.
-	plate.ToTText = plate.FrameBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	plate.ToTText:SetJustifyH("LEFT")
-	plate.ToTText:SetTextColor(0.85, 0.8, 0.7)
-	plate.ToTText:Hide()
-	plate.ToTHover = plate.FrameBox:CreateTexture(nil, "ARTWORK", nil, 7)
-	plate.ToTHover:SetPoint("TOPLEFT", plate.ToTText, "TOPLEFT", -4, 2)
-	plate.ToTHover:SetPoint("BOTTOMRIGHT", plate.ToTText, "BOTTOMRIGHT", 4, -2)
-	plate.ToTHover:SetColorTexture(1, 0.7, 0.3, 0.22)
-	plate.ToTHover:Hide()
-	tot:SetScript("OnEnter", function(self)
-		plate.ToTHover:SetShown(plate.ToTText:IsShown())
-		if GameTooltip:IsForbidden() then return end
-		GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-		GameTooltip:SetUnit("targettarget")
-		GameTooltip:Show()
-	end)
-	tot:SetScript("OnLeave", function()
-		plate.ToTHover:Hide()
-		GameTooltip_Hide()
-	end)
-	tot:HookScript("OnShow", function() UpdateToT(plate) end)
-	RegisterUnitWatch(tot)
-	plate.ToT = tot
+	-- The drawn bar is a plain child (so it shows and hides with the button) that follows the
+	-- rank's frame end; the button is a fixed click area over everywhere it can be, since a
+	-- secure button can't move in combat.
+	plate.ToTArt = MakeToTArt(plate, tot)
+	tot:SetScript("OnEnter", function(self) ShowUnitTooltip(self, "targettarget", plate.ToTArt.Hover) end)
+	tot:SetScript("OnLeave", function() HideUnitTooltip(plate.ToTArt.Hover) end)
+	tot:HookScript("OnShow", function() UpdateToT(plate, true) end)
+	plate.ToT = tot -- shown by RegisterUnitWatch (Layout)
 
 	-- The optional target portrait: the target's moving WoW portrait in one of D3's hero
 	-- portrait frames (silver for normal, gold for elite and rare, the winged demon for bosses).
-	-- A model can only be clipped square, so it is a square a little wider than the 39 px hole;
-	-- the frame's solid band hides its corners and the hole reads round (measured: up to 48 px
-	-- stays hidden under all three frames).
-	local cell, hole = ns.Art.TARGET_RING_CELL, ns.Art.TARGET_RING_HOLE
-	local MODEL = 46
-	local portrait = CreateFrame("Frame", nil, plate)
-	portrait:SetSize(cell, cell)
-	portrait:SetFrameLevel(plate:GetFrameLevel() + 4)
-	-- The hole: a pixel wider than D3's 39 px all round, so the face runs under the rim.
-	local disc = CreateFrame("Frame", nil, portrait)
-	disc:SetSize(hole + 2, hole + 2)
-	disc:SetPoint("CENTER")
-	-- A dark disc behind, so a portrait still loading never shows the plate through the hole.
-	portrait.back = portrait:CreateTexture(nil, "BACKGROUND")
-	portrait.back:SetSize(MODEL, MODEL)
-	portrait.back:SetPoint("CENTER")
-	portrait.back:SetColorTexture(0.03, 0.02, 0.02, 1)
-	-- Out of view: the round 2D portrait.
-	portrait.face = portrait:CreateTexture(nil, "ARTWORK")
-	portrait.face:SetAllPoints(disc)
-	ns.Art.MaskCircle(portrait.face, disc)
-	portrait.face:Hide()
-	portrait.model = CreateFrame("PlayerModel", nil, portrait)
-	portrait.model:SetSize(MODEL, MODEL)
-	portrait.model:SetPoint("CENTER")
-	portrait.model:SetFrameLevel(portrait:GetFrameLevel() + 1)
-	-- The frame art on its own layer, above the model.
-	local over = CreateFrame("Frame", nil, portrait)
-	over:SetAllPoints()
-	over:SetFrameLevel(portrait:GetFrameLevel() + 2)
-	portrait.ring = over:CreateTexture(nil, "OVERLAY")
-	portrait.ring:SetAllPoints()
-	portrait.ringArt = ns.Art.Apply(portrait.ring, "targetRings")
-	if portrait.ringArt then
-		portrait.ring:SetTexCoord(ns.Art.TargetRingTexCoord("normal"))
-	else
-		-- No art: the model in a plain dark square frame.
-		portrait.ring:ClearAllPoints()
-		portrait.ring:SetSize(MODEL + 6, MODEL + 6)
-		portrait.ring:SetPoint("CENTER")
-		portrait.ring:SetDrawLayer("BACKGROUND", -1)
-		portrait.ring:SetColorTexture(0.1, 0.08, 0.06, 1)
-		portrait.ring:SetParent(portrait)
-	end
+	local portrait = MakeRing(plate, 1)
+	local over = portrait.over
 	-- The level plaque under the frame (LayoutTexts shows it), above the ring's art.
 	portrait.badge = ns.Art.LevelBadge(over, 60, 15, "silver")
 	portrait.badge:SetFrameLevel(over:GetFrameLevel() + 1)
@@ -1271,7 +1677,9 @@ function ns.TargetPlate.Init()
 
 	-- Cast bar: D3's thin progress bar (its orange glow fill), the spell's icon at its left
 	-- and the spell name under it; a lock and grey wash when it can't be interrupted.
-	local cast = CreateFrame("Frame", nil, plate)
+	-- Made without layout scripts, so it may hang under an aura container (see UpdateBoxes).
+	local cast = CreateFrame("Frame", nil, plate, NO_LAYOUT_SCRIPTS)
+	plate.castAnchorable = NO_LAYOUT_SCRIPTS ~= nil
 	local piece = ns.Art.UNIT.cast
 	cast:SetSize(piece[3], piece[4])
 	cast:SetPoint("TOP", plate, "TOP", 0, -(SUB_Y + 16)) -- moved under the auras by UpdateAuras
@@ -1331,8 +1739,7 @@ function ns.TargetPlate.Init()
 	end)
 	plate.Cast = cast
 
-	-- Debuffs hang below the cast bar's place, so they don't jump when a cast starts.
-	-- Aura icons hang off a thin line placed by PlaceAuraRef.
+	-- Aura rows hang off thin lines placed by PlaceRef; the cast bar goes under them.
 	plate.auraRef = CreateFrame("Frame", nil, plate)
 	plate.auraRef:SetSize(1, 1)
 	plate.buffRef = CreateFrame("Frame", nil, plate)
@@ -1342,6 +1749,8 @@ function ns.TargetPlate.Init()
 		plate.debuffs[i] = MakeAura(plate, "SanctuaryUITargetDebuff" .. i)
 		plate.buffs[i] = MakeAura(plate, "SanctuaryUITargetBuff" .. i)
 	end
+	-- Where the client has aura containers they replace these icons (see MakeBoxes).
+	MakeBoxes(plate)
 
 	ns.TargetPlate.mover = ns.MakeMover(plate, "Target", Opt, "Reset its position in /sanctuary > Target.")
 
@@ -1410,11 +1819,14 @@ function ns.TargetPlate.Init()
 		elseif event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
 			SetHealth(plate)
 		elseif event == "UNIT_AURA" then
-			UpdateAuras(plate)
+			-- The containers watch auras themselves.
+			if not plate.debuffBox then UpdateAuraIcons(plate) end
 		elseif event == "UNIT_MODEL_CHANGED" or event == "UNIT_PORTRAIT_UPDATE" then
 			UpdatePortrait(plate)
 		elseif event == "PLAYER_REGEN_ENABLED" then
 			if ns.TargetPlate.pending then ns.TargetPlate.Layout() end
+			-- Aura settings changed in combat wait for now.
+			if plate.debuffBox then UpdateAuras(plate) end
 		else
 			ns.TargetPlate.Update(event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_ENTERING_WORLD")
 		end
