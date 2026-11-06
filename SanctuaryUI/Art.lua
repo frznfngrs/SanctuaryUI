@@ -52,6 +52,13 @@ ns.Art.slots = {
 	unitGloss = { file = "unit-gloss.png" },
 	unitGlow = { file = "unit-glow.png" }, -- bloom 0-18, core 32-50 of 64x32
 	castFill = { file = "cast-fill.png" },
+	-- globe auras (GlobeAura.lua): white, ADD, drawn 2x the globe and tinted
+	auraCorona = { file = "aura-corona.png" },
+	auraRaysA = { file = "aura-rays-a.png" },
+	auraRaysB = { file = "aura-rays-b.png" },
+	auraWispsA = { file = "aura-wisps-a.png" },
+	auraWispsB = { file = "aura-wisps-b.png" },
+	auraRing = { file = "aura-ring.png" },
 }
 
 -- socket.png holds a 76x80 crop in a 128x128 PNG. The stone interior starts 4px in from the left and 7px down.

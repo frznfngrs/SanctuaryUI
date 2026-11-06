@@ -63,6 +63,35 @@ local function TargetText(key, option)
 	return option
 end
 
+-- Test mode buttons: one cast per globe aura, then the moments that end one.
+local function TestCastArgs()
+	local args = {}
+	local function Refresh()
+		local registry = LibStub("AceConfigRegistry-3.0", true)
+		if registry then registry:NotifyChange(APP) end
+	end
+	local function Button(order, name, desc, action)
+		args["t" .. order] = {
+			type = "execute",
+			order = order,
+			name = name,
+			desc = desc,
+			func = function()
+				ns.Watch.Test(action)
+				Refresh()
+			end,
+		}
+	end
+	for i, effect in ipairs(ns.Watch.EFFECTS) do
+		Button(i, effect.label, "Cast it: the aura lights with a flash. Cast it again while it is up to rekindle it; cast another seal to replace it.", effect.key)
+	end
+	Button(20, "Judgement", "Spends the seal: its light bursts outward and goes.", "judge")
+	Button(21, "Last seconds", "Jumps every lit aura to 6.5 seconds left, to watch it gutter and run out.", "fade")
+	Button(22, "Clear", "Everything goes out quietly, as when a buff is cancelled.", "clear")
+	Button(23, "Die", "Everything goes out, as on death.", "die")
+	return args
+end
+
 local HEALTH_TEXTS = {
 	none = "Nothing",
 	percent = "Percent (62%)",
@@ -429,6 +458,65 @@ local function Build()
 					liquidAnimate = Toggle(11, "Swirl", "Animate the globe liquid.", nil, "liquidAnimate"),
 					liquidSpeed = Range(12, "Swirl speed", nil, nil, "liquidSpeed", 0.25, 3, 0.05, true),
 					lowHealthPulse = Toggle(13, "Low health heartbeat", "The health globe pulses below 35%, faster as it empties.", nil, "lowHealthPulse"),
+				},
+			},
+			globeAuras = {
+				type = "group",
+				order = 2.1,
+				name = "Globe auras",
+				args = {
+					auraNote = Note(21, "Light radiates from behind a globe while one of these buffs is up. In combat this client hides your buffs from addons, so they are followed from your casts: a seal lights when you cast it, goes out when you cast another seal or Judgement spends it, and gutters as its time runs out. A seal cancelled by hand or purged in combat stays lit until its time would have ended. /sanctuary watch shows what is known."),
+					auraEnabled = Toggle(22, "Enabled", nil, "globeAuras", "enabled"),
+					auraEffects = {
+						type = "multiselect",
+						order = 23,
+						name = "Buffs",
+						values = function()
+							local values = {}
+							for _, effect in ipairs(ns.Watch.EFFECTS) do
+								values[effect.key] = effect.label .. ": " .. effect.desc
+							end
+							return values
+						end,
+						get = function(_, key) return DB().globeAuras.effects[key] end,
+						set = function(_, key, value)
+							DB().globeAuras.effects[key] = value
+							Changed()
+						end,
+						disabled = function() return not DB().globeAuras.enabled end,
+						width = "full",
+					},
+					auraIntensity = Range(24, "Brightness", nil, "globeAuras", "intensity", 0.25, 1.5, 0.05, true),
+					auraRays = Toggle(25, "Rays", "God rays turning slowly behind the globe.", "globeAuras", "rays"),
+					auraSparks = Toggle(26, "Sparks", "Motes of light rising off the rim.", "globeAuras", "sparks"),
+					auraCatch = Toggle(27, "Light on the glass", "The light wraps round onto the top of the globe's glass.", "globeAuras", "catch"),
+					testHeader = Header(40, "Test"),
+					testNote = Note(41, "Play the casts yourself, on any class: your real buffs and casts are ignored while testing, nothing is learned or saved, and the mana aura shows on whatever your resource globe holds. The same works from chat or a macro: /sanctuary aura light, wisdom, judge, fade, clear, die, off."),
+					testMode = {
+						type = "toggle",
+						order = 42,
+						name = "Test mode",
+						get = function() return ns.Watch.Testing() end,
+						set = function(_, value) ns.Watch.SetTest(value) end,
+						width = "full",
+					},
+					testLength = Range(43, "Test casts last (seconds)", "Real seals last 30 seconds. Shorter shows the whole life of an aura sooner.", "globeAuras", "testLength", 5, 60, 1),
+					testCasts = {
+						type = "group",
+						inline = true,
+						order = 44,
+						name = "Cast",
+						args = TestCastArgs(),
+					},
+					preview = {
+						type = "toggle",
+						order = 50,
+						name = "Preview loop",
+						desc = "Loop both auras without touching anything: lit by a cast, rekindled, guttering out, and judged away. Turns test mode off.",
+						get = function() return ns.GlobeAura.preview end,
+						set = function(_, value) ns.GlobeAura.SetPreview(value) end,
+						width = "full",
+					},
 				},
 			},
 			rail = {

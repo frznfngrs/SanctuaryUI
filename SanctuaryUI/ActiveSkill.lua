@@ -182,35 +182,9 @@ end
 -- Blizzard's buff frame (untainted, it shows them) gains an icon right around the cast,
 -- which says the cast put a buff on you, and the spell's own text says how long it lasts.
 -- Target debuffs (Rend, Hamstring) add no icon there, so they don't light.
-local GetDescription = (C_Spell and C_Spell.GetSpellDescription) or GetSpellDescription
 local BUFF_WINDOW = 0.6 -- seconds between a cast and a new buff icon, either way round
-
-local UNITS = { sec = 1, secs = 1, second = 1, seconds = 1, min = 60, mins = 60, minute = 60, minutes = 60, hour = 3600, hours = 3600 }
-
--- "This effect lasts 8 sec." / "Lasts 2 min." first; else the last duration in the text.
-local function DescribedLength(spellID)
-	if not GetDescription then return end
-	local ok, text = pcall(GetDescription, spellID)
-	if not ok or not Readable(text) or type(text) ~= "string" then return end
-	text = text:lower()
-	local n, unit = text:match("lasts (%d+%.?%d*) (%a+)")
-	if n and UNITS[unit] then return tonumber(n) * UNITS[unit] end
-	local last
-	for num, u in text:gmatch("(%d+%.?%d*) (%a+)") do
-		if UNITS[u] then last = tonumber(num) * UNITS[u] end
-	end
-	return last
-end
-
-local function BuffIcons()
-	local frame = _G.BuffFrame
-	if not frame or type(frame.auraFrames) ~= "table" then return 0 end
-	local count = 0
-	for _, button in ipairs(frame.auraFrames) do
-		if not button.isAuraAnchor and button:IsShown() then count = count + 1 end
-	end
-	return count
-end
+local DescribedLength = ns.DescribedLength
+local BuffIcons = ns.BuffIcons
 
 local iconCount, iconGained = 0, -math.huge
 -- A cast that may have put a buff on you, waiting for its icon: { id, name, time, length }.
@@ -652,6 +626,29 @@ function ns.ActiveSkill.Report()
 		lines = lines + 1
 	end)
 	if lines == 0 then ns.Print("no spells on the visible bars") end
+end
+
+-- Watch.lua knows a buff ended early that only a reading could show (a seal judged away or
+-- replaced by another): drop what we predicted or kept from before combat, so its socket goes
+-- dark now rather than when the old timer runs out. A current reading is left alone.
+function ns.ActiveSkill.Forget(name)
+	if not name then return end
+	local dropped = false
+	for key, entry in pairs(auraBySpell) do
+		if (entry.predicted or refused) and GetSpellName(key) == name then
+			auraBySpell[key] = nil
+			dropped = true
+		end
+	end
+	local entry = auraByName[name]
+	if entry and (entry.predicted or refused) then
+		auraByName[name] = nil
+		dropped = true
+	end
+	if dropped then
+		dirty = true
+		ns.Log("active: forgot %s (ended early)", name)
+	end
 end
 
 function ns.ActiveSkill.ApplySettings()
