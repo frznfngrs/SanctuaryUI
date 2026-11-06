@@ -355,18 +355,28 @@ local function Slash(msg)
 			ns.Totem.SetPreview(not ns.Totem.preview)
 		end
 	elseif cmd == "aura" then
-		-- Globe aura test mode, for any class: /sanctuary aura light | wisdom | judge | fade | clear | die | off
+		-- Globe aura test mode, for any class: /sanctuary aura <buff name> | break | spend | hit
+		-- | judge | fade | clear | die | showcase | on | off
 		local action = rest:lower()
+		local MOMENTS = "break, spend, hit, judge, fade, clear, die, showcase, off"
 		if action == "off" then
+			ns.GlobeAura.SetPreview(false)
 			ns.Watch.SetTest(false)
 			ns.Print("aura test off")
 		elseif action == "on" then
 			ns.Watch.SetTest(true)
-			ns.Print("aura test on: /sanctuary aura light, wisdom, judge, fade, clear, die, off")
+			ns.Print("aura test on: /sanctuary aura <buff name>, or " .. MOMENTS)
+		elseif action == "showcase" then
+			ns.GlobeAura.SetPreview(not ns.GlobeAura.preview)
+		elseif action == "hit" then
+			if not ns.GlobeAura.Hit() then ns.Print("no shield up to take the hit") end
 		elseif not (ns.Watch and ns.Watch.Test and ns.Watch.Test(action)) then
+			local _, class = UnitClass("player")
 			local names = {}
-			for _, effect in ipairs(ns.Watch.EFFECTS) do names[#names + 1] = effect.label end
-			ns.Print("aura on | off | judge | fade | clear | die | a buff's name: " .. table.concat(names, ", "))
+			for _, effect in ipairs(ns.Watch.EFFECTS) do
+				if effect.class == class or effect.class == "ANY" then names[#names + 1] = effect.label:lower() end
+			end
+			ns.Print("aura <buff name> (yours: " .. table.concat(names, ", ") .. "; any class works), or " .. MOMENTS)
 		end
 	elseif cmd == "log" then
 		ns.ShowLog()

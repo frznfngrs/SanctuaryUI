@@ -1121,9 +1121,11 @@ AURA_SCALE = 2.0
 AURA_RIM = 1 / AURA_SCALE
 
 
-def polar_noise(n_theta, n_rho, k_theta, k_rho, beta, seed):
+def polar_noise(n_theta, n_rho, k_theta, k_rho, beta, seed, min_theta=0):
     """Noise on a (rho, theta) grid, seamless around theta. k_theta / k_rho: the highest cycles
-    across the grid on each axis; long and thin in rho when k_rho is small (streaks, rays)."""
+    across the grid on each axis; long and thin in rho when k_rho is small (streaks, rays).
+    min_theta drops variations slower than that many cycles round the circle: without it the
+    1/f weighting lets one or two lobes take over and the sprite looks off centre."""
     np = _np()
     rng = np.random.default_rng(seed)
     f = np.fft.fft2(rng.standard_normal((n_rho, n_theta)))
@@ -1132,6 +1134,8 @@ def polar_noise(n_theta, n_rho, k_theta, k_rho, beta, seed):
     r = np.sqrt(fr * fr + ft * ft)
     amp = np.exp(-r * r) / np.maximum(r, 1 / max(k_theta, k_rho)) ** (beta / 2)
     amp[0, 0] = 0
+    if min_theta:
+        amp[:, np.abs(np.fft.fftfreq(n_theta, 1 / n_theta)) < min_theta] = 0
     return normalise(np.real(np.fft.ifft2(f * amp)))
 
 
@@ -1233,7 +1237,7 @@ def globe_aura() -> None:
     # Wisps: ridged turbulence, warped so each tongue leans, cut off a short way past the rim.
     cells = []
     for seed in (31, 32):
-        base = polar_noise(n_theta, n_rho, 36, 9, 1.8, seed)
+        base = polar_noise(n_theta, n_rho, 36, 9, 1.8, seed, min_theta=8)
         warp = (polar_noise(n_theta, n_rho, 6, 3, 2.0, seed + 50) - 0.5) * 0.35
         shifted = np.empty_like(base)
         cols = np.arange(n_theta)
@@ -1242,7 +1246,7 @@ def globe_aura() -> None:
             shifted[i] = np.interp((cols - lean) % n_theta, cols, base[i], period=n_theta)
         ridge = 1 - np.abs(shifted * 2 - 1)
         tongues = smoothstep(0.55, 1.0, ridge) ** 1.3
-        reach_n = polar_noise(n_theta, 8, 40, 1, 1.2, seed + 100)[0][None, :]
+        reach_n = polar_noise(n_theta, 8, 40, 1, 1.2, seed + 100, min_theta=6)[0][None, :]
         reach = rim + 0.06 + 0.16 * reach_n
         t = np.clip((rho - rim + 0.01) / (reach - rim + 0.01), 0, 1)
         along = smoothstep(0.0, 0.12, t) * (1 - t) ** 1.25
@@ -1254,8 +1258,8 @@ def globe_aura() -> None:
     # Shockwave ring for the flashes (lit, rekindled, judged away): a hard leading edge on the
     # rim with a soft trail inside it, torn in places, hollow so it can swell past the globe
     # without painting a disc.
-    tear = polar_noise(n_theta, 8, 18, 1, 1.3, 41)[0][None, :]
-    grain = polar_noise(n_theta, n_rho, 90, 6, 1.1, 42)
+    tear = polar_noise(n_theta, 8, 18, 1, 1.3, 41, min_theta=6)[0][None, :]
+    grain = polar_noise(n_theta, n_rho, 90, 6, 1.1, 42, min_theta=12)
     d = rho - rim
     lead = np.exp(-((np.clip(d, 0, None) / 0.009) ** 2))
     trail = np.exp(np.clip(d, None, 0) / 0.035) * 0.8
@@ -1265,10 +1269,223 @@ def globe_aura() -> None:
     save_glow(OUT / "aura-ring.png", polar_to_square(ring, 512), 4)
 
 
+def globe_shell() -> None:
+    """Shields over a globe's glass, D3's Diamond Skin read as a crystal shell. Drawn the size
+    of the globe, sphere filling the square's disc, white in alpha, tinted in Lua.
+
+      shell-rim.png    512x512  fresnel: clear in the middle, bright toward the edge, a hard lip
+      shell-facets.png 512x512  crystal facets on the sphere: bright seams, each face its own
+                                strength, strongest toward the rim
+      shell-sheen.png  256x256  a soft diagonal glint band, slid across under the globe mask
+      shell-shard-a/b.png 64x64 two shard shapes with lit edges, thrown out when a shell breaks
+    """
+    np = _np()
+    n, ss = 512, 2
+    c = (np.arange(n * ss) + 0.5) / (n * ss) * 2 - 1
+    x, y = np.meshgrid(c, -c)
+    rr = x * x + y * y
+    inside = rr < 1
+    z = np.sqrt(np.clip(1 - rr, 0, 1))
+
+    def down(a):
+        return a.reshape(n, ss, n, ss).mean(axis=(1, 3))
+
+    r = np.sqrt(rr)
+    fres = (1 - z) ** 2.2
+    lip = np.exp(-(((r - 0.975) / 0.012) ** 2))
+    rim = np.clip((fres * 0.85 + lip * 0.9) * inside, 0, 1)
+    save_glow(OUT / "shell-rim.png", down(rim), 5)
+
+    # Facets: Voronoi cells of points on the front of the sphere, measured on the sphere.
+    rng = np.random.default_rng(51)
+    k = 46
+    u = rng.uniform(-1, 1, k)
+    phi = rng.uniform(0, 2 * np.pi, k)
+    sx, sy = np.sqrt(1 - u * u) * np.cos(phi), np.sqrt(1 - u * u) * np.sin(phi)
+    sz = np.abs(u)
+    seeds = np.stack([sx, sy, sz], 1)
+    seeds = seeds[seeds[:, 2] > -0.1]
+    P = np.stack([x, y, z], -1)[..., None, :]
+    d = np.linalg.norm(P - seeds[None, None], axis=-1)
+    order = np.sort(d, axis=-1)
+    d1, d2 = order[..., 0], order[..., 1]
+    nearest = np.argmin(d, axis=-1)
+    seam = np.exp(-((d2 - d1) / 0.018) ** 2)
+    face = rng.uniform(0.15, 0.55, len(seeds))[nearest]
+    facets = (seam * 0.95 + face * 0.35) * (0.35 + 0.65 * (1 - z) ** 0.8) * inside
+    save_glow(OUT / "shell-facets.png", down(np.clip(facets, 0, 1)), 6)
+
+    m = 256
+    cc = (np.arange(m) + 0.5) / m * 2 - 1
+    gx, gy = np.meshgrid(cc, -cc)
+    band = np.exp(-(((gx + gy) / np.sqrt(2) / 0.16) ** 2)) * 0.9 + np.exp(-(((gx + gy) / np.sqrt(2) / 0.04) ** 2)) * 0.5
+    save_glow(OUT / "shell-sheen.png", np.clip(band, 0, 1), 7)
+
+    # Shards: irregular slivers, filled faintly with bright edges.
+    from PIL import ImageDraw, ImageFilter  # noqa: PLC0415
+    shapes = {"a": [(30, 2), (44, 22), (36, 61), (20, 40)], "b": [(8, 12), (56, 4), (40, 30), (22, 58)]}
+    for name, pts in shapes.items():
+        big = Image.new("L", (256, 256), 0)
+        draw = ImageDraw.Draw(big)
+        p4 = [(px * 4, py * 4) for px, py in pts]
+        draw.polygon(p4, fill=70)
+        draw.line(p4 + [p4[0]], fill=255, width=7)
+        a = big.filter(ImageFilter.GaussianBlur(2)).resize((64, 64), Image.LANCZOS)
+        white = Image.new("L", (64, 64), 255)
+        Image.merge("RGBA", (white, white, white, a)).save(OUT / f"shell-shard-{name}.png")
+
+
+def globe_surge() -> None:
+    """aura-spiral.png 512x512: arms of light curling in to the rim, turned and shrunk in Lua so
+    they pour into the globe (Evocation, Innervate, drinking). Same frame as the auras."""
+    np = _np()
+    rim = AURA_RIM
+    n_theta, n_rho = 2048, 512
+    rho = np.linspace(0, 1, n_rho)[:, None]
+    theta = np.linspace(0, 2 * np.pi, n_theta, endpoint=False)[None, :]
+    # Many thin arms all the way round, so it reads as a vortex rather than a few swooshes.
+    streak = polar_noise(n_theta, n_rho, 90, 4, 1.1, 61, min_theta=12)
+    # Curl: shift each ring of the noise by an angle that grows with the log of the radius.
+    curl = np.log(np.clip(rho, rim, 1) / rim) * 3.2
+    cols = np.arange(n_theta)
+    shifted = np.empty_like(streak)
+    for i in range(n_rho):
+        shifted[i] = np.interp((cols + curl[i, 0] / (2 * np.pi) * n_theta) % n_theta, cols, streak[i], period=n_theta)
+    arms = smoothstep(0.45, 1.0, shifted) ** 1.3
+    t = np.clip((rho - rim) / (0.88 - rim), 0, 1)
+    along = smoothstep(0, 0.08, t) * (1 - t) ** 1.2
+    spiral = np.clip(arms * along * 1.5, 0, 1) * (1 - smoothstep(0.86, 0.99, rho))
+    save_glow(OUT / "aura-spiral.png", polar_to_square(spiral, 512), 8)
+
+
+def _bolt_path(rng, a, b, rough, depth, decay=0.55):
+    """Jagged path from a to b by midpoint displacement; rough: sideways kick, of the length.
+    decay: how fast the kicks shrink per level (higher keeps more fine zigzag)."""
+    np = _np()
+    pts = [np.array(a, float), np.array(b, float)]
+    for _ in range(depth):
+        out = [pts[0]]
+        for p, q in zip(pts, pts[1:]):
+            d = q - p
+            n = np.array([-d[1], d[0]])
+            mid = (p + q) / 2 + n * rng.normal(0, rough)
+            out += [mid, q]
+        pts = out
+        rough *= decay
+    return pts
+
+
+def _fork(rng, pts, depth, width, out, spread=0.9, reach=(0.35, 0.6)):
+    """Forks off a path: each leaves at a random point, heads off at an angle to the path for
+    part of the remaining length, and may fork again. Appends (points, width0, width1)."""
+    np = _np()
+    if depth <= 0 or len(pts) < 8:
+        return
+    for _ in range(rng.integers(1, 3)):
+        i = int(rng.integers(len(pts) // 5, len(pts) * 4 // 5))
+        p, q = np.array(pts[i]), np.array(pts[min(len(pts) - 1, i + 4)])
+        d = q - p
+        d = d / (np.linalg.norm(d) + 1e-9)
+        ang = rng.choice([-1, 1]) * rng.uniform(0.35, spread)
+        dirv = np.array([d[0] * np.cos(ang) - d[1] * np.sin(ang), d[0] * np.sin(ang) + d[1] * np.cos(ang)])
+        rest = np.linalg.norm(np.array(pts[-1]) - p)
+        end = p + dirv * rest * rng.uniform(*reach)
+        branch = _bolt_path(rng, p, end, 0.3, 5)
+        out.append((branch, width, width * 0.2))
+        _fork(rng, branch, depth - 1, width * 0.6, out, spread, reach)
+
+
+def _glow_lines(size, paths, ss=4):
+    """Lightning look: a thin white-hot core, a tight glow and a wide soft one. paths: lists of
+    (points, width) or (points, width at the start, width at the end) in sprite pixels; a
+    tapered line thins from its root to its tip."""
+    from PIL import ImageDraw, ImageFilter  # noqa: PLC0415
+    np = _np()
+    big = Image.new("L", (size * ss, size * ss), 0)
+    draw = ImageDraw.Draw(big)
+    for path in paths:
+        pts, w0 = path[0], path[1]
+        w1 = path[2] if len(path) > 2 else w0
+        n = len(pts) - 1
+        for k in range(n):
+            w = w0 + (w1 - w0) * (k / max(1, n))
+            (x0, y0), (x1, y1) = pts[k], pts[k + 1]
+            draw.line([(float(x0) * ss, float(y0) * ss), (float(x1) * ss, float(y1) * ss)], fill=255, width=max(1, int(round(w * ss))))
+            r = w * ss / 2
+            draw.ellipse([float(x1) * ss - r, float(y1) * ss - r, float(x1) * ss + r, float(y1) * ss + r], fill=255)
+    core = np.asarray(big.filter(ImageFilter.GaussianBlur(ss * 0.5)).resize((size, size), Image.LANCZOS)).astype(float) / 255
+    tight = np.asarray(big.filter(ImageFilter.GaussianBlur(ss * 2.2)).resize((size, size), Image.LANCZOS)).astype(float) / 255
+    wide = np.asarray(big.filter(ImageFilter.GaussianBlur(ss * 7)).resize((size, size), Image.LANCZOS)).astype(float) / 255
+    return np.clip(core * 1.4 + tight * 1.7 + wide * 1.5, 0, 1)
+
+
+def _jagged_arc(rng, c, radius, start, span, steps=96):
+    """A path hugging a circle: a slow wander in and out plus fine jitter."""
+    np = _np()
+    th = start + np.linspace(0, span, steps)
+    wander = np.cumsum(rng.normal(0, 2.0, steps))
+    wander -= np.linspace(wander[0], wander[-1], steps)
+    fine = rng.normal(0, 1.6, steps) * (rng.random(steps) < 0.6)
+    rr = radius + wander + fine
+    return [(c + r * np.cos(t), c - r * np.sin(t)) for r, t in zip(rr, th)]
+
+
+def globe_storm() -> None:
+    """Lightning Shield (GlobeAura.lua's storm radiance).
+
+      storm-bolt-a..d.png 256x256   forked bolts from the bottom middle to near the top, thick at
+                                    the root and thinning to the tips, turned in Lua to strike
+                                    outward off the rim
+      storm-arcs-a..f.png 512x512   arcs crawling along the rim, in the aura frame (rim a quarter
+                                    of the width out from the middle), forking outward; turned
+                                    and crawled in Lua
+      storm-static.png    512x512   fine crackle all round the rim, flickered by turning it
+    """
+    np = _np()
+    for k, seed in enumerate((71, 72, 73, 74)):
+        rng = np.random.default_rng(seed)
+        main = _bolt_path(rng, (128, 252), (128 + rng.uniform(-34, 34), 10), 0.34, 7, decay=0.68)
+        # Drawn 256 px tall but shown about a globe's radius long: a thick trunk survives the shrink.
+        paths = [(main, 5.0, 1.6)]
+        _fork(rng, main, 2, 2.8, paths)
+        save_glow(OUT / f"storm-bolt-{'abcd'[k]}.png", _glow_lines(256, paths), 80 + k)
+
+    n, c, rim = 512, 256, 128
+    for k, seed in enumerate((81, 82, 83, 84, 85, 86)):
+        rng = np.random.default_rng(seed)
+        paths = []
+        for _ in range(rng.integers(2, 4)):
+            pts = _jagged_arc(rng, c, rim + 5, rng.uniform(0, 2 * np.pi), np.radians(rng.uniform(28, 70)))
+            if rng.random() < 0.5:
+                pts = pts[::-1]
+            paths.append((pts, 2.2, 0.8))
+            # Forks leap outward off the arc.
+            for _ in range(rng.integers(1, 4)):
+                i = int(rng.integers(8, len(pts) - 8))
+                p = np.array(pts[i])
+                out = (p - c) / np.linalg.norm(p - c)
+                side = np.array([-out[1], out[0]]) * rng.uniform(-0.6, 0.6)
+                end = p + (out + side) * rng.uniform(22, 60)
+                branch = _bolt_path(rng, p, end, 0.3, 5)
+                paths.append((branch, 1.5, 0.3))
+                _fork(rng, branch, 1, 0.9, paths)
+        save_glow(OUT / f"storm-arcs-{'abcdef'[k]}.png", _glow_lines(n, paths), 90 + k)
+
+    rng = np.random.default_rng(99)
+    paths = []
+    start = 0.0
+    while start < 2 * np.pi:
+        span = rng.uniform(0.25, 0.6)
+        if rng.random() < 0.7:
+            paths.append((_jagged_arc(rng, c, rim + 2 + rng.uniform(-2, 4), start, span, 32), 1.0, 0.5))
+        start += span + rng.uniform(0.05, 0.3)
+    save_glow(OUT / "storm-static.png", _glow_lines(n, paths) * 0.8, 98)
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     only = set(sys.argv[1:])
-    for step in (frame_and_glass, liquid, liquid_halves, animated_liquid, hotline, xp_fills, menu, glow, blade, socket_glow, bag_frame, bank_frame, bag_cells, d3_button, pips, pip_frames, shimmer, socket, skill_timer, icon, unit_frames, menu_flyout, target_rings, globe_aura):
+    for step in (frame_and_glass, liquid, liquid_halves, animated_liquid, hotline, xp_fills, menu, glow, blade, socket_glow, bag_frame, bank_frame, bag_cells, d3_button, pips, pip_frames, shimmer, socket, skill_timer, icon, unit_frames, menu_flyout, target_rings, globe_aura, globe_shell, globe_surge, globe_storm):
         if only and step.__name__ not in only:
             continue
         step()

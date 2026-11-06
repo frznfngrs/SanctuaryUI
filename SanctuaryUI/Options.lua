@@ -63,35 +63,6 @@ local function TargetText(key, option)
 	return option
 end
 
--- Test mode buttons: one cast per globe aura, then the moments that end one.
-local function TestCastArgs()
-	local args = {}
-	local function Refresh()
-		local registry = LibStub("AceConfigRegistry-3.0", true)
-		if registry then registry:NotifyChange(APP) end
-	end
-	local function Button(order, name, desc, action)
-		args["t" .. order] = {
-			type = "execute",
-			order = order,
-			name = name,
-			desc = desc,
-			func = function()
-				ns.Watch.Test(action)
-				Refresh()
-			end,
-		}
-	end
-	for i, effect in ipairs(ns.Watch.EFFECTS) do
-		Button(i, effect.label, "Cast it: the aura lights with a flash. Cast it again while it is up to rekindle it; cast another seal to replace it.", effect.key)
-	end
-	Button(20, "Judgement", "Spends the seal: its light bursts outward and goes.", "judge")
-	Button(21, "Last seconds", "Jumps every lit aura to 6.5 seconds left, to watch it gutter and run out.", "fade")
-	Button(22, "Clear", "Everything goes out quietly, as when a buff is cancelled.", "clear")
-	Button(23, "Die", "Everything goes out, as on death.", "die")
-	return args
-end
-
 local HEALTH_TEXTS = {
 	none = "Nothing",
 	percent = "Percent (62%)",
@@ -113,6 +84,125 @@ end
 
 local function Note(order, text)
 	return { type = "description", order = order, name = text, fontSize = "medium" }
+end
+
+-- Options > Globe auras: the look, one page per class of buffs (yours first), and a test
+-- page that plays any class's casts.
+local function GlobeAuraArgs()
+	local DATA = ns.WatchData
+	local _, myClass = UnitClass("player")
+	local testClass = myClass
+	local function Refresh()
+		local registry = LibStub("AceConfigRegistry-3.0", true)
+		if registry then registry:NotifyChange(APP) end
+	end
+	local function off() return not DB().globeAuras.enabled end
+
+	local args = {
+		intro = Note(1, "Light on the globes while a buff is up: light radiating from behind a globe, a crystal shell over it while a shield holds, or light pouring into it. In combat this client hides your buffs from addons, so they are followed from your casts (and, for shields, from the game's absorb amount, which it still shows). A buff cancelled by hand or purged in combat can stay lit until its time would have run out; the first reading after combat puts it right. /sanctuary watch shows what is known."),
+		enabled = Toggle(2, "Enabled", nil, "globeAuras", "enabled"),
+		look = Header(10, "Look"),
+		intensity = Range(11, "Brightness", nil, "globeAuras", "intensity", 0.25, 1.5, 0.05, true),
+		rays = Toggle(12, "Rays", "God rays turning slowly behind a radiating globe.", "globeAuras", "rays"),
+		sparks = Toggle(13, "Sparks", "Motes of light rising off a radiating globe's rim.", "globeAuras", "sparks"),
+		catch = Toggle(14, "Light on the glass", "Radiance wraps round onto the top of the globe's glass.", "globeAuras", "catch"),
+		settleLong = Toggle(15, "Long buffs settle down", "Buffs kept up for minutes (Lightning Shield, Inner Fire) light up in full when cast, then calm to a quiet glow after a few seconds. They still flare when recast, discharge when their charges are spent and blink in their last seconds.", "globeAuras", "settleLong"),
+	}
+
+	-- One page per class, with your class first.
+	for i, class in ipairs(DATA.CLASSES) do
+		local page = {
+			type = "group",
+			order = class == myClass and 20 or 21 + i,
+			name = DATA.CLASS_NAMES[class] .. (class == myClass and " (you)" or ""),
+			disabled = off,
+			args = {},
+		}
+		local n = 0
+		for _, effect in ipairs(DATA.EFFECTS) do
+			if effect.class == class then
+				n = n + 1
+				page.args[effect.key] = {
+					type = "toggle",
+					order = n,
+					name = effect.label,
+					desc = effect.desc:sub(1, 1):upper() .. effect.desc:sub(2) .. ".",
+					width = "full",
+					get = function() return DB().globeAuras.effects[effect.key] end,
+					set = function(_, value)
+						DB().globeAuras.effects[effect.key] = value
+						Changed()
+					end,
+				}
+			end
+		end
+		args["class" .. class] = page
+	end
+
+	-- Test: any class's casts, played through the same path as real ones.
+	local testArgs = {
+		note = Note(1, "Play casts yourself, on any class: your real buffs and casts are ignored while testing, nothing is learned or saved, and mana effects show on whatever your resource globe holds. From chat or a macro: /sanctuary aura <name> (\"shield wall\", \"lightning\"), or break, spend, judge, fade, clear, die, off."),
+		mode = {
+			type = "toggle", order = 2, name = "Test mode", width = "full",
+			get = function() return ns.Watch.Testing() end,
+			set = function(_, value) ns.Watch.SetTest(value) end,
+		},
+		length = Range(3, "Test buffs last (seconds)", "Real buffs keep their own lengths; shorter shows the whole life of an effect sooner.", "globeAuras", "testLength", 5, 60, 1),
+		class = {
+			type = "select", order = 4, name = "Class",
+			values = function()
+				local values = {}
+				for _, class in ipairs(DATA.CLASSES) do values[class] = DATA.CLASS_NAMES[class] end
+				return values
+			end,
+			sorting = DATA.CLASSES,
+			get = function() return testClass end,
+			set = function(_, value) testClass = value end,
+		},
+		casts = { type = "header", order = 10, name = "Cast" },
+		moments = { type = "header", order = 60, name = "Moments" },
+		preview = {
+			type = "toggle", order = 80, name = "Showcase loop", width = "full",
+			desc = "Loops a run of effects through test mode: Lightning Shield, Innervate, a Power Word: Shield that takes a hit and shatters, Life Tap, Arcane Power, Divine Shield, then everything running out.",
+			get = function() return ns.GlobeAura.preview end,
+			set = function(_, value) ns.GlobeAura.SetPreview(value) end,
+		},
+	}
+	for i, effect in ipairs(DATA.EFFECTS) do
+		testArgs["cast" .. effect.key] = {
+			type = "execute", order = 10 + i / 100, name = effect.label,
+			desc = effect.look == "flare" and "Plays the burst." or "Casts it on you. Cast it again while it is up to recast it.",
+			hidden = function() return effect.class ~= testClass end,
+			func = function()
+				ns.Watch.Test(effect.key)
+				Refresh()
+			end,
+		}
+	end
+	local moments = {
+		{ "judge", "Judgement", "Spends the seal: its light bursts outward and goes.", function() return testClass ~= "PALADIN" end },
+		{ "break", "Break shield", "The shield breaks and shatters." },
+		{ "spend", "Spend charges", "A charge buff (Lightning Shield, Inner Fire) runs out of charges." },
+		{ "hit", "Shield takes a hit", "The shell's facets flash, as when an absorb soaks a blow." },
+		{ "fade", "Last seconds", "Jumps everything lit to 6.5 seconds left, to watch it gutter and run out." },
+		{ "clear", "Clear", "Everything goes out quietly, as when a buff is cancelled." },
+		{ "die", "Die", "Everything goes out, as on death." },
+	}
+	for i, m in ipairs(moments) do
+		testArgs["m" .. m[1]] = {
+			type = "execute", order = 60 + i, name = m[2], desc = m[3], hidden = m[4],
+			func = function()
+				if m[1] == "hit" then
+					if not ns.GlobeAura.Hit() then ns.Print("test: no shield up to take the hit") end
+				else
+					ns.Watch.Test(m[1])
+				end
+				Refresh()
+			end,
+		}
+	end
+	args.test = { type = "group", order = 19, name = "Test", args = testArgs }
+	return args
 end
 
 -- CVar toggles (Blizzard settings that also drive the action buttons).
@@ -464,60 +554,7 @@ local function Build()
 				type = "group",
 				order = 2.1,
 				name = "Globe auras",
-				args = {
-					auraNote = Note(21, "Light radiates from behind a globe while one of these buffs is up. In combat this client hides your buffs from addons, so they are followed from your casts: a seal lights when you cast it, goes out when you cast another seal or Judgement spends it, and gutters as its time runs out. A seal cancelled by hand or purged in combat stays lit until its time would have ended. /sanctuary watch shows what is known."),
-					auraEnabled = Toggle(22, "Enabled", nil, "globeAuras", "enabled"),
-					auraEffects = {
-						type = "multiselect",
-						order = 23,
-						name = "Buffs",
-						values = function()
-							local values = {}
-							for _, effect in ipairs(ns.Watch.EFFECTS) do
-								values[effect.key] = effect.label .. ": " .. effect.desc
-							end
-							return values
-						end,
-						get = function(_, key) return DB().globeAuras.effects[key] end,
-						set = function(_, key, value)
-							DB().globeAuras.effects[key] = value
-							Changed()
-						end,
-						disabled = function() return not DB().globeAuras.enabled end,
-						width = "full",
-					},
-					auraIntensity = Range(24, "Brightness", nil, "globeAuras", "intensity", 0.25, 1.5, 0.05, true),
-					auraRays = Toggle(25, "Rays", "God rays turning slowly behind the globe.", "globeAuras", "rays"),
-					auraSparks = Toggle(26, "Sparks", "Motes of light rising off the rim.", "globeAuras", "sparks"),
-					auraCatch = Toggle(27, "Light on the glass", "The light wraps round onto the top of the globe's glass.", "globeAuras", "catch"),
-					testHeader = Header(40, "Test"),
-					testNote = Note(41, "Play the casts yourself, on any class: your real buffs and casts are ignored while testing, nothing is learned or saved, and the mana aura shows on whatever your resource globe holds. The same works from chat or a macro: /sanctuary aura light, wisdom, judge, fade, clear, die, off."),
-					testMode = {
-						type = "toggle",
-						order = 42,
-						name = "Test mode",
-						get = function() return ns.Watch.Testing() end,
-						set = function(_, value) ns.Watch.SetTest(value) end,
-						width = "full",
-					},
-					testLength = Range(43, "Test casts last (seconds)", "Real seals last 30 seconds. Shorter shows the whole life of an aura sooner.", "globeAuras", "testLength", 5, 60, 1),
-					testCasts = {
-						type = "group",
-						inline = true,
-						order = 44,
-						name = "Cast",
-						args = TestCastArgs(),
-					},
-					preview = {
-						type = "toggle",
-						order = 50,
-						name = "Preview loop",
-						desc = "Loop both auras without touching anything: lit by a cast, rekindled, guttering out, and judged away. Turns test mode off.",
-						get = function() return ns.GlobeAura.preview end,
-						set = function(_, value) ns.GlobeAura.SetPreview(value) end,
-						width = "full",
-					},
-				},
+				args = GlobeAuraArgs(),
 			},
 			rail = {
 				type = "group",
