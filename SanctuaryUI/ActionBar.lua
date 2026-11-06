@@ -63,6 +63,24 @@ ns.ActionBar.CLASS_PAGES = CLASS_PAGES
 -- socket edge), where D3 drew the mouse icon on the gold pair. 1100 / 1416 is the console scale.
 local PLAQUE_OFFSET = -8.5 * 1100 / 1416
 ns.ActionBar.PLAQUE_OFFSET = PLAQUE_OFFSET
+local SOCKET_H = 67 * 1100 / 1416 -- a console socket's height, in console units
+
+-- Console skill icons as a share of their socket (Bars > Main bar > Icon size): smaller icons
+-- sit centred in the socket with its stone around them, independent of the console's scale.
+local function IconSize()
+	local k = tonumber(ns.DB().iconSize) or 1
+	return math.max(0.6, math.min(1, k))
+end
+ns.ActionBar.IconSize = IconSize
+
+-- Size a button inside a console socket; the socket stays the click area.
+local function FitSocket(button, slot)
+	local k = IconSize()
+	local w, h = slot.w * k, slot.h * k
+	local px, py = (slot.w - w) / 2, (slot.h - h) / 2
+	button:SetSize(w, h)
+	button:SetHitRectInsets(-px, -px, -py, -py)
+end
 
 local function ButtonConfig(binding, onPlaque)
 	local opt = ns.DB().buttons
@@ -73,7 +91,9 @@ local function ButtonConfig(binding, onPlaque)
 		offsetY = 3,
 	}
 	if onPlaque then
-		hotkeyPosition = { anchor = "CENTER", relAnchor = "BOTTOM", offsetX = 0, offsetY = PLAQUE_OFFSET }
+		-- From the button's bottom edge, which rises off the socket's as the icon shrinks.
+		local offsetY = PLAQUE_OFFSET - SOCKET_H * (1 - IconSize()) / 2
+		hotkeyPosition = { anchor = "CENTER", relAnchor = "BOTTOM", offsetX = 0, offsetY = offsetY }
 	end
 	local cooldownCount
 	if opt.cooldownNumbers == "show" then
@@ -308,7 +328,7 @@ function ns.ActionBar.Layout()
 	for i = 1, PRIMARY do
 		local slot = metrics.slots[i]
 		local button = ns.ActionBar.primary[i]
-		button:SetSize(slot.w, slot.h)
+		FitSocket(button, slot)
 		button:ClearAllPoints()
 		button:SetPoint("CENTER", cluster, "BOTTOM", slot.x, base + slot.y)
 	end
@@ -337,7 +357,7 @@ function ns.ActionBar.Layout()
 				anchor:SetPoint("BOTTOMRIGHT", cluster, "BOTTOM", sockets[12].x + sockets[12].w / 2, base + sockets[12].y - sockets[12].h / 2)
 				for i = 1, ns.ActionBar.RowSpec(n).count do
 					local slot, button = sockets[i], row.buttons[i]
-					button:SetSize(slot.w, slot.h)
+					FitSocket(button, slot)
 					button:ClearAllPoints()
 					button:SetPoint("CENTER", cluster, "BOTTOM", slot.x, base + slot.y)
 				end
@@ -366,6 +386,7 @@ function ns.ActionBar.Layout()
 					local col = (i - 1) % cols
 					local line = math.floor((i - 1) / cols)
 					button:SetSize(bw, bh)
+					button:SetHitRectInsets(0, 0, 0, 0)
 					button:ClearAllPoints()
 					button:SetPoint("CENTER", anchor, "TOPLEFT", col * (bw + gap) + bw / 2, -(line * (bh + lineGap) + bh / 2))
 				end

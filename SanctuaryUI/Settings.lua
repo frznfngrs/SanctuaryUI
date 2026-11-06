@@ -11,6 +11,7 @@ ns.DEFAULTS = {
 		x = 0,
 		y = 0,
 		scale = 1,
+		iconSize = 1, -- console skill icons, of their socket; below 1 the stone shows around them
 		locked = true,
 		hideMicroMenu = true,
 
