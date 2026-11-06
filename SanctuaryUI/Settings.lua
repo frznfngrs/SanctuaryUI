@@ -21,6 +21,7 @@ ns.DEFAULTS = {
 		liquidAnimate = true,
 		liquidSpeed = 1,
 		lowHealthPulse = true,
+		lowHealthAgitate = true, -- the health globe turns faster and sloshes as health falls
 		-- light radiating from behind a globe while a chosen buff is up (GlobeAura.lua)
 		globeAuras = {
 			enabled = true,

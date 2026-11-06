@@ -27,6 +27,11 @@ ns.Liquid = ns.Liquid or {}
 --     resting surface keeps a faint travelling ripple
 --   * a gain flares the surface for a moment
 --   * health below 35% beats: the rim and swirl pulse, faster as health falls
+--   * health below half grows restless, all the way down to 10%: the liquid turns faster (to
+--     2.6x), sloshes on its own (bigger and more often), the ripple roughens, and a fast churn
+--     of deep red fades in over it, darkening the liquid. With health hidden in combat only the churn can follow it (the client
+--     feeds the hidden value through a curve into its alpha), and every change of health
+--     sloshes it
 -- The same pool drives the big globes, the split halves and the small secondary globes;
 -- the small ones zoom into the tiles (opts.zoom) so the pattern keeps its size on screen.
 
@@ -50,6 +55,11 @@ local RIPPLE = 0.0055 -- resting ripple amplitude, of the globe height
 
 local FLARE_DECAY = 3.2
 local PULSE_BELOW = 0.35
+-- Low health restlessness: from URGE_FROM of health down to URGE_FULL.
+local URGE_FROM, URGE_FULL = 0.5, 0.1
+local URGE_SPIN = 1.6 -- extra turning speed at full urgency (2.6x)
+local URGE_RIPPLE = 2.5 -- extra resting ripple at full urgency
+local CHURN = { span = 1.25, spin = -0.32, du = 0.07, dv = -0.035, alpha = 0.5 } -- the fast churn layer
 
 -- Texcoord motion per layer. span: texture widths across the globe. spin: rad/s. du, dv: drift
 -- in texture widths per second. breathe: relative scale swing and its rate. Opposing spins
@@ -152,6 +162,13 @@ local function Affine(tex, cu, cv, half, angle)
 	tex:SetTexCoord(cu - c + s, cv - s - c, cu - c - s, cv - s + c, cu + c + s, cv + s - c, cu + c - s, cv + s + c)
 end
 
+-- Highlights that keep their hue: the strong channel climbs toward full and the brighter ones
+-- lean to ember orange, as D3's health globe glints, instead of mixing toward white (which
+-- turns red pink).
+local function Hotter(r, g, b, k)
+	return math.min(1, r + (1 - r) * k), math.min(1, g * (1 + 0.6 * k) + 0.3 * k), math.min(1, b * (1 + 0.4 * k) + 0.05 * k)
+end
+
 local function Lighter(r, g, b, k)
 	return math.min(1, r * (1 - k) + k), math.min(1, g * (1 - k) + k), math.min(1, b * (1 - k) + k)
 end
@@ -160,29 +177,37 @@ end
 local Pool = {}
 Pool.__index = Pool
 
+-- The health globe's highlights keep their red; the others lighten toward white as before.
+function Pool:Light(r, g, b, k)
+	if self.pulse then return Hotter(r, g, b, k) end
+	return Lighter(r, g, b, k)
+end
+
 function Pool:SetColor(r, g, b)
 	self.color = { r, g, b }
 	self.base:SetVertexColor(r, g, b, 1)
 	self.swirl:SetVertexColor(r, g, b, LAYERS.swirl.alpha)
-	local sr, sg, sb = Lighter(r, g, b, 0.5)
+	-- The churn darkens: deep red laid over the liquid, not light added to it.
+	if self.churn then self.churn:SetVertexColor(r * 0.3, g * 0.2, b * 0.2) end
+	local sr, sg, sb = self:Light(r, g, b, 0.5)
 	if self.streaks then self.streaks:SetVertexColor(sr, sg, sb, LAYERS.streaks.alpha) end
-	local wr, wg, wb = Lighter(r, g, b, 0.35)
+	local wr, wg, wb = self:Light(r, g, b, 0.35)
 	for _, w in ipairs(self.wisps) do
 		w:SetVertexColor(wr, wg, wb, 0)
 	end
-	local hr, hg, hb = Lighter(r, g, b, 0.45)
+	local hr, hg, hb = self:Light(r, g, b, 0.45)
 	self.surfaceColor = { hr, hg, hb }
 	for _, slice in ipairs(self.slices) do
 		slice.glow:SetVertexColor(hr, hg, hb, 0.9)
 		if slice.shimmer then slice.shimmer:SetVertexColor(hr, hg, hb, 0.55) end
 	end
-	if self.rim then self.rim:SetVertexColor(Lighter(r, g, b, 0.3)) end
-	local mr, mg, mb = Lighter(r, g, b, 0.6)
+	if self.rim then self.rim:SetVertexColor(self:Light(r, g, b, 0.3)) end
+	local mr, mg, mb = self:Light(r, g, b, 0.6)
 	for _, mote in ipairs(self.motes) do
 		mote.tex:SetVertexColor(mr, mg, mb, 0)
 	end
 	if self.ghostTex then
-		local gr, gg, gb = Lighter(r, g, b, 0.3)
+		local gr, gg, gb = self:Light(r, g, b, 0.3)
 		self.ghostTex:SetVertexColor(gr, gg, gb, GHOST_ALPHA)
 		self.ghostColor = { gr, gg, gb }
 	end
@@ -238,7 +263,7 @@ function Pool:PlaceSurface(force, t)
 	local barLeft, globeLeft = self.bar:GetLeft(), self.globe:GetLeft()
 	local gx = barLeft and globeLeft and (barLeft - globeLeft) or 0
 	local tilt, bob = self.tilt or 0, self.bob or 0
-	local ripple = RIPPLE * (ns.DB().liquidAnimate and 1 or 0)
+	local ripple = RIPPLE * (ns.DB().liquidAnimate and 1 or 0) * (1 + URGE_RIPPLE * (self.urge or 0))
 	local u0 = (t * SHIMMER_DU * self.zoom + self.phase) % 1
 	local g0 = (t * GLOW_DU * self.zoom + self.phase * 3) % 1
 	local n = #self.slices
@@ -277,6 +302,9 @@ end
 function Pool:SetTarget(value, maxValue)
 	local bar = self.bar
 	if Secret(value, maxValue) then
+		-- Hidden: no level to spring to or size to read, but a change of health still sloshes.
+		if self.pulse and self.hidden then self:Kick(-0.035) end
+		self.hidden = true
 		self.target, self.level, self.vel, self.ghost = nil, nil, 0, nil
 		if self.ghostBar then self.ghostBar:Hide() end
 		if maxValue ~= nil then pcall(bar.SetMinMaxValues, bar, 0, maxValue) end
@@ -287,6 +315,7 @@ function Pool:SetTarget(value, maxValue)
 		end
 		return
 	end
+	self.hidden = nil
 	value, maxValue = value or 0, maxValue or 1
 	local _, oldMax = bar:GetMinMaxValues()
 	if Secret(oldMax) or oldMax ~= maxValue then
@@ -354,8 +383,35 @@ local function Oscillate(x, v, hz, zeta, dt)
 	return x, v
 end
 
+-- How restless low health makes the liquid, 0..1, eased so it never jumps. Needs the fill
+-- (readable health); hidden, it eases back to 0 and the churn layer takes over.
+function Pool:Urgency(dt)
+	local target = 0
+	local fill = self.fill
+	if self.pulse and ns.DB().lowHealthAgitate ~= false and fill and fill > 0 then
+		local x = Clamp((URGE_FROM - fill) / (URGE_FROM - URGE_FULL), 0, 1)
+		target = x * x * (3 - 2 * x)
+	end
+	self.urge = (self.urge or 0) + (target - (self.urge or 0)) * math.min(1, dt * 1.5)
+	if self.urge < 0.001 and target == 0 then self.urge = 0 end
+	return self.urge
+end
+
 function Pool:Physics(dt)
 	local bar = self.bar
+	-- Restless at low health: the liquid sloshes on its own, harder and more often the lower.
+	local urge = self.urge or 0
+	if urge > 0.05 and ns.DB().liquidAnimate then
+		self.restless = (self.restless or 0) - dt
+		if self.restless <= 0 then
+			self.slosh = (self.slosh or 0) + 1
+			local size = 0.02 + 0.07 * urge * (0.6 + 0.4 * Hash(self.slosh + self.phase * 50))
+			self:Kick(Hash(self.slosh * 1.7) < 0.5 and -size or size)
+			self.restless = (1.5 - 1.05 * urge) * (0.7 + 0.6 * Hash(self.slosh * 3.1))
+		end
+	else
+		self.restless = nil
+	end
 	if self.target and self.level then
 		local level, vel = Spring(self.level, self.vel or 0, self.target, LEVEL_OMEGA, dt)
 		local max = self.max or 1
@@ -438,6 +494,7 @@ function Pool:Animate(t, realTime, dt)
 	m = LAYERS.swirl
 	breathe = 1 + m.breathe * math.sin(t * m.breatheRate + phase * 3)
 	Affine(self.swirl, phase + 0.37 + t * m.du * zoom, 0.5 + t * m.dv * zoom, m.span * zoom * 0.5 * breathe, t * m.spin + phase * 2)
+	if self.churn then self:Churn(t) end
 	if self.streaks then
 		m = LAYERS.streaks
 		local u = phase + 0.71 + t * m.du * zoom
@@ -447,7 +504,7 @@ function Pool:Animate(t, realTime, dt)
 
 	-- Wisps: two copies half a cycle apart. Each fades in, drifts and turns, fades out, and is
 	-- reseeded somewhere new while invisible, so the pattern never visibly repeats or slides.
-	local wr, wg, wb = Lighter(self.color[1], self.color[2], self.color[3], 0.35)
+	local wr, wg, wb = self:Light(self.color[1], self.color[2], self.color[3], 0.35)
 	for k, w in ipairs(self.wisps) do
 		local cyc = t / WISPS.period + phase + (k - 1) * 0.5
 		local n = math.floor(cyc)
@@ -465,14 +522,14 @@ function Pool:Animate(t, realTime, dt)
 	local beat = self:Heartbeat(realTime)
 	local flare = self.flare or 0
 	if self.rim then
-		local r, g, b = Lighter(self.color[1], self.color[2], self.color[3], 0.3)
+		local r, g, b = self:Light(self.color[1], self.color[2], self.color[3], 0.3)
 		self.rim:SetVertexColor(r, g, b, Clamp(0.42 + 0.55 * beat + 0.35 * flare, 0, 1))
 	end
 	self.swirl:SetVertexColor(self.color[1], self.color[2], self.color[3], Clamp(LAYERS.swirl.alpha + 0.3 * beat, 0, 1))
 	if self.surfaceShown ~= false then
 		local c = self.surfaceColor
 		local glow = Clamp(0.85 + 0.15 * beat + 0.4 * flare, 0, 1)
-		local cr, cg, cb = Lighter(c[1], c[2], c[3], 0.5 * flare)
+		local cr, cg, cb = self:Light(c[1], c[2], c[3], 0.5 * flare)
 		for _, slice in ipairs(self.slices) do
 			slice.glow:SetVertexColor(cr, cg, cb, glow)
 		end
@@ -481,6 +538,47 @@ function Pool:Animate(t, realTime, dt)
 	self:Motes(t, dt)
 	self.clock = t
 	self:PlaceSurface(false, t)
+end
+
+-- The churn: the liquid tile again in deep red, laid over the liquid (not added to it) and
+-- turning fast against the swirl, faded in as health falls: low health roils and darkens.
+-- With readable health its alpha is the urgency; with hidden health the client puts the
+-- health fraction through a curve and straight into the alpha, so we never read it.
+local churnCurve
+local function ChurnCurve()
+	if churnCurve == nil then
+		churnCurve = false
+		if C_CurveUtil and C_CurveUtil.CreateCurve then
+			local ok, curve = pcall(C_CurveUtil.CreateCurve)
+			if ok and curve then
+				-- Health fraction -> alpha: none above half, full at 10% and below.
+				for _, p in ipairs({ { 0, 1 }, { URGE_FULL, 1 }, { 0.3, 0.5 }, { URGE_FROM, 0 }, { 1, 0 } }) do
+					pcall(curve.AddPoint, curve, p[1], p[2])
+				end
+				churnCurve = curve
+			end
+		end
+	end
+	return churnCurve or nil
+end
+
+function Pool:Churn(t)
+	local churn = self.churn
+	local m = CHURN
+	Affine(churn, self.phase + 0.53 + t * m.du * self.zoom, 0.21 + t * m.dv * self.zoom, m.span * self.zoom * 0.5, t * m.spin + self.phase * 4)
+	if ns.DB().lowHealthAgitate == false then
+		churn:SetAlpha(0)
+	elseif self.fill then
+		churn:SetAlpha(m.alpha * (self.urge or 0))
+	else
+		local curve = UnitHealthPercent and ChurnCurve()
+		local ok, alpha = false, nil
+		if curve then ok, alpha = pcall(UnitHealthPercent, "player", true, curve) end
+		if not (ok and alpha ~= nil and pcall(churn.SetAlpha, churn, alpha)) then churn:SetAlpha(0) end
+		-- The layer's own vertex alpha scales the curve's 0..1 down to the churn's strength.
+		local c = self.color
+		churn:SetVertexColor(c[1] * 0.3, c[2] * 0.2, c[3] * 0.2, m.alpha)
+	end
 end
 
 -- Motes rise from the bottom of the liquid, sway, and fade before they reach the surface.
@@ -511,7 +609,7 @@ function Pool:Motes(t, dt)
 		local tex = mote.tex
 		tex:SetPoint("CENTER", self.globe, "BOTTOMLEFT", (x + 1) * 0.5 * h, mote.y * h)
 		local c = self.color
-		local r, g, b = Lighter(c[1], c[2], c[3], 0.6)
+		local r, g, b = self:Light(c[1], c[2], c[3], 0.6)
 		tex:SetVertexColor(r, g, b, MOTE.alpha * fadeIn * fadeOut * twinkle * mote.bright)
 	end
 end
@@ -575,6 +673,10 @@ function ns.Liquid.Attach(globe, bar, opts)
 	local mask = pool.mask
 	pool.base = Layer(frame, globe, mask, "liquidTile", 0)
 	pool.swirl = Layer(frame, globe, mask, "liquidTile", 1, "ADD")
+	if opts.pulse then
+		pool.churn = Layer(frame, globe, mask, "liquidTile", 1)
+		if pool.churn then pool.churn:SetAlpha(0) end
+	end
 	if ns.Art.Path("liquidWisps") then
 		for k = 1, 2 do
 			pool.wisps[k] = Layer(frame, globe, mask, "liquidWisps", 2, "ADD")
@@ -697,11 +799,15 @@ function ns.Liquid.Start()
 		end
 		lastReal = now
 		ns.Liquid.ticks = (ns.Liquid.ticks or 0) + 1
+		local speed = tonumber(db.liquidSpeed) or 1
 		for i = 1, #pools do
 			local pool = pools[i]
+			-- Each pool runs its own clock so low health can speed one up without a jump.
+			local rate = 1 + URGE_SPIN * pool:Urgency(dt)
+			pool.t = (pool.t or clock) + (db.liquidAnimate and dt * speed * rate or 0)
 			pool:Physics(dt)
 			if pool.frame:IsVisible() then
-				pool:Animate(clock, now, dt)
+				pool:Animate(pool.t, now, dt)
 			end
 		end
 	end)

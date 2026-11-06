@@ -640,13 +640,25 @@ function ns.Globes.SetCombat(state)
 	ns.Globes.ApplyNumbers()
 end
 
+-- /sanctuary health <percent>: show the health globe at that level (to see low health
+-- without being there); nil shows your real health.
+function ns.Globes.PreviewHealth(percent)
+	ns.Globes.healthPreview = percent and math.max(0, math.min(100, percent)) / 100 or nil
+	ns.Globes.UpdateHealth()
+end
+
 function ns.Globes.UpdateHealth()
 	local globe = ns.HealthGlobe
 	if not globe then return end
 	Tint(globe, HEALTH_COLOR[1], HEALTH_COLOR[2], HEALTH_COLOR[3])
-	Fill(globe.Liquid, UnitHealth("player"), UnitHealthMax("player"))
-	SetNumber(globe.Number, UnitHealth("player"))
-	SetMax(globe.Max, UnitHealthMax("player"))
+	local health, maxHealth = UnitHealth("player"), UnitHealthMax("player")
+	if ns.Globes.healthPreview then
+		maxHealth = 1000
+		health = math.floor(ns.Globes.healthPreview * maxHealth + 0.5)
+	end
+	Fill(globe.Liquid, health, maxHealth)
+	SetNumber(globe.Number, health)
+	SetMax(globe.Max, maxHealth)
 	ns.Globes.ApplyNumbers()
 	ns.Globes.PlaceSurface(globe)
 end

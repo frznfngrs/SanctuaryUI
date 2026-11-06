@@ -269,7 +269,7 @@ local function Slash(msg)
 			ns.Options.Open()
 		end
 	elseif cmd == "help" then
-		ns.Print("/sanctuary opens options. Commands: lock, unlock, scale <n>, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, active, auras, watch, aura (test globe auras), debug on|off, log")
+		ns.Print("/sanctuary opens options. Commands: lock, unlock, scale <n>, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, active, auras, watch, aura (test globe auras), health <percent>|off (preview the health globe), debug on|off, log")
 	elseif cmd == "lock" then
 		ns.SetLocked(true)
 	elseif cmd == "unlock" then
@@ -377,6 +377,16 @@ local function Slash(msg)
 				if effect.class == class or effect.class == "ANY" then names[#names + 1] = effect.label:lower() end
 			end
 			ns.Print("aura <buff name> (yours: " .. table.concat(names, ", ") .. "; any class works), or " .. MOMENTS)
+		end
+	elseif cmd == "health" then
+		-- Preview the health globe at a level: /sanctuary health 20 | off
+		local value = tonumber((rest:gsub("%%", "")))
+		if value then
+			ns.Globes.PreviewHealth(value)
+			ns.Print(("health globe previewing %d%% (/sanctuary health off for your real health)"):format(value))
+		else
+			ns.Globes.PreviewHealth(nil)
+			ns.Print("health globe shows your health")
 		end
 	elseif cmd == "log" then
 		ns.ShowLog()
