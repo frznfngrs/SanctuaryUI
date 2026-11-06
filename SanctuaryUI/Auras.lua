@@ -138,7 +138,7 @@ local function WeaponEnchants()
 	for k, slot in ipairs({ 16, 17, 18 }) do
 		local base = (k - 1) * 4
 		local has, msLeft, charges, id = info[base + 1], info[base + 2], info[base + 3], info[base + 4]
-		if has and not Secret(has) and msLeft and not Secret(msLeft) then
+		if not Secret(has) and not Secret(msLeft) and has and msLeft then
 			local left = msLeft / 1000
 			local key = slot .. ":" .. tostring(id)
 			if not enchantLength[key] or left > enchantLength[key] then

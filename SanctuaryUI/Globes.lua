@@ -104,7 +104,7 @@ local function Fill(bar, value, maxValue)
 	elseif maxValue ~= nil then
 		pcall(bar.SetMinMaxValues, bar, 0, maxValue)
 	end
-	if not pcall(bar.SetValue, bar, value or 0) then
+	if not pcall(bar.SetValue, bar, ns.Or(value, 0)) then
 		bar:SetValue(0)
 	end
 end
@@ -447,7 +447,7 @@ local function FillPip(pip, index, value)
 	end
 	-- Secret value: the bar can still compare it against this pip's range.
 	pcall(pip.bar.SetMinMaxValues, pip.bar, index - 1, index)
-	if not pcall(pip.bar.SetValue, pip.bar, value or 0) then
+	if not pcall(pip.bar.SetValue, pip.bar, ns.Or(value, 0)) then
 		pip.bar:SetValue(index - 1)
 	end
 end
@@ -464,15 +464,15 @@ local function SecondaryPower()
 		local powerType = Enum and Enum.PowerType and Enum.PowerType[token]
 		if powerType and powerType ~= primary then
 			local maxValue = UnitPowerMax("player", powerType)
-			if maxValue and not Secret(maxValue) and maxValue > 0 then
+			if not Secret(maxValue) and maxValue and maxValue > 0 then
 				local mod = 1
 				if UnitPowerDisplayMod then
 					local displayMod = UnitPowerDisplayMod(powerType)
 					-- The display mod scales raw (unmodified) values: 50 raw soul shard
 					-- fragments / 10 = 5 shards. The default return is already in shards.
-					if displayMod and not Secret(displayMod) and displayMod > 1 then
+					if not Secret(displayMod) and displayMod and displayMod > 1 then
 						local raw = UnitPowerMax("player", powerType, true)
-						if raw and not Secret(raw) and raw / displayMod >= 1 then
+						if not Secret(raw) and raw and raw / displayMod >= 1 then
 							mod = displayMod
 							maxValue = raw / displayMod
 						end
@@ -494,7 +494,7 @@ function ns.Globes.UpdatePips()
 	local value, color
 	if powerType then
 		value = UnitPower("player", powerType, mod > 1)
-		if value and mod > 1 and not Secret(value) then
+		if not Secret(value) and value and mod > 1 then
 			value = value / mod
 		end
 		for token, c in pairs(PIP_COLORS) do

@@ -756,7 +756,7 @@ local function UpdatePets()
 			button.icon:Hide()
 		end
 		local start, duration, enable = GetPetActionCooldown(i)
-		if button.cooldown and start and duration then
+		if button.cooldown and (ns.Secret(start) or ns.Secret(duration) or (start and duration)) then
 			pcall(CooldownFrame_Set, button.cooldown, start, duration, enable)
 		end
 		if not name then

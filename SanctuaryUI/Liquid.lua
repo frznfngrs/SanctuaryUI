@@ -281,7 +281,8 @@ function Pool:SetTarget(value, maxValue)
 		if self.ghostBar then self.ghostBar:Hide() end
 		if maxValue ~= nil then pcall(bar.SetMinMaxValues, bar, 0, maxValue) end
 		local ease = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.ExponentialEaseOut
-		if not (ease and pcall(bar.SetValue, bar, value or 0, ease)) and not pcall(bar.SetValue, bar, value or 0) then
+		local shown = ns.Or(value, 0)
+		if not (ease and pcall(bar.SetValue, bar, shown, ease)) and not pcall(bar.SetValue, bar, shown) then
 			bar:SetValue(0)
 		end
 		return

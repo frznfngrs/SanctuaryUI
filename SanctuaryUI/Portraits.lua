@@ -39,9 +39,9 @@ local function Fill(bar, value, maxValue)
 	if maxValue ~= nil and not Secret(maxValue) then
 		bar:SetMinMaxValues(0, maxValue)
 	else
-		pcall(bar.SetMinMaxValues, bar, 0, maxValue or 1)
+		pcall(bar.SetMinMaxValues, bar, 0, ns.Or(maxValue, 1))
 	end
-	if not pcall(bar.SetValue, bar, value or 0) then
+	if not pcall(bar.SetValue, bar, ns.Or(value, 0)) then
 		bar:SetValue(0)
 	end
 end
@@ -167,7 +167,7 @@ local function UpdateModel(button)
 	if not UnitExists(unit) then return end
 	local model = button.model
 	local visible = UnitIsVisible(unit)
-	if visible and not Secret(visible) then
+	if not Secret(visible) and visible then
 		model:SetUnit(unit)
 		pcall(model.SetPortraitZoom, model, 1)
 		model:Show()
@@ -218,7 +218,7 @@ local function UpdateIcons(button)
 	end
 
 	local index = GetRaidTargetIndex and GetRaidTargetIndex(unit)
-	if index and not Secret(index) and SetRaidTargetIconTexture then
+	if not Secret(index) and index and SetRaidTargetIconTexture then
 		SetRaidTargetIconTexture(button.raid, index)
 		button.raid:Show()
 	else
@@ -226,7 +226,7 @@ local function UpdateIcons(button)
 	end
 
 	local happiness = button.unit == "pet" and unit == "pet" and GetPetHappiness and GetPetHappiness()
-	if happiness and not Secret(happiness) then
+	if not Secret(happiness) and happiness then
 		-- UI-PetHappiness: unhappy, content, happy left to right.
 		local x = ({ 0.375, 0.1875, 0 })[happiness] or 0
 		button.happiness:SetTexCoord(x, x + 0.1875, 0, 0.359375)
@@ -236,7 +236,7 @@ local function UpdateIcons(button)
 	end
 
 	local level = UnitLevel(unit)
-	if level and not Secret(level) and level > 0 then
+	if not Secret(level) and level and level > 0 then
 		button.level:SetText(level)
 	else
 		button.level:SetText("")

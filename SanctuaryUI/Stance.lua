@@ -109,6 +109,8 @@ function ns.Stance.Update()
 	for i = 1, math.min(MAX, NumForms()) do
 		local button = bar.buttons[i]
 		local icon, active, castable = GetShapeshiftFormInfo(i)
+		if ns.Secret(active) then active = false end
+		if ns.Secret(castable) then castable = true end
 		button.icon:SetTexture(icon)
 		button.icon:SetDesaturated(not castable)
 		button.icon:SetVertexColor(castable and 1 or 0.6, castable and 1 or 0.6, castable and 1 or 0.6)

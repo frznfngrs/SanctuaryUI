@@ -471,7 +471,7 @@ function ns.Menu.UpdateHearth()
 	hearth.sanctuaryDisabled = not have
 	ShowState(hearth)
 	local start, duration, enable = HearthCooldown()
-	if start and duration then
+	if ns.Secret(start) or ns.Secret(duration) or (start and duration) then
 		pcall(CooldownFrame_Set, hearth.cooldown, start, duration, enable)
 	end
 end

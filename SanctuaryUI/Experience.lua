@@ -93,7 +93,7 @@ function ns.Experience.Update()
 		return
 	end
 	local xp, maxXP = UnitXP("player"), UnitXPMax("player")
-	if not xp or not maxXP or Secret(xp, maxXP) then
+	if Secret(xp, maxXP) or not xp or not maxXP then
 		bar:Hide()
 		return
 	end
@@ -103,7 +103,8 @@ function ns.Experience.Update()
 	bar:SetMinMaxValues(0, maxXP)
 	bar:SetValue(xp)
 	local bonus = GetXPExhaustion and GetXPExhaustion()
-	if bonus and bonus > 0 and not Secret(bonus) and ns.DB().railRested then
+	if Secret(bonus) then bonus = nil end
+	if bonus and bonus > 0 and ns.DB().railRested then
 		rested:SetMinMaxValues(0, maxXP)
 		rested:SetValue(math.min(maxXP, xp + bonus))
 		rested:Show()
@@ -136,7 +137,7 @@ local function ShowTooltip(self)
 		GameTooltip:AddLine(("%s  %d / %d"):format(label or "", value, size), 1, 1, 1)
 	else
 		local xp, maxXP = UnitXP("player"), UnitXPMax("player")
-		if not xp or not maxXP or Secret(xp, maxXP) then return end
+		if Secret(xp, maxXP) or not xp or not maxXP then return end
 		GameTooltip:SetText(("Experience  %d / %d"):format(xp, maxXP))
 		if self.rested then
 			GameTooltip:AddLine(("Rested  %d"):format(self.rested), 0.45, 0.65, 0.95)

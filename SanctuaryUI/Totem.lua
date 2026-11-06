@@ -142,10 +142,11 @@ local function ElementOf(name, icon)
 	for i, element in ipairs(ELEMENTS) do
 		for _, totem in ipairs(element.totems) do
 			local base = GetSpellName(totem[1]) or totem[2]
-			if name and not Secret(name) and name:find(base, 1, true) == 1 then
+			-- Secret first: even a truth test on a secret value throws.
+			if not Secret(name) and name and name:find(base, 1, true) == 1 then
 				return i
 			end
-			if icon and not Secret(icon) and icon == GetSpellTexture(totem[1]) then
+			if not Secret(icon) and icon and icon == GetSpellTexture(totem[1]) then
 				return i
 			end
 		end
@@ -160,6 +161,24 @@ end
 
 -- What is down, by element: slot, name, start, duration, icon.
 local down = {}
+
+-- Is a totem down in this slot? In combat this client can make all of GetTotemInfo secret,
+-- and any test on a secret value throws, so check Secret before touching anything. With `have`
+-- hidden, the only sign left is the client's duration object (what TotemSweep runs on).
+local hiddenSeen = {}
+
+local function SlotHas(slot, have, name)
+	if not Secret(have) then
+		return have and (Secret(name) or (name ~= nil and name ~= "")) or false
+	end
+	local object = GetTotemDuration and GetTotemDuration(slot)
+	local present = type(object) ~= "nil"
+	if hiddenSeen[slot] ~= present then
+		hiddenSeen[slot] = present
+		ns.Log("totem slot %d: info secret, duration object %s", slot, present and type(object) or "none")
+	end
+	return present
+end
 
 -- Preview: earth and fire totems down on timers that loop, water and air not.
 local PREVIEW_DOWN = { [1] = 45, [2] = 20 }
@@ -192,7 +211,7 @@ local function ScanDown()
 	local learned = false
 	for slot = 1, (MAX_TOTEMS or 4) do
 		local have, name, start, duration, icon = GetTotemInfo(slot)
-		if have and name and (Secret(name) or name ~= "") then
+		if SlotHas(slot, have, name) then
 			local i = ElementOf(name, icon)
 			if i then
 				local old = SlotFor(i)
@@ -548,8 +567,9 @@ function ns.Totem.Update()
 		-- Lit while down; grey like an empty pip otherwise.
 		slot.icon:SetDesaturated(not info)
 		local shade = info and 1 or 0.55
-		if not info and chosen and IsUsableSpell and not IsUsableSpell(chosen.id) then
-			shade = 0.35
+		if not info and chosen and IsUsableSpell then
+			local usable = IsUsableSpell(chosen.id)
+			if not Secret(usable) and not usable then shade = 0.35 end
 		end
 		slot.icon:SetVertexColor(shade, shade, shade)
 		if info then

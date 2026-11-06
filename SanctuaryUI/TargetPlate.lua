@@ -104,7 +104,7 @@ local function SetShield(cast, notInterruptible)
 				region:SetAlphaFromBoolean(notInterruptible or false, 1, 0)
 			end
 		else
-			region:SetShown(notInterruptible and true or false)
+			region:SetShown(not Secret(notInterruptible) and notInterruptible and true or false)
 		end
 	end
 end
@@ -116,19 +116,20 @@ local function StartCast(cast, channel)
 	end
 	local unit = U()
 	local name, texture, startMS, endMS, notInterruptible, empowered = ReadCast(unit, channel)
-	if not name then
+	-- A secret name is still a cast (secrets are never nil).
+	if not Secret(name) and not name then
 		if not channel then
 			name, texture, startMS, endMS, notInterruptible, empowered = ReadCast(unit, true)
 			channel = true
 		end
-		if not name then
+		if not Secret(name) and not name then
 			StopCast(cast)
 			return
 		end
 	end
 	cast.channel = channel
 	cast.spellName:SetText(name)
-	cast.icon:SetTexture(texture or 136243) -- a cog when the spell has no icon
+	cast.icon:SetTexture(ns.Or(texture, 136243)) -- a cog when the spell has no icon
 	SetShield(cast, notInterruptible)
 
 	-- The client runs the bar from a duration object (works with secret times): filling as a
@@ -144,14 +145,14 @@ local function StartCast(cast, channel)
 	else
 		duration = UnitCastingDuration and UnitCastingDuration(unit)
 	end
-	if duration and bar.SetTimerDuration then
+	if type(duration) ~= "nil" and bar.SetTimerDuration then
 		local directions = Enum and Enum.StatusBarTimerDirection
 		local direction = directions and (channel and directions.RemainingTime or directions.ElapsedTime)
 		local smoothing = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.Immediate
 		bar:SetTimerDuration(duration, smoothing, direction)
 		cast.timer = true
 		cast.startMS, cast.endMS = nil, nil
-	elseif startMS and endMS and not Secret(startMS) and not Secret(endMS) then
+	elseif not Secret(startMS) and not Secret(endMS) and startMS and endMS then
 		cast.timer = nil
 		cast.startMS, cast.endMS = startMS, endMS
 		bar:SetMinMaxValues(startMS, endMS)
@@ -176,8 +177,12 @@ local function Rank()
 	local c = UnitClassification(U())
 	if Secret(c) then c = "normal" end
 	local level = UnitLevel(U())
-	local boss = c == "worldboss" or (UnitIsBossMob and UnitIsBossMob(U()) == true)
-		or (level and not Secret(level) and level == -1 and not UnitIsPlayer(U()))
+	local bossMob = UnitIsBossMob and UnitIsBossMob(U())
+	if Secret(bossMob) then bossMob = false end
+	local isPlayer = UnitIsPlayer(U())
+	if Secret(isPlayer) then isPlayer = true end
+	local boss = c == "worldboss" or bossMob == true
+		or (not Secret(level) and level and level == -1 and not isPlayer)
 	if boss then return "boss", "boss", c end
 	if c == "rare" or c == "rareelite" then return "elite", "rare", c end
 	if c == "elite" then return "elite", "elite", c end
@@ -290,12 +295,12 @@ local function SetHealthText(plate, health, maxHealth)
 	if mode == "percent" then
 		ok = hasPct and pcall(fs.SetFormattedText, fs, "%.0f%%", pct)
 	elseif mode == "current" then
-		ok = pcall(fs.SetFormattedText, fs, "%s", Abbrev(health or 0))
+		ok = pcall(fs.SetFormattedText, fs, "%s", Abbrev(ns.Or(health, 0)))
 	elseif mode == "both" then
-		ok = hasPct and pcall(fs.SetFormattedText, fs, "%s  |  %.0f%%", Abbrev(health or 0), pct)
-		ok = ok or pcall(fs.SetFormattedText, fs, "%s", Abbrev(health or 0))
+		ok = hasPct and pcall(fs.SetFormattedText, fs, "%s  |  %.0f%%", Abbrev(ns.Or(health, 0)), pct)
+		ok = ok or pcall(fs.SetFormattedText, fs, "%s", Abbrev(ns.Or(health, 0)))
 	elseif mode == "max" then
-		ok = pcall(fs.SetFormattedText, fs, "%s / %s", Abbrev(health or 0), Abbrev(maxHealth or 0))
+		ok = pcall(fs.SetFormattedText, fs, "%s / %s", Abbrev(ns.Or(health, 0)), Abbrev(ns.Or(maxHealth, 0)))
 	end
 	if not ok then fs:SetText("") end
 end
@@ -310,11 +315,11 @@ local function SetHealth(plate, snap)
 	end
 	if Secret(health) or Secret(maxHealth) then
 		plate.secret = true
-		pcall(plate.Health.SetMinMaxValues, plate.Health, 0, maxHealth or 1)
+		pcall(plate.Health.SetMinMaxValues, plate.Health, 0, ns.Or(maxHealth, 1))
 		-- The client can ease a bar to a value it won't show us.
 		local ease = not snap and Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.ExponentialEaseOut
-		if not (ease and pcall(plate.Health.SetValue, plate.Health, health or 0, ease)) then
-			pcall(plate.Health.SetValue, plate.Health, health or 0)
+		if not (ease and pcall(plate.Health.SetValue, plate.Health, ns.Or(health, 0), ease)) then
+			pcall(plate.Health.SetValue, plate.Health, ns.Or(health, 0))
 		end
 		plate.Trail:Hide()
 		SetHealthText(plate, health, maxHealth)
@@ -675,11 +680,12 @@ end
 local function UpdateToT(plate)
 	local text = plate.ToTText
 	if UnitExists("targettarget") then
-		local name = UnitName("targettarget") or ""
-		if UnitIsUnit("targettarget", "player") then
+		local name = ns.Or(UnitName("targettarget"), "")
+		local isYou = UnitIsUnit("targettarget", "player")
+		if not Secret(isYou) and isYou then
 			text:SetText("|cffff6040>> " .. (YOU or "You") .. "|r")
-		else
-			text:SetText(">> " .. name)
+		elseif not pcall(text.SetFormattedText, text, ">> %s", name) then
+			text:SetText("")
 		end
 		text:Show()
 	else
@@ -698,7 +704,7 @@ local function UpdatePortrait(plate)
 	end
 	portrait:Show()
 	local visible = UnitIsVisible(U())
-	if visible and not Secret(visible) then
+	if not Secret(visible) and visible then
 		portrait.model:SetUnit(U())
 		pcall(portrait.model.SetPortraitZoom, portrait.model, 1)
 		portrait.model:Show()
@@ -718,7 +724,9 @@ function ns.TargetPlate.Update(snap)
 	local rank, colorKey, classification = Rank()
 	SetPiece(plate, rank)
 
-	local friendly = UnitIsFriend("player", U()) and not Previewing()
+	local friendly = UnitIsFriend("player", U())
+	if Secret(friendly) then friendly = false end
+	friendly = friendly and not Previewing()
 	local reaction = UnitReaction("player", U())
 	if Secret(reaction) then reaction = nil end
 	local tapped = UnitIsTapDenied and UnitIsTapDenied(U())
@@ -737,11 +745,15 @@ function ns.TargetPlate.Update(snap)
 		nameColor = NAME_COLORS[colorKey]
 		SetFillColor(plate, true)
 	end
-	plate.Name:SetText(Previewing() and PREVIEW_NAMES[rank] or UnitName(U()) or "")
+	if Previewing() then
+		plate.Name:SetText(PREVIEW_NAMES[rank] or "")
+	elseif not pcall(plate.Name.SetText, plate.Name, ns.Or(UnitName(U()), "")) then
+		plate.Name:SetText("")
+	end
 	plate.Name:SetTextColor(nameColor[1], nameColor[2], nameColor[3])
 
 	local level = UnitLevel(U())
-	if level and not Secret(level) then
+	if not Secret(level) and level then
 		plate.Level:SetText(level == -1 and "??" or level)
 	else
 		plate.Level:SetText("")

@@ -15,6 +15,20 @@ function ns.SetLocked(locked)
 	end
 end
 
+-- Secret values (this client hides some unit, aura, cast, cooldown and totem data from addons
+-- in combat) throw on any truth test, comparison or arithmetic, so `x and ...`, `not x` and
+-- `x or default` all fail on them. Check ns.Secret first. A secret is never nil.
+function ns.Secret(value)
+	return issecretvalue and issecretvalue(value) or false
+end
+
+-- `value or default` that is safe on secrets: a secret comes back as is (for widgets to take).
+function ns.Or(value, default)
+	if ns.Secret(value) then return value end
+	if value == nil or value == false then return default end
+	return value
+end
+
 function ns.Print(msg)
 	print("|cffd8b86aSanctuaryUI:|r " .. msg)
 	ns.Log("print: %s", msg)

@@ -145,7 +145,7 @@ end
 local function Channel()
 	if not UnitChannelInfo then return end
 	local name, _, _, startMS, endMS, _, _, spellID = UnitChannelInfo("player")
-	if not name or Secret(name) or Secret(startMS) or Secret(endMS) then return end
+	if Secret(name) or Secret(startMS) or Secret(endMS) or not name then return end
 	return name, spellID, startMS / 1000, (endMS - startMS) / 1000
 end
 
@@ -153,9 +153,13 @@ local function Totem(name, icon)
 	if not GetTotemInfo then return end
 	for slot = 1, (MAX_TOTEMS or 4) do
 		local have, totemName, start, duration, totemIcon = GetTotemInfo(slot)
-		if have and duration and duration > 0 and not Secret(totemName) then
+		-- Secret first: in combat these can all be secret, and even a truth test on one throws.
+		-- Hidden, there's no timer to give the button, so it shows no totem time.
+		if not Secret(have) and not Secret(duration) and not Secret(totemName) and not Secret(start)
+			and have and duration and duration > 0 then
 			-- Totem names carry a rank ("Searing Totem III"); the icon is the surer match.
-			if (icon and totemIcon == icon) or (name and totemName and totemName:find(name, 1, true) == 1) then
+			local iconMatch = icon and not Secret(totemIcon) and totemIcon == icon
+			if iconMatch or (name and totemName and totemName:find(name, 1, true) == 1) then
 				return start, duration
 			end
 		end
