@@ -60,6 +60,7 @@ ns.Art.slots = {
 	auraWispsB = { file = "aura-wisps-b.png" },
 	auraRing = { file = "aura-ring.png" },
 	auraSpiral = { file = "aura-spiral.png" },
+	auraTopWeight = { file = "aura-topweight.png" }, -- mask: a swirl's light kept over the globe
 	shellRim = { file = "shell-rim.png" },
 	shellFacets = { file = "shell-facets.png" },
 	shellSheen = { file = "shell-sheen.png" },

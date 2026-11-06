@@ -37,6 +37,9 @@ ns.GlobeAura = ns.GlobeAura or {}
 --   surge    light pouring into the globe (Evocation, Innervate, Bloodrage, drinking)
 --     spiral   arms of light curling in, shrinking toward the rim in two crossfading phases
 --     ring     a ring closing in on the rim, again and again
+--     weight   the spiral, its glow and ring sit under a fixed mask, full over the top and
+--              fading down the sides: the console hides one side of a globe and the gargoyle
+--              or angel the other low corner, and an even ring would show as a lopsided wedge
 --     bloom    the glass lit from inside, and motes spiralling in
 --
 --   flare    a one-off burst (Life Tap, potions): a ring and a flash, out from the globe or
@@ -670,6 +673,15 @@ local function BuildSurge(g)
 	u.spirals = { Sprite(behind, "auraSpiral", 0), Sprite(behind, "auraSpiral", 0) }
 	u.corona = Sprite(behind, "auraCorona", 1)
 	u.ring = Sprite(behind, "auraRing", 2)
+	if behind.CreateMaskTexture and ns.Art.Path("auraTopWeight") then
+		local mask = behind:CreateMaskTexture()
+		mask:SetTexture(ns.Art.Path("auraTopWeight"), "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+		mask:SetPoint("CENTER")
+		for _, tex in ipairs({ u.spirals[1], u.spirals[2], u.corona, u.ring }) do
+			if tex then tex:AddMaskTexture(mask) end
+		end
+		u.weight = mask
+	end
 	u.ignite = nil
 	if ns.Art.Path("globeRim") then
 		u.bloomLow = front:CreateTexture(nil, "ARTWORK", nil, 0)
@@ -712,14 +724,16 @@ local function AnimateSurge(g, u, now, dt)
 	-- Two spiral phases, each shrinking toward the rim while it turns, crossfading.
 	for i, tex in ipairs(u.spirals) do
 		local p = (now / 1.6 + (i - 1) * 0.5) % 1
-		Size(tex, size * (1.35 - 0.35 * p))
+		Size(tex, size * (1.18 - 0.18 * p))
 		Spin(tex, turn * now * 0.9 - (i - 1) * 3 - u.rank)
 		Paint(tex, sat, 0.75 * math.sin(p * math.pi) * base * (1 + rush))
 	end
 	Size(u.corona, size * 0.95)
 	Paint(u.corona, sat, 0.5 * base)
 	local p = (now / 1.1) % 1
-	Size(u.ring, size * (1.5 - 0.5 * p))
+	Size(u.ring, size * (1.3 - 0.3 * p))
+	-- The mask covers everything the swirl draws behind the globe.
+	if u.weight then u.weight:SetSize(size * 1.35, size * 1.35) end
 	Paint(u.ring, hot, 0.6 * p * base)
 	local breath = 0.8 + 0.2 * math.sin(now * 2 * math.pi / 1.6)
 	if u.bloomLow then
@@ -733,7 +747,7 @@ local function AnimateSurge(g, u, now, dt)
 	for i, tex in ipairs(u.motes) do
 		local q = (now * 0.7 + i / SURGE_MOTES) % 1
 		local angle = i * 2.39 + u.rank + q * 2.2 * -turn
-		local dist = r * 2 * (1 - 0.55 * q) * 0.9
+		local dist = r * 1.55 * (1 - 0.5 * q)
 		tex:ClearAllPoints()
 		tex:SetPoint("CENTER", u.front, "CENTER", math.cos(angle) * dist, math.sin(angle) * dist)
 		Size(tex, r * (0.2 + 0.12 * (1 - q)))
