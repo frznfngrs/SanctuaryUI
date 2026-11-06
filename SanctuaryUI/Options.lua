@@ -76,6 +76,8 @@ local HEALTH_TEXTS = {
 local HEALTH_ORDER = { "none", "percent", "current", "both", "pctcur", "max", "maxpct", "missing" }
 local POS_ORDER = { "left", "center", "right", "above", "below" }
 local TEXT_POSITIONS = { left = "In the bar, left", center = "In the bar, centre", right = "In the bar, right", above = "Above the frame", below = "Below the frame" }
+local LEVEL_POSITIONS = { badge = "Plaque on the portrait", left = "In the bar, left", center = "In the bar, centre", right = "In the bar, right", above = "Above the frame", below = "Below the frame" }
+local LEVEL_ORDER = { "badge", "left", "center", "right", "above", "below" }
 local TEXT_FONTS = { d3 = "Diablo (Exocet)", wow = "WoW (Friz Quadrata)", narrow = "Arial Narrow" }
 
 local function Header(order, name)
@@ -330,6 +332,12 @@ local function SourceValues()
 	return values
 end
 
+-- A bar setting that only applies outside the console.
+local function Undocked(n, option)
+	option.disabled = function() return DB().rows[n].docked end
+	return option
+end
+
 local function RowGroup(n, order)
 	local path = "rows." .. n
 	local opt = function() return DB().rows[n] end
@@ -344,6 +352,7 @@ local function RowGroup(n, order)
 		name = "Bar " .. n,
 		args = {
 			enabled = Toggle(1, "Enabled", nil, path, "enabled"),
+			docked = Toggle(1.5, "In the console", "Set this bar into the console: a row of twelve stone sockets between the globes, with the XP rail and the centre skull lifted to sit on top. Up to two bars, stacked in bar order. Size, spacing and position below don't apply while it's in the console.", path, "docked"),
 			source = source,
 			-- The main bar has 12 actions and the console holds 9, so a main-bar row has at most
 			-- 3. Two sliders so the range matches the source.
@@ -382,14 +391,17 @@ local function RowGroup(n, order)
 				hidden = function() return opt().source ~= "main" end,
 			},
 			size = Header(10, "Size"),
-			scale = Range(11, "Button size", "Relative to a main-bar socket.", path, "scale", 0.5, 1.2, 0.01, true),
-			spacing = Range(12, "Spacing", nil, path, "spacing", 0, 20, 1),
-			perLine = Range(13, "Buttons per line", "Wrap the bar into a grid. 1 makes it vertical.", path, "perLine", 1, 12, 1),
+			scale = Undocked(n, Range(11, "Button size", "Relative to a main-bar socket.", path, "scale", 0.5, 1.2, 0.01, true)),
+			spacing = Undocked(n, Range(12, "Spacing", nil, path, "spacing", 0, 20, 1)),
+			perLine = Undocked(n, Range(13, "Buttons per line", "Wrap the bar into a grid. 1 makes it vertical.", path, "perLine", 1, 12, 1)),
 			place = Header(15, "Position"),
 			placeNote = {
 				type = "description",
 				order = 16,
 				name = function()
+					if opt().docked then
+						return ns.ActionBar.DockIndex(n) and "In the console." or "In the console, but two bars are there already: this one stacks above."
+					end
 					if opt().moved then
 						return "Moved: this bar keeps its own position."
 					end
@@ -402,7 +414,7 @@ local function RowGroup(n, order)
 				name = "Reset position",
 				desc = "Put the bar back in the stack above the console.",
 				func = function() ns.ActionBar.ResetRowPosition(n) end,
-				disabled = function() return not opt().moved end,
+				disabled = function() return not opt().moved or opt().docked end,
 			},
 			show = Header(20, "Visibility"),
 			visibility = Select(21, "Show", nil, path, "visibility", VISIBILITY),
@@ -568,6 +580,7 @@ local function Build()
 						rep = "Reputation (watched faction)",
 					}),
 					railRested = Toggle(2, "Show rested experience", nil, nil, "railRested"),
+					levelPlaque = Toggle(2.5, "Your level on the console", "Your level in a D3 medallion resting on the skull at the console's top centre.", nil, "levelPlaque"),
 					note = Note(3, "Reputation is tinted with your resource color. Watch a faction from the Reputation panel."),
 				},
 			},
@@ -662,7 +675,7 @@ local function Build()
 					levelHeader = Header(13, "Level"),
 					levelShow = Toggle(13.1, "Show level", nil, "target", "levelShow"),
 					levelColor = TargetText("levelShow", Select(13.2, "Colour", "By difficulty: grey, green, yellow, orange or red against your level, as Blizzard colours it.", "target", "levelColor", { plain = "Plain", difficulty = "By difficulty" })),
-					levelPos = TargetText("levelShow", Select(13.4, "Position", nil, "target", "levelPos", TEXT_POSITIONS, POS_ORDER)),
+					levelPos = TargetText("levelShow", Select(13.4, "Position", "The plaque sits under the portrait frame, in its metal. With the portrait off, the level goes in the bar's left end.", "target", "levelPos", LEVEL_POSITIONS, LEVEL_ORDER)),
 					levelFont = TargetText("levelShow", Select(13.5, "Font", nil, "target", "levelFont", TEXT_FONTS)),
 					levelSize = TargetText("levelShow", Range(13.6, "Size", nil, "target", "levelSize", 6, 24, 1)),
 					levelX = TargetText("levelShow", Range(13.7, "Nudge left / right", nil, "target", "levelX", -200, 200, 1)),

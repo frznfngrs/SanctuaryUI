@@ -62,7 +62,26 @@ local function SetFill(bar, slot)
 	end
 end
 
-function ns.Experience.Update()
+-- Your level in D3's iron prestige ring around a red stone disc, resting on the centre skull (Options > Experience > Your level on
+-- the console). PLAYER_LEVEL_UP hands the new level before UnitLevel catches up.
+local function UpdateLevel(newLevel)
+	local badge = ns.LevelPlaque
+	if not badge then return end
+	if ns.DB().levelPlaque == false then
+		badge:Hide()
+		return
+	end
+	local level = newLevel or UnitLevel("player")
+	if Secret(level) or not level or level <= 0 then
+		badge:Hide()
+		return
+	end
+	badge.text:SetText(level)
+	badge:Show()
+end
+
+function ns.Experience.Update(_, event, arg)
+	UpdateLevel(event == "PLAYER_LEVEL_UP" and tonumber(arg) or nil)
 	local bar = ns.ExperienceBar
 	if not bar then return end
 	local rested = bar.Rested
@@ -126,6 +145,15 @@ function ns.Experience.Layout()
 	-- Above the liquid, below the glass and console art.
 	bar.Rested:SetFrameLevel(cluster:GetFrameLevel() + ns.LEVEL.railRested)
 	bar:SetFrameLevel(cluster:GetFrameLevel() + ns.LEVEL.rail)
+	local badge, spot = ns.LevelPlaque, metrics.levelPlaque
+	if badge and spot then
+		badge:SetSize(spot.w, spot.h)
+		badge:ClearAllPoints()
+		badge:SetPoint("CENTER", cluster, "BOTTOM", spot.x, metrics.baseY + spot.y)
+		badge.text:SetFont(STANDARD_TEXT_FONT, math.max(8, math.floor(spot.h * 0.4 + 0.5)), "OUTLINE")
+		-- Over the console art, under the buttons.
+		badge:SetFrameLevel(cluster:GetFrameLevel() + ns.LEVEL.console + 1)
+	end
 end
 
 local function ShowTooltip(self)
@@ -165,6 +193,23 @@ function ns.Experience.Init()
 	bar:SetScript("OnEnter", ShowTooltip)
 	bar:SetScript("OnLeave", GameTooltip_Hide)
 	ns.ExperienceBar = bar
+	local badge = CreateFrame("Frame", nil, ns.Cluster)
+	badge:SetSize(32, 32)
+	badge.art = badge:CreateTexture(nil, "ARTWORK")
+	badge.art:SetAllPoints()
+	if ns.Art.Apply(badge.art, "levelMedallion") then
+		badge.art:SetTexCoord(4 / 128, 124 / 128, 4 / 128, 124 / 128)
+	else
+		badge.art:SetColorTexture(0.25, 0.03, 0.03, 0.9)
+	end
+	badge.text = badge:CreateFontString(nil, "OVERLAY")
+	badge.text:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
+	badge.text:SetPoint("CENTER", 0, 1)
+	badge.text:SetTextColor(0.98, 0.86, 0.59) -- D3 gold
+	badge.text:SetShadowColor(0.1, 0, 0, 0.9)
+	badge.text:SetShadowOffset(1, -1)
+	badge:Hide()
+	ns.LevelPlaque = badge
 
 	local events = CreateFrame("Frame", nil, bar)
 	events:RegisterEvent("PLAYER_XP_UPDATE")

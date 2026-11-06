@@ -228,6 +228,10 @@ local function SetPiece(plate, rank)
 	if plate.Portrait.ringArt then
 		plate.Portrait.ring:SetTexCoord(ns.Art.TargetRingTexCoord(rank))
 	end
+	local badge = plate.Portrait.badge
+	badge:ClearAllPoints()
+	badge:SetPoint("CENTER", plate.Portrait, "CENTER", 0, -(ring.badge or 50))
+	badge:SetKind(ring.plate or "silver")
 end
 
 -- A StatusBar owns its fill's texcoords, so each fill is a whole file: red, or white to tint.
@@ -401,9 +405,9 @@ end
 
 -- Place one text: inside the bar (left, centre, right) or over / under the frame, nudged.
 -- The name, the one long text, gets a width so it trims instead of running over the ends.
-local function PlaceText(plate, fs, prefix, isName)
+local function PlaceText(plate, fs, prefix, isName, pos)
 	local opt = Opt()
-	local pos = opt[prefix .. "Pos"] or "center"
+	pos = pos or opt[prefix .. "Pos"] or "center"
 	local x, y = opt[prefix .. "X"] or 0, opt[prefix .. "Y"] or 0
 	local size = opt[prefix .. "Size"] or 10
 	local font = TEXT_FONTS[opt[prefix .. "Font"]] or STANDARD_TEXT_FONT
@@ -439,10 +443,24 @@ end
 function LayoutTexts(plate)
 	local opt = Opt()
 	PlaceText(plate, plate.Name, "name", true)
-	PlaceText(plate, plate.Level, "level")
 	PlaceText(plate, plate.Percent, "health")
 	plate.Name:SetShown(opt.nameShow ~= false)
-	plate.Level:SetShown(opt.levelShow ~= false)
+	-- The level: on the portrait's plaque, or (no portrait, or asked) as text on the bar.
+	local badge = plate.Portrait.badge
+	local onBadge = (opt.levelPos or "badge") == "badge" and opt.portrait and plate.Portrait.ringArt
+	plate.levelOnBadge = onBadge and true or nil
+	if onBadge then
+		local font = TEXT_FONTS[opt.levelFont] or STANDARD_TEXT_FONT
+		badge.text:SetFont(font, opt.levelSize or 10, "OUTLINE")
+		if not badge.text:GetFont() then badge.text:SetFont(STANDARD_TEXT_FONT, opt.levelSize or 10, "OUTLINE") end
+		badge.text:ClearAllPoints()
+		badge.text:SetPoint("CENTER", badge, "CENTER", opt.levelX or 0, 1 + (opt.levelY or 0))
+		plate.Level:Hide()
+	else
+		PlaceText(plate, plate.Level, "level", false, opt.levelPos == "badge" and "left" or nil)
+		plate.Level:SetShown(opt.levelShow ~= false)
+	end
+	badge:SetShown(onBadge and opt.levelShow ~= false or false)
 end
 
 -- The ember at the fill's leading edge (Options > Target > Edge glow), dark when the bar is
@@ -966,6 +984,9 @@ function ns.TargetPlate.Update(snap)
 		end
 	end
 	plate.Level:SetTextColor(lr, lg, lb)
+	local badge = plate.Portrait.badge
+	badge.text:SetText(plate.Level:GetText() or "")
+	badge.text:SetTextColor(lr, lg, lb)
 	plate.Sub:SetText(RANK_LABEL[classification] or "")
 
 	SetHealth(plate, snap)
@@ -1239,6 +1260,10 @@ function ns.TargetPlate.Init()
 		portrait.ring:SetColorTexture(0.1, 0.08, 0.06, 1)
 		portrait.ring:SetParent(portrait)
 	end
+	-- The level plaque under the frame (LayoutTexts shows it), above the ring's art.
+	portrait.badge = ns.Art.LevelBadge(over, 60, 15, "silver")
+	portrait.badge:SetFrameLevel(over:GetFrameLevel() + 1)
+	portrait.badge:Hide()
 	portrait:Hide()
 	plate.Portrait = portrait
 
