@@ -59,6 +59,23 @@ ns.Art.slots = {
 	auraWispsA = { file = "aura-wisps-a.png" },
 	auraWispsB = { file = "aura-wisps-b.png" },
 	auraRing = { file = "aura-ring.png" },
+	auraSpiral = { file = "aura-spiral.png" },
+	shellRim = { file = "shell-rim.png" },
+	shellFacets = { file = "shell-facets.png" },
+	shellSheen = { file = "shell-sheen.png" },
+	shellShardA = { file = "shell-shard-a.png" },
+	shellShardB = { file = "shell-shard-b.png" },
+	stormBoltA = { file = "storm-bolt-a.png" },
+	stormBoltB = { file = "storm-bolt-b.png" },
+	stormBoltC = { file = "storm-bolt-c.png" },
+	stormBoltD = { file = "storm-bolt-d.png" },
+	stormArcsA = { file = "storm-arcs-a.png" },
+	stormArcsB = { file = "storm-arcs-b.png" },
+	stormArcsC = { file = "storm-arcs-c.png" },
+	stormArcsD = { file = "storm-arcs-d.png" },
+	stormArcsE = { file = "storm-arcs-e.png" },
+	stormArcsF = { file = "storm-arcs-f.png" },
+	stormStatic = { file = "storm-static.png" },
 }
 
 -- socket.png holds a 76x80 crop in a 128x128 PNG. The stone interior starts 4px in from the left and 7px down.

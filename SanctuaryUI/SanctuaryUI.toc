@@ -31,6 +31,7 @@ Globes.lua
 Menu.lua
 ActionBar.lua
 ActiveSkill.lua
+WatchEffects.lua
 Watch.lua
 GlobeAura.lua
 Stance.lua

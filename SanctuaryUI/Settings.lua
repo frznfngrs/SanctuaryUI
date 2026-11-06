@@ -29,7 +29,8 @@ ns.DEFAULTS = {
 			sparks = true,
 			catch = true, -- the light wrapping onto the globe's glass
 			testLength = 30, -- seconds a test cast lasts (Watch.lua test mode)
-			effects = { ["*"] = true }, -- by Watch.lua effect key
+			settleLong = true, -- 10-minute buffs (Inner Fire, Lightning Shield) calm down after lighting
+			effects = { ["*"] = true, innerFire = false }, -- by Watch.lua effect key
 		},
 
 		-- rail
