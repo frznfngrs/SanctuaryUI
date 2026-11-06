@@ -1242,7 +1242,7 @@ local function UpdateToT(plate, full)
 	pcall(art.Health.SetValue, art.Health, ns.Or(health, 0))
 	local guid = UnitGUID(unit)
 	if Secret(guid) then guid = nil end
-	if full or (guid and guid ~= plate.totGUID) then
+	if art.portraitShown and (full or (guid and guid ~= plate.totGUID)) then
 		plate.totGUID = guid
 		ShowPortrait(art.Portrait, unit)
 	end
@@ -1338,6 +1338,11 @@ function ns.TargetPlate.Layout()
 	-- the ToT bar hung off the widest's (the boss banner), on the bar's line.
 	local w = opt.width or 1
 	local art = plate.ToTArt
+	local showPortrait = opt.totPortrait ~= false
+	if art.portraitShown ~= showPortrait then
+		art.SetPortraitShown(showPortrait)
+		plate.totGUID = nil -- back on: draw the current unit's portrait
+	end
 	local from = ns.Art.UNIT.normal[3] * w / 2
 	local to = ns.Art.UNIT.boss[3] * w / 2 + TOT_GAP + art.width
 	plate.ToT:ClearAllPoints()
@@ -1467,15 +1472,25 @@ local function MakeToTArt(plate, parent)
 	local reach = ns.Art.TARGET_RING.normal.reach
 	local art = CreateFrame("Frame", nil, parent)
 	art:SetFrameLevel(parent:GetFrameLevel() + 1)
-	local frameLeft = (2 * reach - RING_OVERLAP) * k
-	art.width, art.height = frameLeft + piece[3] * k, 2 * reach * k
-	art:SetSize(art.width, art.height)
 	art:EnableMouse(false)
 	-- The frame box: its top sits so the bar's middle is on the art's middle line.
 	local box = CreateFrame("Frame", nil, art)
 	box:SetSize(piece[3] * k, piece[4] * k)
-	box:SetPoint("TOPLEFT", art, "LEFT", frameLeft, (bar[2] + bar[4] / 2) * k)
 	box:SetFrameLevel(art:GetFrameLevel() + 5)
+	-- With its portrait (Target > Target of target portrait) the ring leads and the frame
+	-- follows it; without, the frame starts where the ring did and the art is just the bar.
+	function art.SetPortraitShown(show)
+		show = show and true or false
+		local frameLeft = show and (2 * reach - RING_OVERLAP) * k or 0
+		art.width = frameLeft + piece[3] * k
+		art.height = show and 2 * reach * k or piece[4] * k
+		art:SetSize(art.width, art.height)
+		box:ClearAllPoints()
+		box:SetPoint("TOPLEFT", art, "LEFT", frameLeft, (bar[2] + bar[4] / 2) * k)
+		if art.Portrait then art.Portrait:SetShown(show) end
+		art.portraitShown = show
+	end
+	art.SetPortraitShown(true)
 	ns.Art.DrawSliced(box, "normal", piece[3] * k, k)
 	art.FrameBox = box
 	local health = CreateFrame("StatusBar", nil, art)
@@ -1511,6 +1526,7 @@ local function MakeToTArt(plate, parent)
 	art.Name:SetShadowOffset(1, -1)
 	art.Portrait = MakeRing(art, k)
 	art.Portrait:SetPoint("CENTER", art, "LEFT", reach * k, 0)
+	art.Portrait:SetShown(art.portraitShown)
 	return art
 end
 
