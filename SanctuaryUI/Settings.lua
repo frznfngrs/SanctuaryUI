@@ -148,6 +148,7 @@ ns.DEFAULTS = {
 			levelX = 0,
 			levelY = 0,
 			cast = true,
+			tot = true, -- the target of target: a small monster bar with its portrait, right of the frame
 			liquid = true, -- the globes' liquid moving in the health bar
 			debuffs = true,
 			maxDebuffs = 16,

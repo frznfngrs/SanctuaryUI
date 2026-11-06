@@ -759,6 +759,7 @@ local function Build()
 					scale = Range(6, "Scale", "100% is D3's own size: the art one-to-one at 1080p, the same share of the screen at any resolution.", "target", "scale", 0.5, 2, 0.05, true),
 					width = Range(7, "Width", "Stretches the frame and bar between their ornaments.", "target", "width", 0.6, 2.5, 0.05, true),
 					portrait = Toggle(8, "Target portrait", "The target's moving WoW portrait in a D3 hero portrait frame, left of the bar: silver for ordinary monsters, gold for elites and rares, the winged demon for bosses.", "target", "portrait"),
+					tot = Toggle(9.2, "Target of target", "Who your target is attacking: a small monster bar with its portrait, right of the target's frame. Its name turns red when it's you. Left-click targets it, right-click opens its menu.", "target", "tot"),
 					cast = Toggle(9.5, "Cast bar", nil, "target", "cast"),
 					liquid = Toggle(9.7, "Liquid in the bar", "The globes' liquid drifting through the health bar.", "target", "liquid"),
 					edgeGlow = Toggle(9.8, "Edge glow", "An ember burning at the health bar's leading edge.", "target", "edgeGlow"),
