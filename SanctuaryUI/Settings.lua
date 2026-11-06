@@ -37,6 +37,7 @@ ns.DEFAULTS = {
 		-- rail
 		railMode = "auto", -- auto | xp | rep
 		railRested = true,
+		levelPlaque = true, -- your level on a D3 plaque over the console's centre skull
 
 		-- action buttons (main bar and rows)
 		buttons = {
@@ -89,6 +90,7 @@ ns.DEFAULTS = {
 				alpha = 1,
 				mouseover = false,
 				perLine = 12,
+				docked = false, -- in the console: a row of sockets under the lifted rail band
 				-- Dragged rows leave the stack and keep their own spot (centre, UIParent bottom-left).
 				moved = false,
 				mx = 0,
@@ -138,7 +140,7 @@ ns.DEFAULTS = {
 			nameX = 0,
 			nameY = 0,
 			levelShow = true,
-			levelPos = "left",
+			levelPos = "badge", -- badge: a D3 level plaque on the portrait frame (needs the portrait)
 			levelFont = "wow",
 			levelSize = 10,
 			levelColor = "plain", -- plain | difficulty

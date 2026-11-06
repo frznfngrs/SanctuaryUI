@@ -8,6 +8,7 @@ local PAGES = 18
 local PETS = 10
 -- Top of the console's centre ornament in the sheet; rows start above it.
 local CONSOLE_TOP_Y = 58
+local LayoutTiers -- the console's art for docked rows (below)
 
 -- Rows stacked above the console, bottom to top.
 local ROW_IDS = { 2, 3, 4, 5, 6, 7, 8, 9 }
@@ -187,6 +188,14 @@ function ns.ActionBar.RowSpec(n)
 	}
 end
 
+-- Which console row (1 = just above the main sockets) a bar is docked in, or nil.
+local function DockIndex(n)
+	for j, id in ipairs(ns.DockedRows()) do
+		if id == n then return j end
+	end
+end
+ns.ActionBar.DockIndex = DockIndex
+
 local function Visibility(opt)
 	local base = "[petbattle][overridebar][possessbar][vehicleui] hide;"
 	if opt.visibility == "combat" then
@@ -240,12 +249,42 @@ function ns.ActionBar.ReassignBindings()
 	end
 end
 
+-- The console's art for docked rows: with none, the whole frame as D3 drew it; with some, the
+-- frame without its rail band and, over it, the band lifted above that many rows of sockets,
+-- walled in out to the globes (one piece of art per height).
+local TIER_X, TIER_W, CREST_H = 200, 1200, 108
+local TIER_ATLAS_Y = { 0, 208 }
+function LayoutTiers(metrics)
+	local frame = ns.ConsoleFrame
+	local tiers = math.min(metrics.tiers, #TIER_ATLAS_Y)
+	local s = metrics.scale
+	local lifted = tiers > 0 and ns.Art.Path("consoleBase") and ns.Art.Path("consoleTiers") and true or false
+	if ns.Trough.lifted ~= lifted and ns.Art.Path("frame") then
+		ns.Art.Apply(ns.Trough, lifted and "consoleBase" or "frame")
+		ns.Trough:SetTexCoord(unpack(ns.FRAME_TEXCOORD))
+		ns.Trough.lifted = lifted
+	end
+	if not frame.tier then
+		frame.tier = frame:CreateTexture(nil, "ARTWORK", nil, 1)
+		ns.Art.Apply(frame.tier, "consoleTiers")
+	end
+	frame.tier:SetShown(lifted)
+	if lifted then
+		local h = CREST_H + ns.TIER_H * tiers
+		local y0 = TIER_ATLAS_Y[tiers]
+		frame.tier:SetTexCoord(0, TIER_W / 2048, y0 / 512, (y0 + h) / 512)
+		frame.tier:SetSize(TIER_W * s, h * s)
+		frame.tier:ClearAllPoints()
+		frame.tier:SetPoint("TOPLEFT", frame, "TOPLEFT", TIER_X * s, metrics.lift)
+	end
+end
+
 function ns.ActionBar.Layout()
 	local cluster = ns.Cluster
 	local metrics = ns.Metrics and ns.Metrics()
 	if not cluster or not ns.ActionBar.primary or not metrics then return end
 	local base = metrics.baseY
-	cluster:SetSize(metrics.width + 40, metrics.height + 80)
+	cluster:SetSize(metrics.width + 40, metrics.height + 80 + metrics.lift)
 	-- Clamp to the console art, not the padded cluster: it may touch the screen's edges.
 	cluster:SetClampRectInsets(20, -20, -80, 0)
 
@@ -254,6 +293,7 @@ function ns.ActionBar.Layout()
 		ns.ConsoleFrame:ClearAllPoints()
 		ns.ConsoleFrame:SetPoint("CENTER", cluster, "BOTTOM", 0, base)
 		ns.ConsoleFrame:SetFrameLevel(cluster:GetFrameLevel() + ns.LEVEL.console)
+		LayoutTiers(metrics)
 	end
 	local above = cluster:GetFrameLevel() + ns.LEVEL.buttons
 	if ns.PrimaryHeader then ns.PrimaryHeader:SetFrameLevel(above) end
@@ -273,13 +313,35 @@ function ns.ActionBar.Layout()
 		button:SetPoint("CENTER", cluster, "BOTTOM", slot.x, base + slot.y)
 	end
 
-	local consoleTop = base + metrics.height / 2 - CONSOLE_TOP_Y * metrics.scale
+	-- Bars stack from the top of the centre ornament, or of your level's plaque over it.
+	local top = ns.DB().levelPlaque ~= false and metrics.levelPlaque and 28 or CONSOLE_TOP_Y
+	local consoleTop = base + metrics.height / 2 - top * metrics.scale + metrics.lift
 	local rowY = consoleTop + 6
 	if ns.ActionBar.rows then
 		for _, n in ipairs(ROW_IDS) do
 			local row = ns.ActionBar.rows[n]
 			local opt = ns.DB().rows[n]
-			if row and opt.enabled then
+			local dock = row and opt.enabled and DockIndex(n)
+			if row and row.buttons[1].sanctuarySocketTex then
+				-- Docked buttons sit in the console's own sockets.
+				for i = 1, ROW_MAX do
+					local tex = row.buttons[i].sanctuarySocketTex
+					if tex then tex:SetShown(not dock) end
+				end
+			end
+			if dock then
+				local sockets = metrics.dock[dock]
+				local anchor = row.anchor
+				anchor:ClearAllPoints()
+				anchor:SetPoint("TOPLEFT", cluster, "BOTTOM", sockets[1].x - sockets[1].w / 2, base + sockets[1].y + sockets[1].h / 2)
+				anchor:SetPoint("BOTTOMRIGHT", cluster, "BOTTOM", sockets[12].x + sockets[12].w / 2, base + sockets[12].y - sockets[12].h / 2)
+				for i = 1, ns.ActionBar.RowSpec(n).count do
+					local slot, button = sockets[i], row.buttons[i]
+					button:SetSize(slot.w, slot.h)
+					button:ClearAllPoints()
+					button:SetPoint("CENTER", cluster, "BOTTOM", slot.x, base + slot.y)
+				end
+			elseif row and opt.enabled then
 				local spec = ns.ActionBar.RowSpec(n)
 				local bw = metrics.slots[1].w * opt.scale
 				local bh = metrics.slots[1].h * opt.scale
@@ -468,7 +530,7 @@ local function ApplyRow(n)
 				button:SetState(page, "action", spec.paged and ((page - 1) * 12 + action) or action)
 			end
 			local binding = spec.binding and spec.binding:format(spec.bindingOffset + i)
-			button:UpdateConfig(ButtonConfig(binding))
+			button:UpdateConfig(ButtonConfig(binding, DockIndex(n) ~= nil))
 			button:Show()
 		else
 			button:SetParent(row.spare)
@@ -648,7 +710,7 @@ function ns.ActionBar.UpdateMovers()
 	end
 	for _, n in ipairs(ROW_IDS) do
 		local row = ns.ActionBar.rows[n]
-		row.mover:SetShown(unlocked and ns.DB().rows[n].enabled)
+		row.mover:SetShown(unlocked and ns.DB().rows[n].enabled and not DockIndex(n))
 	end
 end
 

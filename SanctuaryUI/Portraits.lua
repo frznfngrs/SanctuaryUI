@@ -3,7 +3,7 @@ local ns = SanctuaryUI
 ns.Portraits = ns.Portraits or {}
 
 -- D3's party portraits, top left: your pet, and (optionally) you above it. Your own portrait
--- carries no health bar (the globe is your health); its bar slot holds your level. Each is the D3 party frame (a dark
+-- carries no health bar (the globe is your health); its bar slot holds your level on D3's plaque. Each is the D3 party frame (a dark
 -- well with a bust above a small health bar), drawn gold while that unit is your target, as D3
 -- marks the selected party member. They replace what hiding Blizzard's player frame took away:
 -- the unit menu on right-click (leave group, loot, raid markers), the leader, combat, resting
@@ -152,10 +152,20 @@ local function MakePortrait(parent, unit, name, k, withHealth)
 	button.happiness:SetTexture("Interface\\PetPaperDollFrame\\UI-PetHappiness")
 	button.happiness:Hide()
 
-	button.level = art:CreateFontString(nil, "OVERLAY")
-	button.level:SetFont(STANDARD_TEXT_FONT, math.floor(10 * k + 0.5), "OUTLINE")
-	button.level:SetPoint("CENTER", health, "CENTER", 0, 0)
-	button.level:SetTextColor(0.95, 0.88, 0.7)
+	if withHealth then
+		button.level = art:CreateFontString(nil, "OVERLAY")
+		button.level:SetFont(STANDARD_TEXT_FONT, math.floor(10 * k + 0.5), "OUTLINE")
+		button.level:SetPoint("CENTER", health, "CENTER", 0, 0)
+		button.level:SetTextColor(0.95, 0.88, 0.7)
+	else
+		-- Your portrait: no health, so the bar slot holds D3's level plaque instead, bronze
+		-- like the frame and gold with it while you're your own target.
+		healthBg:Hide()
+		button.badge = ns.Art.LevelBadge(art, 76 * k, 19 * k, "bronze", math.floor(10 * k + 0.5))
+		button.badge:SetPoint("CENTER", health, "CENTER", 0, 0)
+		button.badge:SetFrameLevel(art:GetFrameLevel() + 1)
+		button.level = button.badge.text
+	end
 
 	return button
 end
@@ -197,6 +207,9 @@ local function UpdateIcons(button)
 	if Secret(targeted) then targeted = false end
 	if ns.Art.Path("unitFrames") then
 		button.frame:SetTexCoord(ns.Art.UnitTexCoord(targeted and "partyGold" or PIECE))
+	end
+	if button.badge then
+		button.badge:SetKind(targeted and "gold" or "bronze")
 	end
 
 	local leader = UnitIsGroupLeader and UnitIsGroupLeader(unit)

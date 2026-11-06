@@ -51,6 +51,10 @@ ns.Art.slots = {
 	unitWell = { file = "unit-well.png" },
 	unitGloss = { file = "unit-gloss.png" },
 	unitGlow = { file = "unit-glow.png" }, -- bloom 0-18, core 32-50 of 64x32
+	consoleBase = { file = "console-base.png" }, -- frame.png without the rail band
+	consoleTiers = { file = "console-tiers.png" }, -- the band lifted over 1-2 rows (sheet x 200..1400, atlas y 0/208 of 512)
+	levelMedallion = { file = "level-medallion.png" }, -- ring and red disc, 120 px across of 128
+	levelPlates = { file = "level-plates.png" }, -- 98x25 plaques at y 0/32/64/96 of 128x128
 	castFill = { file = "cast-fill.png" },
 	-- globe auras (GlobeAura.lua): white, ADD, drawn 2x the globe and tinted
 	auraCorona = { file = "aura-corona.png" },
@@ -118,15 +122,50 @@ ns.Art.UNIT = {
 -- target-rings.png (512x128): D3's hero portrait frames, one 128 px cell per target rank, each
 -- centred on its 39 px round hole. reach: how far the art runs right of the hole's centre.
 ns.Art.TARGET_RING = {
-	normal = { cell = 0, reach = 45 }, -- silver laurel, ram skull
-	elite = { cell = 1, reach = 47 }, -- gold laurel, red banner
-	boss = { cell = 2, reach = 47 }, -- winged demon
+	-- plate / badge: the level plaque's metal and its centre below the hole's (under the skull,
+	-- the banner, the demon's chin)
+	normal = { cell = 0, reach = 45, plate = "silver", badge = 50 }, -- silver laurel, ram skull
+	elite = { cell = 1, reach = 47, plate = "gold", badge = 50 }, -- gold laurel, red banner
+	boss = { cell = 2, reach = 47, plate = "dark", badge = 58 }, -- winged demon
 }
 ns.Art.TARGET_RING_CELL, ns.Art.TARGET_RING_HOLE = 128, 39
 
 function ns.Art.TargetRingTexCoord(rank)
 	local cell = (ns.Art.TARGET_RING[rank] or ns.Art.TARGET_RING.normal).cell
 	return cell * 128 / 512, (cell + 1) * 128 / 512, 0, 1
+end
+
+-- D3's level plaque, the small plate under a hero's portrait, in four metals.
+ns.Art.LEVEL_PLATE = { bronze = 0, silver = 1, gold = 2, dark = 3 }
+
+function ns.Art.LevelPlateTexCoord(kind)
+	local i = ns.Art.LEVEL_PLATE[kind] or 1
+	return 0, 98 / 128, i * 32 / 128, (i * 32 + 25) / 128
+end
+
+-- A level badge: the plaque (98x25 art, drawn at w x h) with the number centred on it.
+-- badge:SetKind(kind) changes the metal; badge.text is the number's font string.
+function ns.Art.LevelBadge(parent, w, h, kind, fontSize)
+	local badge = CreateFrame("Frame", nil, parent)
+	badge:SetSize(w, h)
+	badge.plate = badge:CreateTexture(nil, "ARTWORK")
+	badge.plate:SetAllPoints()
+	local art = ns.Art.Apply(badge.plate, "levelPlates")
+	if not art then
+		badge.plate:SetColorTexture(0.04, 0.03, 0.03, 0.9)
+	end
+	function badge:SetKind(k)
+		if art then self.plate:SetTexCoord(ns.Art.LevelPlateTexCoord(k)) end
+	end
+	badge:SetKind(kind)
+	badge.text = badge:CreateFontString(nil, "OVERLAY")
+	badge.text:SetFont(STANDARD_TEXT_FONT, fontSize or 10, "OUTLINE")
+	badge.text:SetShadowColor(0, 0, 0, 0.85)
+	badge.text:SetShadowOffset(1, -1)
+	-- The plaque's dark slot sits a hair above its middle (the bottom rim is thicker).
+	badge.text:SetPoint("CENTER", badge, "CENTER", 0, h * 0.04)
+	badge.text:SetTextColor(0.95, 0.9, 0.8)
+	return badge
 end
 
 function ns.Art.UnitTexCoord(name)

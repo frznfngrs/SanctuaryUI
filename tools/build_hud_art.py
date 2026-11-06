@@ -28,6 +28,8 @@ noted next to each file.
   target-rings.png 512x128 D3 hero portrait frames for the target portrait (normal, elite, boss), hole centred
   console-base.png 2048x256 frame.png without the rail band (rail, ornaments, centre skull), for a lifted console
   console-tiers.png 2048x512 the band lifted over 1 or 2 extra socket rows, walled in, globe panels and wings beside them (sheet x 200..1400, at y 0/208, 108 + 93k tall)
+  level-medallion.png 128x128 iron prestige ring around a dark-red disc, your level on the console
+  level-plates.png 128x128 D3's level plaques (bronze, silver, gold, dark), 98x25 each at y 0/32/64/96
   pip-sockets.png 512x64   Kanai's Cube socket rims, centres open: black, orange, green, red, blue
   blade.png      64x256    Demon Hunter split-globe blade, widened sheet x 1329..1393 (64x201 used)
   liquid-left/right.png 128x256  halves of liquid.png for the split resource globe (no-mask fallback)
@@ -276,6 +278,30 @@ def console_tiers() -> None:
     atlas.save(OUT / "console-tiers.png")
 
 
+# The teal brackets that wrap the globes, re-toned to the brown-gold of the console's gold
+# sockets (stops sampled from their trim by brightness), so they match the gold menu styling.
+GOLD_STOPS = ((0, (16, 10, 5)), (32, (50, 33, 18)), (80, (110, 83, 49)), (112, (138, 116, 72)),
+              (150, (172, 150, 96)), (220, (236, 212, 152)))
+
+
+def gold_of(lum: float) -> tuple:
+    for (l0, c0), (l1, c1) in zip(GOLD_STOPS, GOLD_STOPS[1:]):
+        if lum <= l1:
+            t = max(0.0, (lum - l0) / (l1 - l0))
+            return tuple(int(a + (b - a) * t) for a, b in zip(c0, c1))
+    return GOLD_STOPS[-1][1]
+
+
+def gild_teal(frame: Image.Image) -> None:
+    px = frame.load()
+    for y in range(frame.height):
+        for x in range(frame.width):
+            r, g, b, a = px[x, y]
+            if a and g > r + 40 and b > r + 30:
+                lum = (0.3 * r + 0.59 * g + 0.11 * b) * 0.9
+                px[x, y] = gold_of(lum) + (a,)
+
+
 def frame_and_glass() -> None:
     frame = load_frame("BottomBar_GameRes")
     glass = Image.new("RGBA", frame.size, (0, 0, 0, 0))
@@ -291,6 +317,7 @@ def frame_and_glass() -> None:
                     fpx[x, y] = (r, g, b, 0)
     blank_mouse_plaques(frame)
     add_key_plaques(frame)
+    gild_teal(frame)
     pad(frame, (2048, 256)).save(OUT / "frame.png")
     pad(glass, (2048, 256)).save(OUT / "glass.png")
 
@@ -1028,6 +1055,34 @@ def target_rings() -> None:
     atlas.save(OUT / "target-rings.png")
 
 
+# D3's plaques that carry a hero's level under the portrait (2DUIPrestige, top row).
+LEVEL_PLATES = (313, 417, 521, 625)  # bronze, silver, gold, dark bronze; each 98x25 at y 0
+
+
+def level_medallion() -> None:
+    # level-medallion.png 128x128: D3's iron prestige ring around its dark-red stone disc
+    # (2DUIPrestige), for your level over the console's centre skull.
+    sheet = load("2DUIPrestige")
+    ring = sheet.crop((11, 275, 90, 357))
+    disc = sheet.crop((1062, 244, 1124, 306))
+    out = Image.new("RGBA", (128, 128), (0, 0, 0, 0))
+    rw = 120
+    ring = ring.resize((rw, round(rw * ring.height / ring.width)), Image.LANCZOS)
+    d = round(rw * 0.83)
+    disc = disc.resize((d, d), Image.LANCZOS)
+    out.alpha_composite(disc, (64 - d // 2, 64 - d // 2 + 2))
+    out.alpha_composite(ring, (64 - ring.width // 2, 64 - ring.height // 2))
+    out.save(OUT / "level-medallion.png")
+
+
+def level_plates() -> None:
+    sheet = load("2DUIPrestige")
+    atlas = Image.new("RGBA", (128, 128), (0, 0, 0, 0))
+    for i, x in enumerate(LEVEL_PLATES):
+        atlas.alpha_composite(sheet.crop((x, 0, x + 98, 25)), (0, i * 32))
+    atlas.save(OUT / "level-plates.png")
+
+
 def shimmer() -> None:
     # D3's surface texture as a seamless luminance tile; scrolled inside the surface band.
     lum = load("health_hotline_liquid").convert("L")
@@ -1241,6 +1296,8 @@ def unit_frames() -> None:
     well.resize((512, 16), Image.LANCZOS).save(OUT / "unit-well.png")
     unit_gloss()
     unit_glow()
+    level_plates()
+    level_medallion()
     # The cast bar's glowing orange fill, from the same control filled (x 717-1006).
     load("2DUIControls").crop((717, 59, 1006, 69)).resize((512, 16), Image.LANCZOS).save(OUT / "cast-fill.png")
 
@@ -1499,6 +1556,16 @@ def globe_surge() -> None:
     spiral = np.clip(arms * along * 1.5, 0, 1) * (1 - smoothstep(0.86, 0.99, rho))
     save_glow(OUT / "aura-spiral.png", polar_to_square(spiral, 512), 8)
 
+    # aura-topweight.png 256x256: a mask, full over the top and fading down the sides to the
+    # bottom. It stays put while the swirl turns, so the swirl's light sits over the globe,
+    # where both sides are in view, instead of wherever the console and gargoyle leave a gap.
+    m = 256
+    c = (np.arange(m) + 0.5) / m * 2 - 1
+    x, y = np.meshgrid(c, -c)
+    up = y / np.maximum(np.hypot(x, y), 1e-6)  # sine of the angle: 1 straight up, -1 down
+    weight = 0.2 + 0.8 * smoothstep(-0.25, 0.95, up)
+    save_glow(OUT / "aura-topweight.png", weight, 9)
+
 
 def _bolt_path(rng, a, b, rough, depth, decay=0.55):
     """Jagged path from a to b by midpoint displacement; rough: sideways kick, of the length.
@@ -1559,16 +1626,6 @@ def _glow_lines(size, paths, ss=4):
     tight = np.asarray(big.filter(ImageFilter.GaussianBlur(ss * 2.2)).resize((size, size), Image.LANCZOS)).astype(float) / 255
     wide = np.asarray(big.filter(ImageFilter.GaussianBlur(ss * 7)).resize((size, size), Image.LANCZOS)).astype(float) / 255
     return np.clip(core * 1.4 + tight * 1.7 + wide * 1.5, 0, 1)
-
-    # aura-topweight.png 256x256: a mask, full over the top and fading down the sides to the
-    # bottom. It stays put while the swirl turns, so the swirl's light sits over the globe,
-    # where both sides are in view, instead of wherever the console and gargoyle leave a gap.
-    m = 256
-    c = (np.arange(m) + 0.5) / m * 2 - 1
-    x, y = np.meshgrid(c, -c)
-    up = y / np.maximum(np.hypot(x, y), 1e-6)  # sine of the angle: 1 straight up, -1 down
-    weight = 0.2 + 0.8 * smoothstep(-0.25, 0.95, up)
-    save_glow(OUT / "aura-topweight.png", weight, 9)
 
 
 def _jagged_arc(rng, c, radius, start, span, steps=96):

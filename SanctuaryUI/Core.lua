@@ -160,6 +160,25 @@ ns.LEVEL = {
 	pips = 20,
 }
 
+-- Bars docked in the console (Options > Bars > Bar n > In the console): each fills a row of
+-- twelve sockets between the globes, and the rail band (XP rail, ornaments, centre skull)
+-- lifts to sit on top of them. Enabled docked bars in bar order, at most DOCK_MAX.
+ns.DOCK_MAX = 2
+ns.TIER_H = 93 -- sheet px of one docked row
+function ns.DockedRows()
+	local list = {}
+	local ids = ns.ActionBar and ns.ActionBar.ROW_IDS
+	if not ids or not ns.db then return list end
+	local rows = ns.DB().rows
+	for _, n in ipairs(ids) do
+		local opt = rows[n]
+		if opt.enabled and opt.docked and #list < ns.DOCK_MAX then
+			list[#list + 1] = n
+		end
+	end
+	return list
+end
+
 function ns.Metrics()
 	local width = CONSOLE_W
 	local height = width * TEX_H / TEX_W
@@ -185,7 +204,26 @@ function ns.Metrics()
 	local hx, hy = at(243.5, 99)
 	local rx, ry = at(1354.5, 99)
 	local scale = width / TEX_W
+	-- Docked rows: twelve sockets each on the console's 74 px period, one TIER_H above another.
+	local tiers = #ns.DockedRows()
+	local lift = tiers * ns.TIER_H * scale
+	local dock = {}
+	for j = 1, tiers do
+		dock[j] = {}
+		for i = 1, 12 do
+			local cx = 373.5 + 74 * (i - 1)
+			dock[j][i] = box(cx - 34, 111 - ns.TIER_H * j, cx + 34, 178 - ns.TIER_H * j)
+		end
+	end
+	local rail = box(336, 96, 1259, 104)
+	rail.y = rail.y + lift
+	-- Your level, in a medallion resting on the centre skull.
+	local plaque = box(761, 28, 803, 70)
+	plaque.y = plaque.y + lift
 	return {
+		tiers = tiers,
+		lift = lift,
+		dock = dock,
 		width = width,
 		height = height,
 		scale = scale,
@@ -196,7 +234,8 @@ function ns.Metrics()
 		slots = sockets,
 		hearth = box(1010, 110, 1051, 179),
 		menu = box(1056, 110, 1244, 178),
-		rail = box(336, 96, 1259, 104),
+		rail = rail,
+		levelPlaque = plaque,
 		socketArt = box(336, 104, 412, 184),
 	}
 end
