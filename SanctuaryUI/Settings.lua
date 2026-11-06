@@ -21,6 +21,16 @@ ns.DEFAULTS = {
 		liquidAnimate = true,
 		liquidSpeed = 1,
 		lowHealthPulse = true,
+		-- light radiating from behind a globe while a chosen buff is up (GlobeAura.lua)
+		globeAuras = {
+			enabled = true,
+			intensity = 1,
+			rays = true,
+			sparks = true,
+			catch = true, -- the light wrapping onto the globe's glass
+			testLength = 30, -- seconds a test cast lasts (Watch.lua test mode)
+			effects = { ["*"] = true }, -- by Watch.lua effect key
+		},
 
 		-- rail
 		railMode = "auto", -- auto | xp | rep
@@ -353,6 +363,7 @@ function ns.Refresh()
 	Run("active skills", ns.ActiveSkill and ns.ActiveSkill.ApplySettings)
 	Run("layout", ns.Layout)
 	Run("globes", ns.Globes and ns.Globes.ApplySettings)
+	Run("globe auras", ns.GlobeAura and ns.GlobeAura.ApplySettings)
 	Run("rail", ns.Experience and ns.Experience.Update)
 	Run("auras", ns.Auras and ns.Auras.ApplySettings)
 	Run("target", ns.TargetPlate and ns.TargetPlate.ApplySettings)

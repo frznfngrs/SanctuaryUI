@@ -84,6 +84,37 @@ function ns.ReadAuras(unit, filter)
 	return list, "index", refused
 end
 
+local GetDescription = (C_Spell and C_Spell.GetSpellDescription) or GetSpellDescription
+local UNITS = { sec = 1, secs = 1, second = 1, seconds = 1, min = 60, mins = 60, minute = 60, minutes = 60, hour = 3600, hours = 3600 }
+
+-- How long a spell's effect lasts, from its text: "This effect lasts 8 sec." / "Lasts 2 min."
+-- first, else the last duration in the text. Nil when the text is hidden or names none.
+function ns.DescribedLength(spellID)
+	if not GetDescription then return end
+	local ok, text = pcall(GetDescription, spellID)
+	if not ok or ns.Secret(text) or type(text) ~= "string" then return end
+	text = text:lower()
+	local n, unit = text:match("lasts (%d+%.?%d*) (%a+)")
+	if n and UNITS[unit] then return tonumber(n) * UNITS[unit] end
+	local last
+	for num, u in text:gmatch("(%d+%.?%d*) (%a+)") do
+		if UNITS[u] then last = tonumber(num) * UNITS[u] end
+	end
+	return last
+end
+
+-- Icons Blizzard's buff frame is showing. It runs untainted and sees buffs in combat, so its
+-- count going up or down is the one sign of a buff coming or going that addons still get.
+function ns.BuffIcons()
+	local frame = _G.BuffFrame
+	if not frame or type(frame.auraFrames) ~= "table" then return 0 end
+	local count = 0
+	for _, button in ipairs(frame.auraFrames) do
+		if not button.isAuraAnchor and button:IsShown() then count = count + 1 end
+	end
+	return count
+end
+
 function ns.Print(msg)
 	print("|cffd8b86aSanctuaryUI:|r " .. msg)
 	ns.Log("print: %s", msg)
@@ -111,6 +142,7 @@ ns.FRAME_TEXCOORD = { 0, TEX_W / 2048, 0, TEX_H / 256 }
 -- Frame levels above the cluster, back to front. The liquid stack must stay under the glass
 -- and the console art; buttons, menu and numbers sit above the art.
 ns.LEVEL = {
+	aura = 0, -- light behind a globe (GlobeAura.lua): the globe and the console art cover it
 	globe = 1, -- dark well
 	liquid = 2, -- fill StatusBars (the invisible guide)
 	clip = 3, -- clips the scrolling layers at the liquid level
@@ -192,6 +224,7 @@ end
 
 function ns.Layout()
 	if ns.Globes and ns.Globes.Layout then ns.Globes.Layout() end
+	if ns.GlobeAura and ns.GlobeAura.Layout then ns.GlobeAura.Layout() end
 	if ns.ActionBar and ns.ActionBar.Layout then ns.ActionBar.Layout() end
 	if ns.Auras and ns.Auras.Layout then ns.Auras.Layout() end
 	if ns.Experience and ns.Experience.Layout then ns.Experience.Layout() end
@@ -236,7 +269,7 @@ local function Slash(msg)
 			ns.Options.Open()
 		end
 	elseif cmd == "help" then
-		ns.Print("/sanctuary opens options. Commands: lock, unlock, scale <n>, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, active, auras, debug on|off, log")
+		ns.Print("/sanctuary opens options. Commands: lock, unlock, scale <n>, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, active, auras, watch, aura (test globe auras), debug on|off, log")
 	elseif cmd == "lock" then
 		ns.SetLocked(true)
 	elseif cmd == "unlock" then
@@ -321,6 +354,20 @@ local function Slash(msg)
 		if ns.Totem and ns.Totem.SetPreview then
 			ns.Totem.SetPreview(not ns.Totem.preview)
 		end
+	elseif cmd == "aura" then
+		-- Globe aura test mode, for any class: /sanctuary aura light | wisdom | judge | fade | clear | die | off
+		local action = rest:lower()
+		if action == "off" then
+			ns.Watch.SetTest(false)
+			ns.Print("aura test off")
+		elseif action == "on" then
+			ns.Watch.SetTest(true)
+			ns.Print("aura test on: /sanctuary aura light, wisdom, judge, fade, clear, die, off")
+		elseif not (ns.Watch and ns.Watch.Test and ns.Watch.Test(action)) then
+			local names = {}
+			for _, effect in ipairs(ns.Watch.EFFECTS) do names[#names + 1] = effect.label end
+			ns.Print("aura on | off | judge | fade | clear | die | a buff's name: " .. table.concat(names, ", "))
+		end
 	elseif cmd == "log" then
 		ns.ShowLog()
 	elseif cmd == "debug" then
@@ -332,12 +379,14 @@ local function Slash(msg)
 			or "debug trace off. Errors are still recorded. /sanctuary log shows them")
 	elseif cmd == "check" then
 		ns.Check()
-	elseif cmd == "active" or cmd == "auras" then
+	elseif cmd == "active" or cmd == "auras" or cmd == "watch" then
 		-- Reports go into the log even with debug off, so /reload hands them over whole.
 		ns.forceLog = true
 		local ok, err = pcall(function()
 			if cmd == "active" then
 				if ns.ActiveSkill and ns.ActiveSkill.Report then ns.ActiveSkill.Report() end
+			elseif cmd == "watch" then
+				if ns.Watch and ns.Watch.Report then ns.Watch.Report() end
 			elseif ns.Auras and ns.Auras.Report then
 				ns.Auras.Report()
 			end
@@ -398,6 +447,8 @@ loader:SetScript("OnEvent", function(_, event)
 		Safe("globes", ns.Globes and ns.Globes.Init)
 		Safe("action bar", ns.ActionBar and ns.ActionBar.Init)
 		Safe("active skills", ns.ActiveSkill and ns.ActiveSkill.Init)
+		Safe("watch", ns.Watch and ns.Watch.Init)
+		Safe("globe auras", ns.GlobeAura and ns.GlobeAura.Init)
 		Safe("menu", ns.Menu and ns.Menu.Init)
 		Safe("bags", ns.Bags and ns.Bags.Init)
 		Safe("bank", ns.Bank and ns.Bank.Init)

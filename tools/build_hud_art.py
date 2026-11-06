@@ -37,7 +37,11 @@ noted next to each file.
   globe-mask.png 512x512   anti-aliased circle mask for the scrolling layers
   surface-glow.png / surface-shimmer.png 256x32  the liquid surface, sliced into a moving wave
   mote.png       32x32     soft glow for motes rising through the liquid
-  (animated_liquid needs numpy and scipy)
+  aura-corona.png 256x256  globe aura: bright band on the rim over a wide halo (alpha), drawn 2x the globe, ADD, tinted
+  aura-rays-a/b.png 512x512  globe aura god rays, two seeds turned against each other
+  aura-wisps-a/b.png 256x256 globe aura flame licks off the rim, two phases crossfaded
+  aura-ring.png  512x512   globe aura shockwave ring on the rim, hollow, swelled for the flashes
+  (animated_liquid and globe_aura need numpy and scipy; `build_hud_art.py globe_aura` runs one step)
   menu-flyout.png 512x256  the menu flyout's buttons: menu plates with gold icons, 6 columns of 40x66, rows normal/hover/pressed
   unit-fill(-white).png 512x16  the red health fill and its neutral copy (StatusBar textures)
   cast-fill.png  512x16    D3's orange progress fill (2DUIControls), the target cast bar
@@ -1108,9 +1112,165 @@ def unit_frames() -> None:
     load("2DUIControls").crop((717, 59, 1006, 69)).resize((512, 16), Image.LANCZOS).save(OUT / "cast-fill.png")
 
 
+# Globe auras (GlobeAura.lua): light radiating from behind a globe while a buff is up. Each
+# sprite is square and drawn AURA_SCALE times the globe's diameter, centred on the globe, so the
+# globe's rim falls at radius AURA_RIM of the sprite (1 = the sprite's edge). Everything inside
+# the rim is hidden behind the globe; everything is white in an alpha ramp, drawn ADD and tinted
+# in Lua (a saturated tint on the wide layers, a pale hot one near the rim, like D3's fire FX).
+AURA_SCALE = 2.0
+AURA_RIM = 1 / AURA_SCALE
+
+
+def polar_noise(n_theta, n_rho, k_theta, k_rho, beta, seed):
+    """Noise on a (rho, theta) grid, seamless around theta. k_theta / k_rho: the highest cycles
+    across the grid on each axis; long and thin in rho when k_rho is small (streaks, rays)."""
+    np = _np()
+    rng = np.random.default_rng(seed)
+    f = np.fft.fft2(rng.standard_normal((n_rho, n_theta)))
+    fr = np.fft.fftfreq(n_rho, 1 / n_rho)[:, None] / k_rho
+    ft = np.fft.fftfreq(n_theta, 1 / n_theta)[None, :] / k_theta
+    r = np.sqrt(fr * fr + ft * ft)
+    amp = np.exp(-r * r) / np.maximum(r, 1 / max(k_theta, k_rho)) ** (beta / 2)
+    amp[0, 0] = 0
+    return normalise(np.real(np.fft.ifft2(f * amp)))
+
+
+def smoothstep(e0, e1, x):
+    np = _np()
+    t = np.clip((x - e0) / (e1 - e0), 0, 1)
+    return t * t * (3 - 2 * t)
+
+
+def polar_to_square(field, n, ss=2):
+    """Resample a (rho 0..1, theta 0..2pi) field onto an n x n sprite, supersampled ss x ss.
+    Theta 0 points right, counter-clockwise with y up; rho beyond 1 is empty."""
+    np = _np()
+    from scipy.ndimage import map_coordinates  # noqa: PLC0415
+
+    n_rho, n_theta = field.shape
+    c = (np.arange(n * ss) + 0.5) / (n * ss) * 2 - 1
+    x, y = np.meshgrid(c, -c)
+    rho = np.sqrt(x * x + y * y)
+    theta = np.arctan2(y, x) % (2 * np.pi)
+    # Wrap theta by padding one column so the seam interpolates across.
+    wrapped = np.concatenate([field, field[:, :1]], axis=1)
+    coords = np.array([np.clip(rho, 0, 1) * (n_rho - 1), theta / (2 * np.pi) * n_theta])
+    out = map_coordinates(wrapped, coords, order=3, mode="nearest")
+    out = np.where(rho <= 1, out, 0)
+    return np.clip(out, 0, None).reshape(n, ss, n, ss).mean(axis=(1, 3))
+
+
+def save_glow(path, alpha, seed):
+    """White sprite with the glow in alpha, dithered so the faint ADD tails don't band."""
+    np = _np()
+    rng = np.random.default_rng(seed)
+    a = np.clip(alpha, 0, 1)
+    a = np.clip(a + (rng.random(a.shape) - 0.5) / 255, 0, 1)
+    save_rgba(path, np.ones_like(a), a)
+
+
+def globe_aura() -> None:
+    """aura-corona.png 256x256, aura-rays-a/b.png 512x512, aura-wisps-a/b.png 256x256, aura-ring.png 512x512.
+
+    corona: a bright band hugging the rim, its thickness wavering round the circle, over a wide
+            soft halo. The halo makes the console art read as lit from behind.
+    rays:   god rays, as D3 draws them for the Crusader (X1_Crusader_GodRays): long thin streaks of
+            uneven reach and strength, broken along their length. Two cells with their own
+            seeds turn against each other in Lua, so the rays shimmer rather than spin.
+    wisps:  short licks of flame off the rim, leaning as they rise, like D3's passive skill glow
+            (bottomBar_buttonFX_passiveGlow_continuous). Two cells crossfade and drift outward.
+    """
+    np = _np()
+    rim = AURA_RIM
+    n_theta, n_rho = 2048, 512
+    rho = np.linspace(0, 1, n_rho)[:, None]
+    theta = np.linspace(0, 2 * np.pi, n_theta, endpoint=False)[None, :]
+    inside = 1 - smoothstep(rim - 0.04, rim + 0.005, rho)  # hidden behind the globe; filled so no seam shows
+    edge_fade = 1 - smoothstep(0.86, 0.99, rho)
+
+    # Corona: tight band whose thickness breathes round the rim, plus a broad halo.
+    lobes = polar_noise(n_theta, 8, 14, 1, 1.6, 11)[0][None, :]
+    width = 0.045 * (0.7 + 0.8 * lobes)
+    d = np.clip(rho - rim, 0, None)
+    band = np.exp(-d / width)
+    halo = np.exp(-((d / 0.22) ** 2)) * 0.42
+    corona = np.maximum(inside, np.clip(band * 0.85 + halo, 0, 1)) * edge_fade
+    save_glow(OUT / "aura-corona.png", polar_to_square(corona, 256), 1)
+
+    # Rays: streak noise (fine across, long along) sharpened into beams; each angle's reach set by
+    # slow noise so the outline is ragged, and gaps along the beams from coarser noise.
+    cells = []
+    for seed in (21, 22):
+        streak = polar_noise(n_theta, n_rho, 150, 3, 1.2, seed)
+        beams = smoothstep(0.42, 1.0, streak) ** 1.6
+        reach_n = polar_noise(n_theta, 8, 22, 1, 1.4, seed + 100)[0][None, :]
+        reach = rim + 0.16 + 0.32 * reach_n ** 1.3
+        t = np.clip((rho - rim) / (reach - rim), 0, 1)
+        along = smoothstep(0.0, 0.06, t) * (1 - t) ** 1.7
+        breaks = 0.55 + 0.45 * polar_noise(n_theta, n_rho, 60, 10, 1.0, seed + 200)
+        soft = 0.22 * (1 - smoothstep(rim, rim + 0.3, rho)) * smoothstep(rim - 0.01, rim + 0.02, rho)
+        # A few long beams cut through the fringe, thinning as they go, so the light reaches out
+        # unevenly instead of stopping in a ring.
+        rng = np.random.default_rng(seed + 300)
+        hero = np.zeros_like(rho * theta)
+        for _ in range(14):
+            phi = rng.uniform(0, 2 * np.pi)
+            sigma = rng.uniform(0.005, 0.014)
+            far = rng.uniform(0.72, 0.96)
+            gain = rng.uniform(0.45, 0.9)
+            dphi = (theta - phi + np.pi) % (2 * np.pi) - np.pi
+            tt = np.clip((rho - rim) / (far - rim), 0, 1)
+            spread = sigma * (1 + 1.5 * tt)
+            hero += gain * np.exp(-((dphi / spread) ** 2)) * smoothstep(0, 0.05, tt) * (1 - tt) ** 1.4
+        rays = np.clip(beams * along * breaks * 1.25 + hero * breaks + soft, 0, 1) * edge_fade
+        rays = np.maximum(rays, inside * 0.5)
+        cells.append(polar_to_square(rays, 512))
+    # Separate files, not an atlas: Lua spins them by texcoords, which would pull a neighbouring
+    # cell into the corners. Clamped to transparent, the corners stay empty.
+    for cell, suffix in zip(cells, "ab"):
+        save_glow(OUT / f"aura-rays-{suffix}.png", cell, 2)
+
+    # Wisps: ridged turbulence, warped so each tongue leans, cut off a short way past the rim.
+    cells = []
+    for seed in (31, 32):
+        base = polar_noise(n_theta, n_rho, 36, 9, 1.8, seed)
+        warp = (polar_noise(n_theta, n_rho, 6, 3, 2.0, seed + 50) - 0.5) * 0.35
+        shifted = np.empty_like(base)
+        cols = np.arange(n_theta)
+        for i in range(n_rho):
+            lean = warp[i] * (i / n_rho) * n_theta * 0.05 + (i / n_rho) * n_theta * 0.012
+            shifted[i] = np.interp((cols - lean) % n_theta, cols, base[i], period=n_theta)
+        ridge = 1 - np.abs(shifted * 2 - 1)
+        tongues = smoothstep(0.55, 1.0, ridge) ** 1.3
+        reach_n = polar_noise(n_theta, 8, 40, 1, 1.2, seed + 100)[0][None, :]
+        reach = rim + 0.06 + 0.16 * reach_n
+        t = np.clip((rho - rim + 0.01) / (reach - rim + 0.01), 0, 1)
+        along = smoothstep(0.0, 0.12, t) * (1 - t) ** 1.25
+        wisps = np.clip(tongues * along * 1.4, 0, 1) * edge_fade
+        cells.append(polar_to_square(wisps, 256))
+    for cell, suffix in zip(cells, "ab"):
+        save_glow(OUT / f"aura-wisps-{suffix}.png", cell, 3)
+
+    # Shockwave ring for the flashes (lit, rekindled, judged away): a hard leading edge on the
+    # rim with a soft trail inside it, torn in places, hollow so it can swell past the globe
+    # without painting a disc.
+    tear = polar_noise(n_theta, 8, 18, 1, 1.3, 41)[0][None, :]
+    grain = polar_noise(n_theta, n_rho, 90, 6, 1.1, 42)
+    d = rho - rim
+    lead = np.exp(-((np.clip(d, 0, None) / 0.009) ** 2))
+    trail = np.exp(np.clip(d, None, 0) / 0.035) * 0.8
+    ring = np.where(d >= 0, lead, trail) * (0.2 + 0.8 * smoothstep(0.25, 0.75, tear)) * (0.45 + 0.55 * grain ** 1.5)
+    ring = np.clip(ring, 0, 1) * edge_fade
+    ring *= smoothstep(rim - 0.36, rim - 0.2, rho)  # hollow centre
+    save_glow(OUT / "aura-ring.png", polar_to_square(ring, 512), 4)
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
-    for step in (frame_and_glass, liquid, liquid_halves, animated_liquid, hotline, xp_fills, menu, glow, blade, socket_glow, bag_frame, bank_frame, bag_cells, d3_button, pips, pip_frames, shimmer, socket, skill_timer, icon, unit_frames, menu_flyout, target_rings):
+    only = set(sys.argv[1:])
+    for step in (frame_and_glass, liquid, liquid_halves, animated_liquid, hotline, xp_fills, menu, glow, blade, socket_glow, bag_frame, bank_frame, bag_cells, d3_button, pips, pip_frames, shimmer, socket, skill_timer, icon, unit_frames, menu_flyout, target_rings, globe_aura):
+        if only and step.__name__ not in only:
+            continue
         step()
         print("built", step.__name__)
 

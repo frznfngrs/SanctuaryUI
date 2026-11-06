@@ -31,6 +31,8 @@ Globes.lua
 Menu.lua
 ActionBar.lua
 ActiveSkill.lua
+Watch.lua
+GlobeAura.lua
 Stance.lua
 Totem.lua
 Auras.lua
