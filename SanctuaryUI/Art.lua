@@ -48,6 +48,9 @@ ns.Art.slots = {
 	unitFrames = { file = "unit-frames.png" },
 	unitFill = { file = "unit-fill.png" },
 	unitFillWhite = { file = "unit-fill-white.png" },
+	unitWell = { file = "unit-well.png" },
+	unitGloss = { file = "unit-gloss.png" },
+	unitGlow = { file = "unit-glow.png" }, -- bloom 0-18, core 32-50 of 64x32
 	castFill = { file = "cast-fill.png" },
 }
 

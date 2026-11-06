@@ -21,6 +21,10 @@ noted next to each file.
   pips.png       512x64    socket, amethyst, emerald, ruby, topaz, diamond, round glow, socket ring alone (64 px cells)
   liquid-shimmer.png 128x128  seamless surface texture, scrolled inside the surface band
   pip-horn.png   128x128   D3 horned skull ring frame, hole (42 px) centred, rotated per small globe
+  unit-fill*.png 512x16   D3's red health strip (and a white copy to tint), lighting levelled along its length
+  unit-well.png  512x16    D3's dark empty strip, under the health bar so missing health is shaded
+  unit-gloss.png 8x32      inner shadow and glass band, over the whole health bar
+  unit-glow.png  64x32     ember at the health bar's leading edge, ADD: bloom (0-18) and hot core (32-50), white, tinted in Lua
   target-rings.png 512x128 D3 hero portrait frames for the target portrait (normal, elite, boss), hole centred
   pip-sockets.png 512x64   Kanai's Cube socket rims, centres open: black, orange, green, red, blue
   blade.png      64x256    Demon Hunter split-globe blade, widened sheet x 1329..1393 (64x201 used)
@@ -990,6 +994,79 @@ UNIT_SLOTS = {
 }
 
 
+def levelled(strip: Image.Image, ends: float = 0.88, smooth: int = 31) -> Image.Image:
+    # Even out a strip's lighting along its length: divide each column by the strip's smoothed
+    # brightness there, then light it flat with a gentle fall to `ends` at the very ends. The
+    # grain and the highlight line (both vertical detail) survive untouched.
+    import math
+    w, h = strip.size
+    px = strip.load()
+    col = [sum(sum(px[x, y][:3]) for y in range(h)) / (3 * h) for x in range(w)]
+    half = smooth // 2
+    sm = []
+    for x in range(w):
+        lo, hi = max(0, x - half), min(w, x + half + 1)
+        sm.append(max(1.0, sum(col[lo:hi]) / (hi - lo)))
+    # The level to light everything at: the strip's own lit middle.
+    mid = sorted(sm)[int(len(sm) * 0.8)]
+    out = strip.copy()
+    po = out.load()
+    for x in range(w):
+        t = min(x, w - 1 - x) / (w * 0.12)  # 0 at the ends, 1 from 12% in
+        shape = ends + (1 - ends) * (0.5 - 0.5 * math.cos(math.pi * min(1.0, t)))
+        gain = mid * shape / sm[x]
+        for y in range(h):
+            r, g, b, a = po[x, y]
+            po[x, y] = (min(255, int(r * gain)), min(255, int(g * gain)), min(255, int(b * gain)), a)
+    return out
+
+
+def unit_gloss() -> None:
+    # unit-gloss.png 8x32: drawn over the whole bar (well and fill) to make it read as a glass
+    # tube, as the globes do: an inner shadow under the frame's top and bottom lip, and a soft
+    # white band across the upper third. Alpha only; stretched to the bar's slot.
+    img = Image.new("RGBA", (8, 32), (0, 0, 0, 0))
+    px = img.load()
+    for y in range(32):
+        t = (y + 0.5) / 32
+        # Shadow: strongest at the top lip, a lighter one at the bottom.
+        top = max(0.0, 1 - t / 0.2) ** 1.6 * 0.62
+        bottom = max(0.0, 1 - (1 - t) / 0.16) ** 1.6 * 0.5
+        shade = max(top, bottom)
+        # Glass: a band peaking a quarter of the way down.
+        import math
+        gloss = math.exp(-((t - 0.27) / 0.09) ** 2) * 0.16
+        if gloss > shade:
+            v = (255, 255, 255, int(255 * gloss))
+        else:
+            v = (0, 0, 0, int(255 * shade))
+        for x in range(8):
+            px[x, y] = v
+    img.save(OUT / "unit-gloss.png")
+
+
+def unit_glow() -> None:
+    # unit-glow.png 64x32, drawn ADD at the fill's right end. Two white sprites, each 18 wide
+    # with the edge at x=14 (14 px back into the fill, 4 ahead): the red bloom at x 0-18 and
+    # the thin hot core at x 32-50, tinted separately so the bloom can follow the fill colour.
+    import math
+    img = Image.new("RGBA", (64, 32), (0, 0, 0, 255))
+    px = img.load()
+    back = 14
+    for x in range(18):
+        d = x - back + 0.5
+        bloom = math.exp(-(d / 6.0) ** 2) if d <= 0 else math.exp(-(d / 1.6) ** 2)
+        core = math.exp(-(d / 0.9) ** 2)
+        for y in range(32):
+            v = 1 - abs((y + 0.5) / 32 * 2 - 1)
+            v = 0.35 + 0.65 * v ** 0.6  # strongest mid-bar, still reaching the lips
+            b = int(255 * min(1.0, bloom * v))
+            c = int(255 * min(1.0, core * v))
+            px[x, y] = (b, b, b, 255)
+            px[32 + x, y] = (c, c, c, 255)
+    img.save(OUT / "unit-glow.png")
+
+
 def unit_frames() -> None:
     atlas = Image.new("RGBA", (1024, 256), (0, 0, 0, 0))
     for name, (src, box, pos) in UNIT_PIECES.items():
@@ -1014,11 +1091,19 @@ def unit_frames() -> None:
     atlas.alpha_composite(white, (560, 92))
     atlas.save(OUT / "unit-frames.png")
     # StatusBars rewrite their fill's texcoords, so the fills also go out as whole files. These
-    # use D3's wider red strip (340 px, x 1462-1802) so a stretched bar stays sharp.
-    wide = load("2DUIEnemyHPbar").crop((1462, 32, 1802, 49))
+    # use D3's wider red strip (340 px, x 1462-1802) so a stretched bar stays sharp. D3 lights
+    # that strip in the middle and lets both ends fall to near black; a StatusBar crops rather
+    # than stretches, so a low bar would show only the dark end. levelled() evens it out.
+    wide = levelled(load("2DUIEnemyHPbar").crop((1462, 32, 1802, 49)))
     wide.resize((512, 16), Image.LANCZOS).save(OUT / "unit-fill.png")
     wl = wide.split()[0].point(lambda v: min(255, int(v * 1.05)))
     Image.merge("RGBA", (wl, wl, wl, wide.split()[3])).resize((512, 16), Image.LANCZOS).save(OUT / "unit-fill-white.png")
+    # The empty well under the bar: D3's matching dark strip (same 17 rows, right above the
+    # red one), so missing health is shaded, never see-through.
+    well = levelled(load("2DUIEnemyHPbar").crop((1462, 5, 1802, 22)))
+    well.resize((512, 16), Image.LANCZOS).save(OUT / "unit-well.png")
+    unit_gloss()
+    unit_glow()
     # The cast bar's glowing orange fill, from the same control filled (x 717-1006).
     load("2DUIControls").crop((717, 59, 1006, 69)).resize((512, 16), Image.LANCZOS).save(OUT / "cast-fill.png")
 

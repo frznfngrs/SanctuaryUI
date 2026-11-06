@@ -43,9 +43,9 @@ local function Range(order, name, desc, path, key, min, max, step, isPercent)
 	return { type = "range", order = order, name = name, desc = desc, get = get, set = set, min = min, max = max, step = step, isPercent = isPercent }
 end
 
-local function Select(order, name, desc, path, key, values)
+local function Select(order, name, desc, path, key, values, sorting)
 	local get, set = Field(path, key)
-	return { type = "select", order = order, name = name, desc = desc, get = get, set = set, values = values }
+	return { type = "select", order = order, name = name, desc = desc, get = get, set = set, values = values, sorting = sorting }
 end
 
 -- Greys a target aura setting out while its buffs / debuffs are off.
@@ -53,6 +53,30 @@ local function TargetAura(key, option)
 	option.disabled = function() return not ns.DB().target[key] end
 	return option
 end
+
+-- A target text option, greyed out while that text is off.
+local function TargetText(key, option)
+	option.disabled = function()
+		local value = ns.DB().target[key]
+		return value == false or value == "none"
+	end
+	return option
+end
+
+local HEALTH_TEXTS = {
+	none = "Nothing",
+	percent = "Percent (62%)",
+	current = "Hitpoints (1.54M)",
+	both = "Hitpoints | percent",
+	pctcur = "Percent | hitpoints",
+	max = "Hitpoints / max",
+	maxpct = "Hitpoints / max | percent",
+	missing = "Missing hitpoints (-940K)",
+}
+local HEALTH_ORDER = { "none", "percent", "current", "both", "pctcur", "max", "maxpct", "missing" }
+local POS_ORDER = { "left", "center", "right", "above", "below" }
+local TEXT_POSITIONS = { left = "In the bar, left", center = "In the bar, centre", right = "In the bar, right", above = "Above the frame", below = "Below the frame" }
+local TEXT_FONTS = { d3 = "Diablo (Exocet)", wow = "WoW (Friz Quadrata)", narrow = "Arial Narrow" }
 
 local function Header(order, name)
 	return { type = "header", order = order, name = name }
@@ -490,20 +514,44 @@ local function Build()
 					scale = Range(6, "Scale", "100% is D3's own size: the art one-to-one at 1080p, the same share of the screen at any resolution.", "target", "scale", 0.5, 2, 0.05, true),
 					width = Range(7, "Width", "Stretches the frame and bar between their ornaments.", "target", "width", 0.6, 2.5, 0.05, true),
 					portrait = Toggle(8, "Target portrait", "The target's moving WoW portrait in a D3 hero portrait frame, left of the bar: silver for ordinary monsters, gold for elites and rares, the winged demon for bosses.", "target", "portrait"),
-					healthText = Select(9, "Health text", "What the bar's right end shows. Works in combat too, where enemy health is hidden from addons: the client fills the number in.", "target", "healthText", { none = "None", percent = "Percent", current = "Hitpoints", both = "Hitpoints and percent", max = "Hitpoints / max" }),
 					cast = Toggle(9.5, "Cast bar", nil, "target", "cast"),
 					liquid = Toggle(9.7, "Liquid in the bar", "The globes' liquid drifting through the health bar.", "target", "liquid"),
-					debuffHeader = Header(10, "Debuffs"),
-					debuffs = Toggle(10.1, "Debuffs", "Every debuff on the target: yours first and bright, the rest greyed.", "target", "debuffs"),
-					maxDebuffs = TargetAura("debuffs", Range(10.2, "How many debuffs", nil, "target", "maxDebuffs", 1, 24, 1)),
-					auraPos = TargetAura("debuffs", Select(10.3, "Position", nil, "target", "auraPos", { below = "Below the bar", above = "Above the bar" })),
-					auraAlign = TargetAura("debuffs", Select(10.4, "Align to", "Where each line starts: the bar's left end, centre or right end.", "target", "auraAlign", { left = "Left", center = "Centre", right = "Right" })),
-					auraGrow = TargetAura("debuffs", Select(10.5, "Grow", "From a left or right end, which way the icons run. Centred lines grow both ways.", "target", "auraGrow", { right = "To the right", left = "To the left" })),
-					debuffSize = TargetAura("debuffs", Range(10.6, "Icon size", nil, "target", "debuffSize", 14, 48, 1)),
-					auraPerLine = TargetAura("debuffs", Range(10.7, "Icons per line", nil, "target", "auraPerLine", 1, 24, 1)),
-					auraSpacing = TargetAura("debuffs", Range(10.8, "Spacing", nil, "target", "auraSpacing", 0, 16, 1)),
-					auraX = TargetAura("debuffs", Range(10.9, "Nudge left / right", nil, "target", "auraX", -300, 300, 1)),
-					auraY = TargetAura("debuffs", Range(10.95, "Nudge up / down", nil, "target", "auraY", -200, 200, 1)),
+					edgeGlow = Toggle(9.8, "Edge glow", "An ember burning at the health bar's leading edge.", "target", "edgeGlow"),
+					healthHeader = Header(11, "Health text"),
+					healthText = Select(11.1, "Show", "Works in combat too, where enemy health is hidden from addons: the client fills the numbers in.", "target", "healthText", HEALTH_TEXTS, HEALTH_ORDER),
+					healthNumbers = TargetText("healthText", Select(11.2, "Numbers", nil, "target", "healthNumbers", { short = "Short (2.48M)", full = "Full (2,480,000)", raw = "Plain (2480000)" })),
+					healthHideFull = TargetText("healthText", Toggle(11.3, "Hide at full health", nil, "target", "healthHideFull")),
+					healthPos = TargetText("healthText", Select(11.4, "Position", nil, "target", "healthPos", TEXT_POSITIONS, POS_ORDER)),
+					healthFont = TargetText("healthText", Select(11.5, "Font", nil, "target", "healthFont", TEXT_FONTS)),
+					healthSize = TargetText("healthText", Range(11.6, "Size", nil, "target", "healthSize", 6, 24, 1)),
+					healthX = TargetText("healthText", Range(11.7, "Nudge left / right", nil, "target", "healthX", -200, 200, 1)),
+					healthY = TargetText("healthText", Range(11.8, "Nudge up / down", nil, "target", "healthY", -60, 60, 1)),
+					nameHeader = Header(12, "Name"),
+					nameShow = Toggle(12.1, "Show name", nil, "target", "nameShow"),
+					namePos = TargetText("nameShow", Select(12.4, "Position", nil, "target", "namePos", TEXT_POSITIONS, POS_ORDER)),
+					nameFont = TargetText("nameShow", Select(12.5, "Font", nil, "target", "nameFont", TEXT_FONTS)),
+					nameSize = TargetText("nameShow", Range(12.6, "Size", nil, "target", "nameSize", 6, 24, 1)),
+					nameX = TargetText("nameShow", Range(12.7, "Nudge left / right", nil, "target", "nameX", -200, 200, 1)),
+					nameY = TargetText("nameShow", Range(12.8, "Nudge up / down", nil, "target", "nameY", -60, 60, 1)),
+					levelHeader = Header(13, "Level"),
+					levelShow = Toggle(13.1, "Show level", nil, "target", "levelShow"),
+					levelColor = TargetText("levelShow", Select(13.2, "Colour", "By difficulty: grey, green, yellow, orange or red against your level, as Blizzard colours it.", "target", "levelColor", { plain = "Plain", difficulty = "By difficulty" })),
+					levelPos = TargetText("levelShow", Select(13.4, "Position", nil, "target", "levelPos", TEXT_POSITIONS, POS_ORDER)),
+					levelFont = TargetText("levelShow", Select(13.5, "Font", nil, "target", "levelFont", TEXT_FONTS)),
+					levelSize = TargetText("levelShow", Range(13.6, "Size", nil, "target", "levelSize", 6, 24, 1)),
+					levelX = TargetText("levelShow", Range(13.7, "Nudge left / right", nil, "target", "levelX", -200, 200, 1)),
+					levelY = TargetText("levelShow", Range(13.8, "Nudge up / down", nil, "target", "levelY", -60, 60, 1)),
+					debuffHeader = Header(14, "Debuffs"),
+					debuffs = Toggle(14.1, "Debuffs", "Every debuff on the target: yours first and bright, the rest greyed.", "target", "debuffs"),
+					maxDebuffs = TargetAura("debuffs", Range(14.2, "How many debuffs", nil, "target", "maxDebuffs", 1, 24, 1)),
+					auraPos = TargetAura("debuffs", Select(14.3, "Position", nil, "target", "auraPos", { below = "Below the bar", above = "Above the bar" })),
+					auraAlign = TargetAura("debuffs", Select(14.4, "Align to", "Where each line starts: the bar's left end, centre or right end.", "target", "auraAlign", { left = "Left", center = "Centre", right = "Right" })),
+					auraGrow = TargetAura("debuffs", Select(14.5, "Grow", "From a left or right end, which way the icons run. Centred lines grow both ways.", "target", "auraGrow", { right = "To the right", left = "To the left" })),
+					debuffSize = TargetAura("debuffs", Range(14.6, "Icon size", nil, "target", "debuffSize", 14, 48, 1)),
+					auraPerLine = TargetAura("debuffs", Range(14.7, "Icons per line", nil, "target", "auraPerLine", 1, 24, 1)),
+					auraSpacing = TargetAura("debuffs", Range(14.8, "Spacing", nil, "target", "auraSpacing", 0, 16, 1)),
+					auraX = TargetAura("debuffs", Range(14.9, "Nudge left / right", nil, "target", "auraX", -300, 300, 1)),
+					auraY = TargetAura("debuffs", Range(14.95, "Nudge up / down", nil, "target", "auraY", -200, 200, 1)),
 					buffHeader = Header(20, "Buffs"),
 					buffs = Toggle(20.1, "Buffs", "The target's buffs, laid out on their own.", "target", "buffs"),
 					maxBuffs = TargetAura("buffs", Range(20.2, "How many buffs", nil, "target", "maxBuffs", 1, 24, 1)),

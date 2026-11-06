@@ -107,7 +107,31 @@ ns.DEFAULTS = {
 			scale = 1, -- 1 = D3's own size (one art pixel per pixel at 1080p)
 			width = 1, -- frame and bar width, stretched between the ornaments
 			portrait = false, -- 3D portrait of the target in a skill socket, left of the bar
-			healthText = "percent", -- none | percent | current | both | max
+			edgeGlow = true, -- ember at the health bar's leading edge
+			-- text on the bar: name, level and health, each placed, sized and fonted
+			-- pos: left | center | right (inside the bar) | above | below (the frame)
+			-- font: d3 (Exocet) | wow (Friz Quadrata) | narrow (Arial Narrow)
+			healthText = "percent", -- none | percent | current | both | pctcur | max | maxpct | missing
+			healthNumbers = "short", -- short (2.48M) | full (2,480,000) | raw (2480000)
+			healthHideFull = false,
+			healthPos = "right",
+			healthFont = "wow",
+			healthSize = 10,
+			healthX = 0,
+			healthY = 0,
+			nameShow = true,
+			namePos = "center",
+			nameFont = "d3",
+			nameSize = 13,
+			nameX = 0,
+			nameY = 0,
+			levelShow = true,
+			levelPos = "left",
+			levelFont = "wow",
+			levelSize = 10,
+			levelColor = "plain", -- plain | difficulty
+			levelX = 0,
+			levelY = 0,
 			cast = true,
 			liquid = true, -- the globes' liquid moving in the health bar
 			debuffs = true,
