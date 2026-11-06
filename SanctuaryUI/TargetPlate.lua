@@ -189,6 +189,8 @@ local function Rank()
 	return "normal", "normal", c
 end
 
+local LayoutTexts -- the bar's texts follow the frame (below)
+
 -- Draw the rank's frame at the chosen width and fit the health bar (and its trail) to the slot.
 local function SetPiece(plate, rank)
 	if plate.rank == rank then return end
@@ -205,6 +207,11 @@ local function SetPiece(plate, rank)
 		b:SetSize(bar[3] + extra, bar[4])
 	end
 	plate.barW, plate.barH = bar[3] + extra, bar[4]
+	if plate.edgeGlow then
+		plate.edgeGlow.bloom:SetHeight(bar[4])
+		plate.edgeGlow.core:SetHeight(bar[4])
+	end
+	LayoutTexts(plate)
 	-- The target of target's name follows this frame's right end, on the bar's line.
 	plate.ToTText:ClearAllPoints()
 	plate.ToTText:SetPoint("LEFT", plate.Health, "RIGHT", (piece[3] - bar[1] - bar[3]) + 4, 0)
@@ -240,20 +247,75 @@ local function SetFillColor(plate, red, r, g, b)
 		plate.Health:SetStatusBarColor(r, g, b, 1)
 	end
 	plate.liquidColor = { r, g, b }
+	if plate.edgeGlow then
+		-- Red bars burn orange-red; tinted ones glow in their own colour.
+		if red then
+			plate.edgeGlow.bloom:SetVertexColor(1, 0.26, 0.06)
+		else
+			plate.edgeGlow.bloom:SetVertexColor(math.min(1, r * 1.3), math.min(1, g * 1.3), math.min(1, b * 1.3))
+		end
+	end
 end
 
 ---------------------------------------------------------------------------
--- The health text at the bar's right end (Options > Target > Health text): percent, hitpoints,
--- both, or hitpoints out of max. Enemy health is usually secret in combat, so the numbers go
--- through the client's secret-aware helpers and straight into the font string; we never read them.
-local function Abbrev(value)
-	local f = AbbreviateNumbers or AbbreviateLargeNumbers
+-- Text on the bar (Options > Target > Text): the name, the level and the health text, each
+-- placed, sized and set in its own font. Enemy health is usually secret in combat, so the
+-- numbers go through the client's secret-aware helpers (AbbreviateNumbers, BreakUpLargeNumbers,
+-- UnitHealthPercent with a curve) and straight into the font string; we never read them.
+
+local TEXT_FONTS = {
+	d3 = ns.FONT,
+	wow = STANDARD_TEXT_FONT,
+	narrow = "Fonts\\ARIALN.TTF",
+}
+
+-- A number in the chosen style: short (2.48 M), full (2,480,000) or raw (2480000).
+local function Num(value)
+	local style = Opt().healthNumbers or "short"
+	local f
+	if style == "short" then
+		f = AbbreviateNumbers or AbbreviateLargeNumbers
+	elseif style == "full" then
+		f = BreakUpLargeNumbers
+	end
 	if f then
 		-- Never tests the result: a secret value can't be compared or used as a condition.
 		local ok, text = pcall(f, value)
 		if ok and type(text) ~= "nil" then return text end
 	end
 	return value
+end
+
+-- Curves the client evaluates on the (maybe secret) health fraction, for alphas we can't
+-- compute ourselves: the edge glow (off when empty or full) and the health text's "hide at
+-- full health" (off only when full).
+local curves = {}
+local function Curve(key, points)
+	if curves[key] == nil then
+		curves[key] = false
+		if C_CurveUtil and C_CurveUtil.CreateCurve then
+			local ok, curve = pcall(C_CurveUtil.CreateCurve)
+			if ok and curve then
+				for _, p in ipairs(points) do
+					pcall(curve.AddPoint, curve, p[1], p[2])
+				end
+				curves[key] = curve
+			end
+		end
+	end
+	return curves[key] or nil
+end
+local GLOW_POINTS = { { 0, 0 }, { 0.004, 1 }, { 0.996, 1 }, { 1, 0 } }
+local FULL_POINTS = { { 0, 1 }, { 0.9995, 1 }, { 1, 0 } }
+
+-- Alpha for a region from the target's health through a curve; falls back to `default`.
+local function CurveAlpha(region, key, points, default)
+	local curve = UnitHealthPercent and Curve(key, points)
+	if curve then
+		local ok, alpha = pcall(UnitHealthPercent, U(), true, curve)
+		if ok and type(alpha) ~= "nil" and pcall(region.SetAlpha, region, alpha) then return end
+	end
+	region:SetAlpha(default)
 end
 
 -- Returns true and the percent (0-100, maybe secret), or false.
@@ -277,8 +339,20 @@ local function HealthPercent(unit, health, maxHealth)
 	return false
 end
 
+-- Missing health (maybe secret), or nil.
+local function HealthMissing(health, maxHealth)
+	if not Secret(health) and not Secret(maxHealth) and health and maxHealth then
+		return math.max(0, maxHealth - health)
+	end
+	if UnitHealthMissing then
+		local ok, missing = pcall(UnitHealthMissing, U(), true)
+		if ok and type(missing) ~= "nil" then return missing end
+	end
+end
+
 local function SetHealthText(plate, health, maxHealth)
-	local fs, mode = plate.Percent, Opt().healthText or "percent"
+	local opt = Opt()
+	local fs, mode = plate.Percent, opt.healthText or "percent"
 	if mode == "none" then
 		fs:SetText("")
 		return
@@ -287,26 +361,134 @@ local function SetHealthText(plate, health, maxHealth)
 		-- The stand-in monster: a made-up pool so the number formats can be judged.
 		health, maxHealth = math.floor(preview.health * 2480000 + 0.5), 2480000
 	end
+	local cur, top = Num(ns.Or(health, 0)), Num(ns.Or(maxHealth, 0))
 	local hasPct, pct = false, nil
-	if mode == "percent" or mode == "both" then
+	if mode == "percent" or mode == "both" or mode == "pctcur" or mode == "maxpct" then
 		hasPct, pct = HealthPercent(U(), health, maxHealth)
 	end
 	local ok = false
 	if mode == "percent" then
 		ok = hasPct and pcall(fs.SetFormattedText, fs, "%.0f%%", pct)
 	elseif mode == "current" then
-		ok = pcall(fs.SetFormattedText, fs, "%s", Abbrev(ns.Or(health, 0)))
+		ok = pcall(fs.SetFormattedText, fs, "%s", cur)
 	elseif mode == "both" then
-		ok = hasPct and pcall(fs.SetFormattedText, fs, "%s  |  %.0f%%", Abbrev(ns.Or(health, 0)), pct)
-		ok = ok or pcall(fs.SetFormattedText, fs, "%s", Abbrev(ns.Or(health, 0)))
+		ok = hasPct and pcall(fs.SetFormattedText, fs, "%s  |  %.0f%%", cur, pct)
+		ok = ok or pcall(fs.SetFormattedText, fs, "%s", cur)
+	elseif mode == "pctcur" then
+		ok = hasPct and pcall(fs.SetFormattedText, fs, "%.0f%%  |  %s", pct, cur)
+		ok = ok or pcall(fs.SetFormattedText, fs, "%s", cur)
 	elseif mode == "max" then
-		ok = pcall(fs.SetFormattedText, fs, "%s / %s", Abbrev(ns.Or(health, 0)), Abbrev(ns.Or(maxHealth, 0)))
+		ok = pcall(fs.SetFormattedText, fs, "%s / %s", cur, top)
+	elseif mode == "maxpct" then
+		ok = hasPct and pcall(fs.SetFormattedText, fs, "%s / %s  |  %.0f%%", cur, top, pct)
+		ok = ok or pcall(fs.SetFormattedText, fs, "%s / %s", cur, top)
+	elseif mode == "missing" then
+		local missing = HealthMissing(health, maxHealth)
+		ok = type(missing) ~= "nil" and pcall(fs.SetFormattedText, fs, "-%s", Num(missing))
 	end
 	if not ok then fs:SetText("") end
+	-- Missing health always hides at full ("-0"); the rest when asked.
+	if mode == "missing" or opt.healthHideFull then
+		if not Secret(health) and not Secret(maxHealth) and health and maxHealth then
+			fs:SetAlpha(health >= maxHealth and 0 or 1)
+		else
+			CurveAlpha(fs, "full", FULL_POINTS, 1)
+		end
+	else
+		fs:SetAlpha(1)
+	end
+end
+
+-- Place one text: inside the bar (left, centre, right) or over / under the frame, nudged.
+-- The name, the one long text, gets a width so it trims instead of running over the ends.
+local function PlaceText(plate, fs, prefix, isName)
+	local opt = Opt()
+	local pos = opt[prefix .. "Pos"] or "center"
+	local x, y = opt[prefix .. "X"] or 0, opt[prefix .. "Y"] or 0
+	local size = opt[prefix .. "Size"] or 10
+	local font = TEXT_FONTS[opt[prefix .. "Font"]] or STANDARD_TEXT_FONT
+	fs:SetFont(font, size, "OUTLINE")
+	if not fs:GetFont() then
+		fs:SetFont(STANDARD_TEXT_FONT, size, "OUTLINE")
+	end
+	local bar, w = plate.Health, plate.barW or 250
+	if isName then y = y + 1 end -- Exocet sits a hair low
+	fs:ClearAllPoints()
+	if pos == "left" then
+		fs:SetPoint("LEFT", bar, "LEFT", 5 + x, y)
+		fs:SetJustifyH("LEFT")
+	elseif pos == "right" then
+		fs:SetPoint("RIGHT", bar, "RIGHT", -5 + x, y)
+		fs:SetJustifyH("RIGHT")
+	elseif pos == "above" then
+		fs:SetPoint("BOTTOM", plate.FrameBox, "TOP", x, 2 + y)
+		fs:SetJustifyH("CENTER")
+	elseif pos == "below" then
+		fs:SetPoint("TOP", plate.FrameBox, "BOTTOM", x, -2 + y)
+		fs:SetJustifyH("CENTER")
+	else
+		fs:SetPoint("CENTER", bar, "CENTER", x, y)
+		fs:SetJustifyH("CENTER")
+	end
+	if isName then
+		local inside = pos ~= "above" and pos ~= "below"
+		fs:SetWidth(inside and math.max(40, w - (pos == "center" and 68 or 40)) or w + 60)
+	end
+end
+
+function LayoutTexts(plate)
+	local opt = Opt()
+	PlaceText(plate, plate.Name, "name", true)
+	PlaceText(plate, plate.Level, "level")
+	PlaceText(plate, plate.Percent, "health")
+	plate.Name:SetShown(opt.nameShow ~= false)
+	plate.Level:SetShown(opt.levelShow ~= false)
+end
+
+-- The ember at the fill's leading edge (Options > Target > Edge glow), dark when the bar is
+-- empty or full. frac: the shown fraction, or nil when health is secret.
+local function UpdateGlow(plate, frac)
+	local glow = plate.edgeGlow
+	if not glow then return end
+	if Opt().edgeGlow == false then
+		glow.frame:Hide()
+		return
+	end
+	glow.frame:Show()
+	if frac then
+		glow.frame:SetAlpha((frac > 0.004 and frac < 0.996) and 1 or 0)
+	else
+		CurveAlpha(glow.frame, "glow", GLOW_POINTS, 1)
+	end
 end
 
 -- Health: the bar eases toward the real value; a pale trail holds where health was and then
--- drains after it. Both run on fractions. Secret values skip the easing and the trail.
+-- drains after it. Both run on fractions. With secret health (enemies in combat) the client
+-- eases the bar itself, and the trail is the same secret value replayed TRAIL_HOLD later: we
+-- can hold a secret and hand it on, we just can't read it.
+
+local function Ease()
+	return Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.ExponentialEaseOut
+end
+
+local function SecretValue(bar, value, ease)
+	if not (ease and pcall(bar.SetValue, bar, value, ease)) then
+		pcall(bar.SetValue, bar, value)
+	end
+end
+
+-- One pending replay at a time: it sends the latest health, so steady damage drains the trail
+-- in steps every TRAIL_HOLD instead of never.
+local function QueueSecretTrail(plate)
+	if plate.trailQueued then return end
+	plate.trailQueued = true
+	C_Timer.After(TRAIL_HOLD, function()
+		plate.trailQueued = nil
+		if plate.secret then
+			SecretValue(plate.Trail, plate.trailPending, Ease())
+		end
+	end)
+end
 
 local function SetHealth(plate, snap)
 	local health, maxHealth = UnitHealth(U()), UnitHealthMax(U())
@@ -314,20 +496,30 @@ local function SetHealth(plate, snap)
 		health, maxHealth = preview.health, 1
 	end
 	if Secret(health) or Secret(maxHealth) then
+		local entering = not plate.secret
 		plate.secret = true
-		pcall(plate.Health.SetMinMaxValues, plate.Health, 0, ns.Or(maxHealth, 1))
+		local value, top = ns.Or(health, 0), ns.Or(maxHealth, 1)
+		pcall(plate.Health.SetMinMaxValues, plate.Health, 0, top)
+		pcall(plate.Trail.SetMinMaxValues, plate.Trail, 0, top)
 		-- The client can ease a bar to a value it won't show us.
-		local ease = not snap and Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.ExponentialEaseOut
-		if not (ease and pcall(plate.Health.SetValue, plate.Health, ns.Or(health, 0), ease)) then
-			pcall(plate.Health.SetValue, plate.Health, ns.Or(health, 0))
+		SecretValue(plate.Health, value, not snap and Ease())
+		plate.trailPending = value
+		if snap or entering then
+			SecretValue(plate.Trail, value)
+		else
+			QueueSecretTrail(plate)
 		end
-		plate.Trail:Hide()
+		plate.Trail:Show()
 		SetHealthText(plate, health, maxHealth)
+		UpdateGlow(plate, nil)
 		return
 	end
 	if plate.secret then
 		plate.secret = nil
+		plate.trailPending = nil
 		plate.Health:SetMinMaxValues(0, 1)
+		plate.Trail:SetMinMaxValues(0, 1)
+		snap = true
 	end
 	local frac = (maxHealth and maxHealth > 0) and math.max(0, math.min(1, (health or 0) / maxHealth)) or 0
 	plate.goal = frac
@@ -399,8 +591,11 @@ local function AnimateLiquid(plate, elapsed, fraction)
 		layer:SetTexCoord(u, u + su, v, v + sv)
 		layer:SetVertexColor(c[1], c[2], c[3], spec.alpha)
 	end
-	-- Secret health: no fraction to test, so the spark stays lit at the edge.
-	if not fraction or (fraction > 0.003 and fraction < 0.997) then
+	-- Secret health: no fraction to test, so the spark stays lit at the edge. The edge glow,
+	-- when on, takes its place.
+	if plate.edgeGlow and Opt().edgeGlow ~= false then
+		plate.spark:Hide()
+	elseif not fraction or (fraction > 0.003 and fraction < 0.997) then
 		plate.spark:Show()
 		plate.spark:SetVertexColor(math.min(1, c[1] + 0.4), math.min(1, c[2] + 0.4), math.min(1, c[3] + 0.4), 0.9)
 	else
@@ -422,6 +617,7 @@ local function Animate(plate, elapsed)
 	plate.shown = shown
 	plate.Health:SetValue(shown)
 	AnimateLiquid(plate, elapsed, shown)
+	UpdateGlow(plate, shown)
 	local trail = plate.trail or shown
 	if trail > shown then
 		if (plate.trailHold or 0) > 0 then
@@ -758,6 +954,18 @@ function ns.TargetPlate.Update(snap)
 	else
 		plate.Level:SetText("")
 	end
+	-- Level colour: plain cream, or by difficulty (grey, green, yellow, orange, red; skull red).
+	local lr, lg, lb = 0.95, 0.9, 0.8
+	if Opt().levelColor == "difficulty" and not Secret(level) and level then
+		if level == -1 then
+			lr, lg, lb = 1, 0.1, 0.1
+		else
+			local f = GetCreatureDifficultyColor or GetQuestDifficultyColor
+			local ok, c = pcall(f, level)
+			if ok and type(c) == "table" and c.r then lr, lg, lb = c.r, c.g, c.b end
+		end
+	end
+	plate.Level:SetTextColor(lr, lg, lb)
 	plate.Sub:SetText(RANK_LABEL[classification] or "")
 
 	SetHealth(plate, snap)
@@ -849,11 +1057,15 @@ function ns.TargetPlate.Init()
 	plate.Trail = CreateFrame("StatusBar", nil, plate)
 	plate.Trail:SetFrameLevel(plate:GetFrameLevel() + 1)
 	plate.Trail:SetStatusBarTexture(ns.Art.Path("unitFillWhite") or "Interface\\Buttons\\WHITE8X8")
-	plate.Trail:SetStatusBarColor(1, 0.86, 0.6, 0.75)
+	plate.Trail:SetStatusBarColor(1, 0.82, 0.5, 0.92) -- the hit, a warm flash draining away
 	plate.Trail:SetMinMaxValues(0, 1)
-	local trailBg = plate.Trail:CreateTexture(nil, "BACKGROUND")
-	trailBg:SetAllPoints()
-	trailBg:SetColorTexture(0.04, 0.02, 0.02, 0.92)
+	-- The empty well: D3's dark strip under the whole bar, so missing health is shaded. It
+	-- belongs to the plate, not the trail, so it stays whatever the trail does.
+	plate.Well = plate:CreateTexture(nil, "BACKGROUND")
+	plate.Well:SetAllPoints(plate.Trail)
+	if not ns.Art.Apply(plate.Well, "unitWell") then
+		plate.Well:SetColorTexture(0.05, 0.04, 0.04, 0.95)
+	end
 
 	plate.Health = CreateFrame("StatusBar", nil, plate)
 	plate.Health:SetFrameLevel(plate:GetFrameLevel() + 2)
@@ -888,22 +1100,55 @@ function ns.TargetPlate.Init()
 		plate.spark:Hide()
 	end
 
-	-- The name inside the bar, as D3 writes it; the health text at the bar's right end.
+	-- The ember at the leading edge (see UpdateGlow): a red bloom trailing back into the fill
+	-- and a thin hot core on the edge, both ADD, riding the fill texture's right end (which the
+	-- client sizes, also from secret values) and clipped to the bar.
+	local glowPath = ns.Art.Path("unitGlow")
+	if glowPath and plate.Health.SetClipsChildren then
+		local fill = plate.Health:GetStatusBarTexture()
+		local edge = CreateFrame("Frame", nil, plate.Health)
+		edge:SetAllPoints(plate.Health)
+		edge:SetClipsChildren(true)
+		edge:SetFrameLevel(plate.Health:GetFrameLevel() + 1)
+		local function Sprite(u, sub)
+			local tex = edge:CreateTexture(nil, "OVERLAY", nil, sub)
+			tex:SetTexture(glowPath)
+			tex:SetTexCoord(u, u + 18 / 64, 0, 1)
+			tex:SetBlendMode("ADD")
+			tex:SetSize(18, 16)
+			-- The sprite's edge column is 4 px from its right side.
+			tex:SetPoint("RIGHT", fill, "RIGHT", 4, 0)
+			return tex
+		end
+		local bloom, core = Sprite(0, 1), Sprite(0.5, 2)
+		bloom:SetVertexColor(1, 0.26, 0.06)
+		core:SetVertexColor(1, 0.92, 0.58)
+		plate.edgeGlow = { frame = edge, bloom = bloom, core = core }
+	end
+
+	-- Glass over the whole bar (well, trail, fill and liquid), under the frame and the text: an
+	-- inner shadow below the frame's lips and a soft highlight band, so it reads as a tube.
+	local glass = CreateFrame("Frame", nil, plate)
+	glass:SetAllPoints(plate.Health)
+	glass:SetFrameLevel(plate:GetFrameLevel() + 4)
+	plate.Gloss = glass:CreateTexture(nil, "OVERLAY")
+	plate.Gloss:SetAllPoints()
+	if not ns.Art.Apply(plate.Gloss, "unitGloss") then
+		plate.Gloss:Hide()
+	end
+
+	-- The name inside the bar, as D3 writes it; the level at the left end and the health text at
+	-- the right by default. LayoutTexts places, sizes and fonts them from the options: numbers
+	-- default to the game font (Exocet's digits space out), all outlined and shadowed.
 	plate.Percent = plate.FrameBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	plate.Percent:SetPoint("RIGHT", plate.Health, "RIGHT", -5, 0)
 	plate.Percent:SetTextColor(0.95, 0.9, 0.8)
-
 	plate.Level = plate.FrameBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	plate.Level:SetPoint("LEFT", plate.Health, "LEFT", 5, 0)
-	plate.Level:SetTextColor(0.95, 0.9, 0.8)
-
-	plate.Name = plate.FrameBox:CreateFontString(nil, "OVERLAY")
-	plate.Name:SetFont(ns.FONT or STANDARD_TEXT_FONT, 13, "OUTLINE")
-	plate.Name:SetPoint("LEFT", plate.Health, "LEFT", 34, 1)
-	plate.Name:SetPoint("RIGHT", plate.Health, "RIGHT", -34, 1)
+	plate.Name = plate.FrameBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	plate.Name:SetWordWrap(false)
-	plate.Name:SetJustifyH("CENTER")
-	plate.Name:SetShadowOffset(1, -1)
+	for _, fs in ipairs({ plate.Percent, plate.Level, plate.Name }) do
+		fs:SetShadowColor(0, 0, 0, 0.85)
+		fs:SetShadowOffset(1, -1)
+	end
 
 	-- Level and rank under the frame (where D3 lists an elite's affixes), and who it is after.
 	-- The rank (Elite, Rare...) under the bar, where D3 lists an elite's affixes.
