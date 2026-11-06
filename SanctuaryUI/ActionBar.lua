@@ -304,9 +304,16 @@ function ns.ActionBar.Layout()
 	local metrics = ns.Metrics and ns.Metrics()
 	if not cluster or not ns.ActionBar.primary or not metrics then return end
 	local base = metrics.baseY
-	cluster:SetSize(metrics.width + 40, metrics.height + 80 + metrics.lift)
+	local clusterH = metrics.height + 80 + metrics.lift
+	cluster:SetSize(metrics.width + 40, clusterH)
 	-- Clamp to the console art, not the padded cluster: it may touch the screen's edges.
 	cluster:SetClampRectInsets(20, -20, -80, 0)
+	-- Only the console art (with its docked tiers) takes the mouse, so clicks on it never fall
+	-- through to the world. The padding around it lets the mouse through to whatever is placed
+	-- there, such as a target bar moved down over the console.
+	local artTop = base + metrics.height / 2 + metrics.lift
+	local artBottom = base - metrics.height / 2
+	cluster:SetHitRectInsets(20, 20, math.max(0, clusterH - artTop), math.max(0, artBottom))
 
 	if ns.ConsoleFrame then
 		ns.ConsoleFrame:SetSize(metrics.width, metrics.height)
@@ -316,13 +323,20 @@ function ns.ActionBar.Layout()
 		LayoutTiers(metrics)
 	end
 	local above = cluster:GetFrameLevel() + ns.LEVEL.buttons
-	if ns.PrimaryHeader then ns.PrimaryHeader:SetFrameLevel(above) end
+	-- The bar headers span the whole cluster and are only parents for their buttons: they must
+	-- never take the mouse (one did, and swallowed hover and clicks over everything above the
+	-- console, the target bar included).
+	local function Header(header)
+		header:SetFrameLevel(above)
+		header:EnableMouse(false)
+	end
+	if ns.PrimaryHeader then Header(ns.PrimaryHeader) end
 	if ns.ActionBar.rows then
 		for _, row in pairs(ns.ActionBar.rows) do
-			row.header:SetFrameLevel(above)
+			Header(row.header)
 		end
 	end
-	if ns.PetHeader then ns.PetHeader:SetFrameLevel(above) end
+	if ns.PetHeader then Header(ns.PetHeader) end
 	if ns.LeaveButton then ns.LeaveButton:SetFrameLevel(above + 2) end
 
 	for i = 1, PRIMARY do
