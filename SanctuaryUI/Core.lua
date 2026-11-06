@@ -29,6 +29,61 @@ function ns.Or(value, default)
 	return value
 end
 
+-- Every aura of one kind (filter) on a unit, in the client's order, which way it was read, and
+-- whether the client refused every way (in combat it refuses addons the player's auras
+-- outright, so an empty list then means "can't tell", not "no buffs").
+-- In combat this client hides aura data: GetAuraDataByIndex refuses hidden auras outright
+-- (and a loop over it used to stop at the first one), so slots come first, as oUF does on
+-- this client. Each read is pcall'd and skipped on refusal; an entry that is itself secret
+-- can't be looked into and is skipped too. Fields of the entries kept may still be secret.
+function ns.ReadAuras(unit, filter)
+	local UA = C_UnitAuras
+	local list = {}
+	if not UA then return list, "none" end
+	local function keep(aura, index)
+		if type(aura) == "table" and not ns.Secret(aura) then
+			aura.index = index
+			list[#list + 1] = aura
+		end
+	end
+	if UA.GetAuraSlots and UA.GetAuraDataBySlot then
+		local position = 0
+		local function take(token, ...)
+			for i = 1, select("#", ...) do
+				position = position + 1
+				local ok, aura = pcall(UA.GetAuraDataBySlot, unit, (select(i, ...)))
+				if ok then keep(aura, position) end
+			end
+			return token
+		end
+		local ok, token = pcall(function() return take(UA.GetAuraSlots(unit, filter)) end)
+		local pages = 0
+		while ok and token ~= nil and not ns.Secret(token) and pages < 20 do
+			pages = pages + 1
+			ok, token = pcall(function() return take(UA.GetAuraSlots(unit, filter, nil, token)) end)
+		end
+		if ok then return list, "slots", false end
+		wipe(list)
+	end
+	if UA.GetUnitAuras then
+		local ok, auras = pcall(UA.GetUnitAuras, unit, filter)
+		if ok and type(auras) == "table" and not ns.Secret(auras) then
+			for i, aura in ipairs(auras) do keep(aura, i) end
+			return list, "GetUnitAuras", false
+		end
+	end
+	local refused = true
+	if UA.GetAuraDataByIndex then
+		for index = 1, 40 do
+			local ok, aura = pcall(UA.GetAuraDataByIndex, unit, index, filter)
+			if ok then refused = false end
+			if ok and aura == nil then break end
+			if ok then keep(aura, index) end
+		end
+	end
+	return list, "index", refused
+end
+
 function ns.Print(msg)
 	print("|cffd8b86aSanctuaryUI:|r " .. msg)
 	ns.Log("print: %s", msg)
@@ -181,7 +236,7 @@ local function Slash(msg)
 			ns.Options.Open()
 		end
 	elseif cmd == "help" then
-		ns.Print("/sanctuary opens options. Commands: lock, unlock, scale <n>, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, active, debug on|off, log")
+		ns.Print("/sanctuary opens options. Commands: lock, unlock, scale <n>, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, active, auras, debug on|off, log")
 	elseif cmd == "lock" then
 		ns.SetLocked(true)
 	elseif cmd == "unlock" then
@@ -277,10 +332,19 @@ local function Slash(msg)
 			or "debug trace off. Errors are still recorded. /sanctuary log shows them")
 	elseif cmd == "check" then
 		ns.Check()
-	elseif cmd == "active" then
-		if ns.ActiveSkill and ns.ActiveSkill.Report then
-			ns.ActiveSkill.Report()
-		end
+	elseif cmd == "active" or cmd == "auras" then
+		-- Reports go into the log even with debug off, so /reload hands them over whole.
+		ns.forceLog = true
+		local ok, err = pcall(function()
+			if cmd == "active" then
+				if ns.ActiveSkill and ns.ActiveSkill.Report then ns.ActiveSkill.Report() end
+			elseif ns.Auras and ns.Auras.Report then
+				ns.Auras.Report()
+			end
+		end)
+		ns.forceLog = nil
+		if not ok then ns.Print("report failed: " .. tostring(err)) end
+		ns.Print("report saved to the log (/reload writes it to SavedVariables)")
 	else
 		ns.Print("unknown command. /sanctuary help")
 	end

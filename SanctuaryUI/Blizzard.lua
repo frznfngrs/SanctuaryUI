@@ -17,6 +17,13 @@ local FRAME_NAMES = {
 	"MainStatusTrackingBarContainer",
 }
 
+-- Hidden where they are, never moved to the hider: Blizzard code calls methods on their
+-- parent (MainStatusTrackingBarContainer:GetStatusTrackingManager() is its GetParent(), and
+-- Edit Mode calls CheckForLayoutChange on it). Their parent is hidden, which is enough.
+local KEEP_PARENT = {
+	MainStatusTrackingBarContainer = true,
+}
+
 -- Hidden only while the SanctuaryUI part that replaces them is on (portraits, target plate).
 local REPLACED_BY = {
 	PlayerFrame = function(db) return db.portraits.enabled end,
@@ -49,9 +56,12 @@ function ns.Blizzard.Hide()
 		ns.Hider:Hide()
 	end
 	for i = 1, #FRAME_NAMES do
-		local frame = _G[FRAME_NAMES[i]]
+		local name = FRAME_NAMES[i]
+		local frame = _G[name]
 		if frame then
-			pcall(frame.SetParent, frame, ns.Hider)
+			if not KEEP_PARENT[name] then
+				pcall(frame.SetParent, frame, ns.Hider)
+			end
 			pcall(Suppress, frame)
 		end
 	end
@@ -60,7 +70,9 @@ function ns.Blizzard.Hide()
 		pcall(Suppress, _G["ActionButton" .. i])
 	end
 	ns.Blizzard.MicroMenu(not ns.DB().hideMicroMenu)
-	ns.Blizzard.Auras(not ns.DB().auras.enabled)
+	-- Blizzard's buff frames are never hidden now: SanctuaryUI's buffs are those frames,
+	-- moved and dressed (Auras.lua), since only Blizzard can read your buffs in combat.
+	ns.Blizzard.Auras(true)
 	if ns.DB().totems.enabled and _G.TotemFrame then
 		pcall(_G.TotemFrame.SetParent, _G.TotemFrame, ns.Hider)
 		pcall(Suppress, _G.TotemFrame)
@@ -122,7 +134,8 @@ function ns.Blizzard.MicroMenu(show)
 	end
 end
 
--- Blizzard's buff, debuff and weapon enchant frames, hidden while the SanctuaryUI buffs are on.
+-- Blizzard's buff, debuff and weapon enchant frames. Only ever shown now (see Hide); hiding
+-- stays for clients where something else wants them gone.
 local AURA_NAMES = { "BuffFrame", "DebuffFrame", "TemporaryEnchantFrame" }
 
 function ns.Blizzard.Auras(show)

@@ -61,7 +61,7 @@ end
 
 -- ns.Log("fmt %s", ...) or ns.Log(anything). Does nothing unless debug is on.
 function ns.Log(fmt, ...)
-	if not Store().enabled then return end
+	if not Store().enabled and not ns.forceLog then return end
 	local ok, text = pcall(string.format, tostring(fmt), ...)
 	if not ok or select("#", ...) == 0 then
 		text = tostring(fmt)

@@ -96,50 +96,196 @@ end
 -- What is up right now, gathered once per rescan.
 
 local auraBySpell, auraByName = {}, {}
--- The client can hide an aura's timing (secret values), typically in combat. The last timing
--- read for each buff is kept, so a buff cast before the values went hidden keeps its timer.
-local known = {}
+-- When the player last cast each spell (by ID and by name).
+local casts = {}
+-- The last scan was refused (in combat this client hides the player's auras from addons
+-- entirely). What was read before stays, minus what has run out, and casts refresh it.
+local refused = false
 
--- Every aura of one kind on the player, in the client's order. Same approach as TargetPlate:
--- GetUnitAuras first; GetAuraDataByIndex can throw when auras are secret, so the fallback is
--- pcall'd and stops quietly when the client refuses.
-local function ReadAuras(unit, filter)
-	local UA = C_UnitAuras
-	if not UA then return {} end
-	if UA.GetUnitAuras then
-		local ok, list = pcall(UA.GetUnitAuras, unit, filter)
-		if ok and type(list) == "table" then return list end
+local UA = C_UnitAuras or {}
+
+local function Readable(value)
+	return not Secret(value) and value ~= nil
+end
+
+-- Buff lengths learned while buffs are readable, by spell ID and name; saved across sessions.
+local function Lengths()
+	local global = ns.db and ns.db.global
+	if not global then return {} end
+	global.buffLengths = global.buffLengths or {}
+	return global.buffLengths
+end
+
+local function Length(id, name)
+	local lengths = Lengths()
+	return lengths[id] or (name and lengths[name])
+end
+
+-- One aura as the resolver wants it: plain timing, or hidden with what we can still ask.
+local function Entry(aura, id, name)
+	local auraID = aura.auraInstanceID
+	if not Readable(auraID) then auraID = nil end
+	if Secret(aura.duration) or Secret(aura.expirationTime) then
+		return { hidden = true, auraID = auraID }
 	end
-	local list = {}
-	if not UA.GetAuraDataByIndex then return list end
-	for index = 1, 40 do
-		local ok, aura = pcall(UA.GetAuraDataByIndex, unit, index, filter)
-		if not ok or not aura then break end
-		aura.index = index
-		list[#list + 1] = aura
-	end
-	return list
+	local entry = { duration = aura.duration or 0, expires = aura.expirationTime or 0, auraID = auraID }
+	local lengths = Lengths()
+	if id then lengths[id] = entry.duration end
+	if name then lengths[name] = entry.duration end
+	return entry
+end
+
+local function Put(entry, id, name)
+	if id then auraBySpell[id] = entry end
+	if name then auraByName[name] = entry end
 end
 
 local function ScanAuras()
+	local list, _, denied = ns.ReadAuras("player", "HELPFUL|PLAYER")
+	refused = denied
+	if denied then
+		-- Keep the last real reading and the casts since; drop what has run out.
+		local now = GetTime()
+		for _, map in ipairs({ auraBySpell, auraByName }) do
+			for key, entry in pairs(map) do
+				if not entry.hidden and entry.duration > 0 and entry.expires <= now then
+					map[key] = nil
+				end
+			end
+		end
+		return
+	end
 	wipe(auraBySpell)
 	wipe(auraByName)
-	for _, aura in ipairs(ReadAuras("player", "HELPFUL|PLAYER")) do
+	for _, aura in ipairs(list) do
 		local id, name = aura.spellId, aura.name
 		if Secret(id) then id = nil end
 		if Secret(name) then name = nil end
-		local entry
-		if Secret(aura.duration) or Secret(aura.expirationTime) then
-			local seen = (id and known[id]) or (name and known[name])
-			entry = { hidden = true, duration = seen and seen.duration, expires = seen and seen.expires }
-		else
-			entry = { duration = aura.duration or 0, expires = aura.expirationTime or 0 }
-			if id then known[id] = entry end
-			if name then known[name] = entry end
+		if id or name then
+			Put(Entry(aura, id, name), id, name)
 		end
-		if id then auraBySpell[id] = entry end
-		if name then auraByName[name] = entry end
 	end
+end
+
+-- A cast while buffs can't be read: if we know how long this spell's buff lasts, it is up
+-- from now for that long. A buff cancelled or dispelled early stays lit until then; the
+-- first readable scan after combat puts it right.
+local function Predict(spellID, name, now, length)
+	length = length or Length(spellID, name)
+	if not length then return end
+	Put({ duration = length, expires = now + length, predicted = true }, spellID, name)
+	return true
+end
+
+-- Buffs only ever cast in combat (Bloodthirst, Sweeping Strikes, Death Wish) are never
+-- readable, so their length is never learned. Two things we can still see stand in:
+-- Blizzard's buff frame (untainted, it shows them) gains an icon right around the cast,
+-- which says the cast put a buff on you, and the spell's own text says how long it lasts.
+-- Target debuffs (Rend, Hamstring) add no icon there, so they don't light.
+local GetDescription = (C_Spell and C_Spell.GetSpellDescription) or GetSpellDescription
+local BUFF_WINDOW = 0.6 -- seconds between a cast and a new buff icon, either way round
+
+local UNITS = { sec = 1, secs = 1, second = 1, seconds = 1, min = 60, mins = 60, minute = 60, minutes = 60, hour = 3600, hours = 3600 }
+
+-- "This effect lasts 8 sec." / "Lasts 2 min." first; else the last duration in the text.
+local function DescribedLength(spellID)
+	if not GetDescription then return end
+	local ok, text = pcall(GetDescription, spellID)
+	if not ok or not Readable(text) or type(text) ~= "string" then return end
+	text = text:lower()
+	local n, unit = text:match("lasts (%d+%.?%d*) (%a+)")
+	if n and UNITS[unit] then return tonumber(n) * UNITS[unit] end
+	local last
+	for num, u in text:gmatch("(%d+%.?%d*) (%a+)") do
+		if UNITS[u] then last = tonumber(num) * UNITS[u] end
+	end
+	return last
+end
+
+local function BuffIcons()
+	local frame = _G.BuffFrame
+	if not frame or type(frame.auraFrames) ~= "table" then return 0 end
+	local count = 0
+	for _, button in ipairs(frame.auraFrames) do
+		if not button.isAuraAnchor and button:IsShown() then count = count + 1 end
+	end
+	return count
+end
+
+local iconCount, iconGained = 0, -math.huge
+-- A cast that may have put a buff on you, waiting for its icon: { id, name, time, length }.
+local pending
+
+local function Confirm(cast, now)
+	pending = nil
+	if Predict(cast.id, cast.name, cast.time, cast.length) then
+		dirty = true
+		ns.Log("active: %s made a buff (new icon), predicted %ss from its text", tostring(cast.name), tostring(cast.length))
+	end
+end
+
+-- Called often: notes when a buff icon appears, and settles a waiting cast.
+local function WatchIcons(now)
+	local count = BuffIcons()
+	if count > iconCount then iconGained = now end
+	iconCount = count
+	if pending then
+		if iconGained >= pending.time - BUFF_WINDOW then
+			Confirm(pending, now)
+		elseif now - pending.time > BUFF_WINDOW then
+			pending = nil
+		end
+	end
+end
+
+-- A cast while buffs are hidden: refresh a buff we already show for it, or use the length we
+-- learned, or wait for its icon and go by its text.
+local function OnCast(spellID, name, now)
+	local entry = auraBySpell[spellID] or (name and auraByName[name])
+	if entry and not entry.hidden and entry.duration > 0 and entry.expires > now then
+		return Predict(spellID, name, now, entry.duration)
+	end
+	if Predict(spellID, name, now) then return true end
+	local length = DescribedLength(spellID)
+	if length and length > 0 then
+		pending = { id = spellID, name = name, time = now, length = length }
+		WatchIcons(now)
+	end
+end
+
+-- Timing for a buff whose fields are hidden (clients that list auras but hide their values).
+-- Returns start, duration (0: no timer), or a duration object for the engine to run; false
+-- when the buff shouldn't light the socket.
+local function HiddenTiming(aura, id, name)
+	local now = GetTime()
+	local length = Length(id, name)
+	if length then
+		if length <= 0 then
+			return Opt().activeEndless and 0 or false, 0
+		end
+		if length > (Opt().activeMax or 60) then return false end
+		local cast = casts[id] or (name and casts[name])
+		if cast and cast + length > now then
+			return cast, length
+		end
+	end
+	-- The client's duration object; none means the buff has no duration.
+	if aura.auraID and UA.GetAuraDuration then
+		local ok, object = pcall(UA.GetAuraDuration, "player", aura.auraID)
+		if ok then
+			if type(object) == "nil" then
+				return Opt().activeEndless and 0 or false, 0
+			end
+			local got, left, total = pcall(function() return object:GetRemainingDuration(), object:GetTotalDuration() end)
+			if got and Readable(left) and Readable(total) then
+				if total > (Opt().activeMax or 60) then return false end
+				return now + left - total, total
+			end
+			return 0, 0, object
+		end
+	end
+	-- Nothing to time it by: glow alone.
+	return 0, 0
 end
 
 local function Channel()
@@ -166,28 +312,29 @@ local function Totem(name, icon)
 	end
 end
 
--- Returns active, start, duration for one button. A duration of 0 means "on, no timer".
+-- Returns active, start, duration for one button. A duration of 0 means "on, no timer";
+-- a fourth value is a duration object the engine runs the timer from (timing hidden), and a
+-- fifth is true for channels and totems, which always glow whatever their length.
 local function Resolve(button, channel)
 	if not button.GetSpellId then return false end
 	local ok, id = pcall(button.GetSpellId, button)
-	if not ok or not id or Secret(id) then return false end
+	if not ok or Secret(id) or not id then return false end
 	local name = GetSpellName(id)
+	if Secret(name) then name = nil end
 	if channel and (channel[2] == id or channel[1] == name) then
-		return true, channel[3], channel[4]
+		return true, channel[3], channel[4], nil, true
 	end
 	local icon = button.icon and button.icon:GetTexture()
 	local tStart, tDuration = Totem(name, icon)
 	if tStart then
-		return true, tStart, tDuration
+		return true, tStart, tDuration, nil, true
 	end
 	local aura = auraBySpell[id] or (name and auraByName[name])
 	if aura and not IsTracking(id, name) then
 		if aura.hidden then
-			-- Timing unreadable: use the last timing seen if it still runs, else glow alone.
-			if aura.duration and aura.duration > 0 and aura.expires > GetTime() then
-				return true, aura.expires - aura.duration, aura.duration
-			end
-			return true, 0, 0
+			local start, duration, timer = HiddenTiming(aura, id, name)
+			if not start then return false end
+			return true, start, duration, timer
 		end
 		if aura.duration <= 0 then
 			if Opt().activeEndless then
@@ -252,6 +399,36 @@ local function Build(button)
 		back:SetColorTexture(0, 0, 0, 0.9)
 	end
 	fx.back, fx.fill = back, fill
+
+	-- Hidden timings: the engine drains an invisible status bar from the aura's duration
+	-- object, and a clip frame that ends where that bar's fill ends crops a full-length copy
+	-- of the fill art. Same look as the texcoord crop, without reading the secret numbers.
+	local timerBar = CreateFrame("StatusBar", nil, tab)
+	if timerBar.SetTimerDuration and timerBar.SetClipsChildren then
+		timerBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+		timerBar:SetStatusBarColor(0, 0, 0, 0)
+		timerBar:SetMinMaxValues(0, 1)
+		local clip = CreateFrame("Frame", nil, tab)
+		clip:SetPoint("TOPLEFT", timerBar, "TOPLEFT")
+		clip:SetPoint("BOTTOMRIGHT", timerBar:GetStatusBarTexture(), "BOTTOMRIGHT")
+		clip:SetClipsChildren(true)
+		local inner = CreateFrame("Frame", nil, clip)
+		inner:SetAllPoints(timerBar)
+		local clipFill = inner:CreateTexture(nil, "OVERLAY")
+		clipFill:SetAllPoints()
+		if fx.art then
+			ns.Art.Apply(clipFill, "skillTimer")
+			clipFill:SetTexCoord(0, FILL_W / ATLAS_W, 16 / ATLAS_H, (16 + FILL_H) / ATLAS_H)
+		else
+			clipFill:SetColorTexture(0.85, 0.75, 0.2, 1)
+		end
+		for _, frame in ipairs({ timerBar, clip, inner }) do
+			frame:SetFrameLevel(level)
+		end
+		timerBar:Hide()
+		clip:Hide()
+		fx.timerBar, fx.clip = timerBar, clip
+	end
 	button.sanctuaryActive = fx
 	return fx
 end
@@ -287,6 +464,11 @@ local function Fit(button, fx)
 	fx.fill:SetHeight(FILL_H * s)
 	fx.fill:ClearAllPoints()
 	fx.fill:SetPoint("TOPLEFT", fx.tab, "TOPLEFT", FILL_X * s, -FILL_Y * s)
+	if fx.timerBar then
+		fx.timerBar:SetSize(FILL_W * s, FILL_H * s)
+		fx.timerBar:ClearAllPoints()
+		fx.timerBar:SetPoint("TOPLEFT", fx.tab, "TOPLEFT", FILL_X * s, -FILL_Y * s)
+	end
 	for i = 1, SPRITES do
 		fx.sprites[i].cycle = -1
 	end
@@ -330,7 +512,7 @@ local function Animate(button, fx, now)
 			sprite.tex:SetAlpha(math.min(1, sprite.peak * a + flash * 0.5))
 		end
 	end
-	if fx.tab:IsShown() then
+	if fx.tab:IsShown() and not fx.timer then
 		local left = fx.duration > 0 and (fx.start + fx.duration - now) / fx.duration or 0
 		if left <= 0 then
 			-- Ran out between aura events; the next rescan settles it.
@@ -347,7 +529,20 @@ local function Animate(button, fx, now)
 	end
 end
 
-local function Light(button, start, duration)
+-- The engine's timer, when the buff's timing is hidden. False if this client can't.
+local function RunTimer(fx, timer)
+	if not timer or not fx.timerBar then return false end
+	if fx.timer == timer then return true end
+	local directions = Enum and Enum.StatusBarTimerDirection
+	local smoothing = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.Immediate
+	if not pcall(fx.timerBar.SetTimerDuration, fx.timerBar, timer, smoothing, directions and directions.RemainingTime) then
+		return false
+	end
+	fx.timer = timer
+	return true
+end
+
+local function Light(button, start, duration, timer, always)
 	local opt = Opt()
 	local fx = Build(button)
 	if not fx.glow:IsShown() and not fx.tab:IsShown() then
@@ -357,8 +552,19 @@ local function Light(button, start, duration)
 	if not fx.art then
 		fx.fill:SetColorTexture(0.85, 0.75, 0.2, 1)
 	end
-	fx.glow:SetShown(opt.activeGlow)
-	fx.tab:SetShown(opt.activeTimer and duration > 0)
+	local engine = RunTimer(fx, timer)
+	if not engine then fx.timer = nil end
+	if fx.timerBar then
+		fx.timerBar:SetShown(engine)
+		fx.clip:SetShown(engine)
+	end
+	if engine then fx.fill:Hide() end
+	-- Long buffs keep just the timer tab; the glow is for short effects, and for anything with
+	-- no timer to show (no duration, or the timer turned off), where it is the only sign.
+	local timed = opt.activeTimer and (duration > 0 or engine)
+	local long = not always and duration > (opt.activeGlowMax or 30)
+	fx.glow:SetShown(opt.activeGlow and not (timed and long))
+	fx.tab:SetShown(timed)
 	active[button] = fx.glow:IsShown() or fx.tab:IsShown() or nil
 end
 
@@ -367,6 +573,7 @@ local function Douse(button)
 	if fx then
 		fx.glow:Hide()
 		fx.tab:Hide()
+		fx.timer = nil
 	end
 	active[button] = nil
 end
@@ -383,12 +590,12 @@ function ns.ActiveSkill.Rescan()
 	local name, spellID, start, duration = Channel()
 	local channel = name and { name, spellID, start, duration }
 	ns.ActionBar.ForEachButton(function(button)
-		local on, s, d
+		local on, s, d, timer, always
 		if enabled then
-			on, s, d = Resolve(button, channel)
+			on, s, d, timer, always = Resolve(button, channel)
 		end
 		if on then
-			Light(button, s, d)
+			Light(button, s, d, timer, always)
 		else
 			Douse(button)
 		end
@@ -398,12 +605,18 @@ end
 -- /sanctuary active: what each button with a spell sees, to tell a hidden aura from no match.
 function ns.ActiveSkill.Report()
 	ScanAuras()
+	local list, how = ns.ReadAuras("player", "HELPFUL|PLAYER")
+	local learned = 0
+	for _ in pairs(Lengths()) do learned = learned + 1 end
+	ns.Print(("active report: combat %s, buffs %s (%d via %s), %d buff lengths learned"):format(
+		tostring(InCombatLockdown()), refused and "hidden: using last reading and casts" or "readable",
+		#list, how, learned))
 	local name, spellID = Channel()
 	local lines = 0
 	ns.ActionBar.ForEachButton(function(button)
 		if not button.GetSpellId or not button:IsVisible() then return end
 		local ok, id = pcall(button.GetSpellId, button)
-		if not ok or not id then return end
+		if not ok or id == nil then return end
 		if Secret(id) then
 			ns.Print(button:GetName() .. ": spell ID hidden")
 			return
@@ -411,18 +624,31 @@ function ns.ActiveSkill.Report()
 		local spell = GetSpellName(id) or "?"
 		local aura = auraBySpell[id] or auraByName[spell]
 		local what
-		if aura and aura.hidden then
-			what = ("buff up, timing hidden%s"):format(aura.duration and (", last seen %.0fs"):format(aura.duration) or "")
+		local length = Length(id, spell)
+		if aura and aura.predicted then
+			what = ("buff predicted from cast, %.1fs of %ss"):format(math.max(0, aura.expires - GetTime()), tostring(aura.duration))
+		elseif aura and aura.hidden then
+			local start, duration, timer = HiddenTiming(aura, id, spell)
+			local how = not start and "filtered out" or timer and "engine timer"
+				or duration > 0 and ("%.1fs left"):format(start + duration - GetTime()) or "no timer"
+			what = ("buff up, timing hidden (%s)"):format(how)
 		elseif aura then
 			what = ("buff up, %.1fs of %.0fs"):format(math.max(0, aura.expires - GetTime()), aura.duration)
 		elseif name and (spellID == id or name == spell) then
 			what = "channelling"
 		else
-			what = "no buff"
+			local described = DescribedLength(id)
+			what = "no buff" .. (length and (", lasts %ss"):format(tostring(length))
+				or described and (", text says %ss"):format(tostring(described)) or "")
 		end
 		local fx = button.sanctuaryActive
 		local lit = fx and (fx.glow:IsShown() or fx.tab:IsShown())
-		ns.Print(("%s (%d): %s, %s"):format(spell, id, what, lit and "lit" or "dark"))
+		local limit = Opt().activeMax or 60
+		local why = ""
+		if not lit and aura and not aura.hidden and aura.duration > limit then
+			why = (" (longer than the %ds limit in Buttons > Longest buff to show)"):format(limit)
+		end
+		ns.Print(("%s (%d): %s, %s%s"):format(spell, id, what, lit and "lit" or "dark", why))
 		lines = lines + 1
 	end)
 	if lines == 0 then ns.Print("no spells on the visible bars") end
@@ -449,10 +675,24 @@ function ns.ActiveSkill.Init()
 	for _, event in ipairs(events) do
 		pcall(driver.RegisterEvent, driver, event)
 	end
-	for _, event in ipairs({ "UNIT_AURA", "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_CHANNEL_STOP", "UNIT_SPELLCAST_CHANNEL_UPDATE" }) do
+	for _, event in ipairs({ "UNIT_AURA", "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_CHANNEL_STOP", "UNIT_SPELLCAST_CHANNEL_UPDATE" }) do
 		pcall(driver.RegisterUnitEvent, driver, event, "player")
 	end
-	driver:SetScript("OnEvent", function()
+	driver:SetScript("OnEvent", function(_, event, _, _, spellID)
+		if event == "UNIT_SPELLCAST_SUCCEEDED" then
+			if Readable(spellID) then
+				local now = GetTime()
+				local name = GetSpellName(spellID)
+				if not Readable(name) then name = nil end
+				casts[spellID] = now
+				if name then casts[name] = now end
+				local predicted = (refused or InCombatLockdown()) and OnCast(spellID, name, now)
+				ns.Log("active: cast %s (%s)%s", tostring(name), tostring(spellID),
+					predicted and (", predicted %ss"):format(tostring(Length(spellID, name))) or "")
+			else
+				ns.Log("active: cast with a %s spell ID", Secret(spellID) and "secret" or "missing")
+			end
+		end
 		dirty = true
 	end)
 	-- Paging swaps a button's action without an event of its own.
@@ -463,6 +703,7 @@ function ns.ActiveSkill.Init()
 	local nextScan = 0
 	driver:SetScript("OnUpdate", function()
 		local now = GetTime()
+		WatchIcons(now)
 		if dirty and now >= nextScan then
 			nextScan = now + RESCAN_EVERY
 			ns.ActiveSkill.Rescan()

@@ -39,6 +39,7 @@ ns.DEFAULTS = {
 			activeTimer = true, -- D3 tab in the socket with a bar draining to the end
 			activeTimerPos = "top", -- top | bottom edge of the socket
 			activeMax = 60, -- seconds; longer buffs don't light their skill
+			activeGlowMax = 30, -- seconds; longer buffs get the timer tab without the glow
 			activeEndless = false, -- buffs with no duration (stances, auras, aspects) light their skill too
 		},
 
@@ -215,6 +216,9 @@ ns.DEFAULTS = {
 	global = {
 		-- LibDBIcon keeps the minimap button's angle and visibility here, shared by all profiles.
 		minimap = { hide = false },
+		-- How long each buff lasts, by spell ID and name, learned while buffs are readable.
+		-- Lets the skill glow time a buff cast in combat, when the client hides buffs.
+		buffLengths = {},
 	},
 }
 

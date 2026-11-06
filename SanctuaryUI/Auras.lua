@@ -2,20 +2,22 @@ SanctuaryUI = SanctuaryUI or {}
 local ns = SanctuaryUI
 ns.Auras = ns.Auras or {}
 
--- Buffs and debuffs the way D3 shows them: small square icons above the skill bar, a clock
--- sweep running down, stacks in the corner, no big countdown numbers. A small duration line
--- under each icon (optional), debuffs on their own line in red-stained sockets. Movable,
--- sized and wrapped from the options like the hotbar rows.
+-- Buffs and debuffs above the skill bar, D3 style: icons in stone sockets, a gold countdown
+-- strip under each timed one, debuffs in red-stained sockets above the buffs.
 --
--- The icons are plain frames, so they show, hide and update freely in combat. Right-click
--- cancel is a separate layer of secure "cancelaura" buttons laid over the buffs out of
--- combat only (positioned with the same grid, not anchored to the icons, so the icons never
--- become protected). Buff order shifts in a fight, so the layer hides when combat starts
--- rather than risk cancelling the wrong buff.
+-- The icons are Blizzard's own BuffFrame and DebuffFrame, dressed. In combat
+-- this client won't let an addon read the player's auras at all ("Auras cannot be accessed
+-- when secret while tainted"), but Blizzard's frames, running untainted, still can. So they
+-- must stay untainted: we never write a field their code reads and never call into their
+-- update code. We only add our own textures and frames to their buttons, and read (never
+-- write) what their buttons show.
+--
+-- Where they sit, icon size, icons per row, the limit and wrap direction are all Edit Mode's
+-- (drag them there). Wrap "Up" gives the D3 look when placed just above the bars.
 
-local MAX_BUFFS, MAX_DEBUFFS = 24, 12
 local BAR_H = 4
-local BAR_WARN = 10 -- seconds: the bar turns red
+local BAR_WARN = 10 -- seconds: the strip turns red
+local BASE_ICON = 30 -- Blizzard's aura icon size
 
 local function Opt()
 	return ns.DB().auras
@@ -25,380 +27,332 @@ local function Secret(value)
 	return issecretvalue and issecretvalue(value)
 end
 
-local function FormatTime(seconds)
-	if seconds >= 3600 then
-		return ("%dh"):format(math.floor(seconds / 3600 + 0.5))
-	elseif seconds >= 60 then
-		return ("%dm"):format(math.floor(seconds / 60 + 0.5))
-	end
-	return ("%d"):format(math.floor(seconds + 0.5))
+local function Readable(value)
+	return not Secret(value) and value ~= nil
 end
 
-local function ShowTooltip(owner, icon)
-	if GameTooltip:IsForbidden() then return end
-	if icon.enchantSlot then
-		GameTooltip:SetOwner(owner, "ANCHOR_BOTTOMLEFT")
-		GameTooltip:SetInventoryItem("player", icon.enchantSlot)
-		GameTooltip:Show()
-		return
-	end
-	if type(icon.auraID) == "nil" and not icon.index then return end
-	GameTooltip:SetOwner(owner, "ANCHOR_BOTTOMLEFT")
-	local filter = icon.harmful and "HARMFUL" or "HELPFUL"
-	local byID = icon.harmful and GameTooltip.SetUnitDebuffByAuraInstanceID or GameTooltip.SetUnitBuffByAuraInstanceID
-	if type(icon.auraID) ~= "nil" and byID then
-		pcall(byID, GameTooltip, "player", icon.auraID, filter)
-	elseif icon.index then
-		pcall(GameTooltip.SetUnitAura, GameTooltip, "player", icon.index, filter)
-	end
-	if not icon.harmful and not InCombatLockdown() then
-		GameTooltip:AddLine("Right-click to cancel", 0.6, 0.6, 0.6)
-	end
-	GameTooltip:Show()
+local function Frames()
+	return _G.BuffFrame, _G.DebuffFrame
 end
 
-local function MakeIcon(parent, name, harmful)
-	local button = CreateFrame("Frame", name, parent)
-	button:EnableMouse(true)
-	button.harmful = harmful
-	button.icon = button:CreateTexture(nil, "ARTWORK")
-	button.icon:SetAllPoints()
-	button.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-	button.cooldown = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
-	button.cooldown:SetAllPoints()
-	button.cooldown:SetReverse(true)
-	if button.cooldown.SetDrawEdge then button.cooldown:SetDrawEdge(false) end
-	if button.cooldown.SetHideCountdownNumbers then button.cooldown:SetHideCountdownNumbers(true) end
-	button.count = button:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
-	button.count:SetPoint("BOTTOMRIGHT", 1, 1)
-	-- Countdown bar: the XP rail's strip, in gold, running down under the icon.
+---------------------------------------------------------------------------
+-- Dressing one Blizzard aura button. Our state lives in this table, not on their buttons.
+
+local skins = {}
+
+local function PlaceDuration(button)
+	local skin = skins[button]
+	if not skin or not button.Duration or not button.Icon then return end
+	local opt = Opt()
+	button.Duration:ClearAllPoints()
+	button.Duration:SetPoint("TOP", button.Icon, "BOTTOM", 0, opt.bars and -(BAR_H + 5) or -1)
+	button.Duration:SetAlpha(opt.duration and 1 or 0)
+end
+
+local function Skin(button, harmful)
+	if skins[button] then return skins[button] end
+	local icon = button.Icon
+	if not icon then return end
+	local skin = {}
+	icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	-- The stone socket behind the icon (same art and fit as the hotbar sockets).
+	local socket = button:CreateTexture(nil, "BACKGROUND", nil, -7)
+	if ns.Art.Apply(socket, "socket") then
+		socket:SetTexCoord(unpack(ns.Art.SOCKET_TEXCOORD))
+	else
+		socket:SetColorTexture(0.05, 0.05, 0.05, 0.9)
+	end
+	local inset = ns.Art.SOCKET_INSET
+	local w, h = icon:GetSize()
+	w, h = (w and w > 0) and w or BASE_ICON, (h and h > 0) and h or BASE_ICON
+	local fw = w / (1 - inset.left - inset.right)
+	local fh = h / (1 - inset.top - inset.bottom)
+	socket:SetPoint("TOPLEFT", icon, "TOPLEFT", -fw * inset.left, fh * inset.top)
+	socket:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", fw * inset.right, -fh * inset.bottom)
+	if harmful then
+		socket:SetVertexColor(1, 0.35, 0.3)
+	end
+	-- Blizzard's square borders fight the socket. They are shown and hidden by Blizzard, so
+	-- they go away by alpha, which their code never touches.
+	for _, key in ipairs({ "DebuffBorder", "TempEnchantBorder" }) do
+		if button[key] then button[key]:SetAlpha(0) end
+	end
+	-- Countdown strip: the XP rail's strip, in gold, running down under the icon.
 	local bar = CreateFrame("StatusBar", nil, button)
-	bar:SetPoint("TOPLEFT", button, "BOTTOMLEFT", 0, -3)
-	bar:SetPoint("TOPRIGHT", button, "BOTTOMRIGHT", 0, -3)
+	bar:SetPoint("TOPLEFT", icon, "BOTTOMLEFT", 0, -3)
+	bar:SetPoint("TOPRIGHT", icon, "BOTTOMRIGHT", 0, -3)
 	bar:SetHeight(BAR_H)
 	bar:SetStatusBarTexture(ns.Art.Path("xpWhite") or "Interface\\Buttons\\WHITE8X8")
 	bar:SetMinMaxValues(0, 1)
-	local barBg = bar:CreateTexture(nil, "BACKGROUND")
-	barBg:SetPoint("TOPLEFT", -1, 1)
-	barBg:SetPoint("BOTTOMRIGHT", 1, -1)
-	barBg:SetColorTexture(0.03, 0.02, 0.02, 0.85)
+	local back = bar:CreateTexture(nil, "BACKGROUND")
+	back:SetPoint("TOPLEFT", -1, 1)
+	back:SetPoint("BOTTOMRIGHT", 1, -1)
+	back:SetColorTexture(0.03, 0.02, 0.02, 0.85)
 	bar:Hide()
-	button.bar = bar
-	button.time = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	button.time:SetPoint("TOP", bar, "BOTTOM", 0, -2)
-	button.time:SetTextColor(0.9, 0.82, 0.62)
-	button.sanctuarySocket = true
-	ns.Art.AttachRing(button)
-	if harmful and button.sanctuarySocketTex then
-		button.sanctuarySocketTex:SetVertexColor(1, 0.35, 0.3)
-	end
-	button:SetScript("OnEnter", function(self) ShowTooltip(self, self) end)
-	button:SetScript("OnLeave", GameTooltip_Hide)
-	button:Hide()
-	return button
+	skin.socket, skin.bar, skin.harmful = socket, bar, harmful
+	skins[button] = skin
+	PlaceDuration(button)
+	return skin
 end
 
--- Every aura of one kind on the player, in the client's order. Same approach as TargetPlate:
--- GetUnitAuras first; GetAuraDataByIndex can throw when auras are secret, so the fallback is
--- pcall'd and stops quietly when the client refuses.
-local function ReadAuras(unit, filter)
-	local UA = C_UnitAuras
-	if not UA then return {} end
-	if UA.GetUnitAuras then
-		local ok, list = pcall(UA.GetUnitAuras, unit, filter)
-		if ok and type(list) == "table" then return list end
+-- On: socket, cropped icon, Blizzard's borders hidden. Off: Blizzard's look back.
+local function Dress(button, skin, on)
+	skin.socket:SetShown(on)
+	if not on then skin.bar:Hide() end
+	button.Icon:SetTexCoord(on and 0.08 or 0, on and 0.92 or 1, on and 0.08 or 0, on and 0.92 or 1)
+	for _, key in ipairs({ "DebuffBorder", "TempEnchantBorder" }) do
+		if button[key] then button[key]:SetAlpha(on and 0 or 1) end
 	end
-	local list = {}
-	if not UA.GetAuraDataByIndex then return list end
-	for index = 1, 40 do
-		local ok, aura = pcall(UA.GetAuraDataByIndex, unit, index, filter)
-		if not ok or not aura then break end
-		aura.index = index
-		list[#list + 1] = aura
+	if button.Duration then
+		if on then
+			PlaceDuration(button)
+		else
+			button.Duration:SetAlpha(1)
+			button.Duration:ClearAllPoints()
+			button.Duration:SetPoint("TOP", button.Icon, "BOTTOM")
+		end
 	end
-	return list
 end
 
-local function Collect(filter, maxCount)
-	local list = ReadAuras("player", filter)
-	for i = maxCount + 1, #list do list[i] = nil end
-	return list
+local function SkinFrame(frame, harmful)
+	if not frame or type(frame.auraFrames) ~= "table" then return end
+	for _, button in ipairs(frame.auraFrames) do
+		if not button.isAuraAnchor then
+			Skin(button, harmful)
+		end
+	end
 end
 
--- Temporary weapon enchants (poisons, oils, shaman imbues) are not auras; they lead the buff
--- line the way Blizzard's frame shows them. Durations come only as time left, so the full
--- length is the longest time left seen for that enchant.
+-- Temporary weapon enchants come as time left only; the full length is the longest seen.
 local enchantLength = {}
 
-local function WeaponEnchants()
-	local list = {}
-	if not GetWeaponEnchantInfo then return list end
-	local info = { GetWeaponEnchantInfo() }
-	local now = GetTime()
-	for k, slot in ipairs({ 16, 17, 18 }) do
-		local base = (k - 1) * 4
-		local has, msLeft, charges, id = info[base + 1], info[base + 2], info[base + 3], info[base + 4]
-		if not Secret(has) and not Secret(msLeft) and has and msLeft then
-			local left = msLeft / 1000
-			local key = slot .. ":" .. tostring(id)
-			if not enchantLength[key] or left > enchantLength[key] then
-				enchantLength[key] = left
+local function UpdateBars()
+	local opt = Opt()
+	for button, skin in pairs(skins) do
+		local bar = skin.bar
+		local left, total, hidden
+		if opt.enabled and opt.bars and button:IsVisible() and not button.isExample then
+			local info = button.buttonInfo
+			left = button.timeLeft
+			if type(info) == "table" and not Secret(info) and Secret(left) and Secret(info.duration) then
+				-- In combat Blizzard's numbers are secret to us, but a status bar takes them as
+				-- they are: it drains right, it just can't turn red (that needs a comparison).
+				hidden = pcall(function()
+					bar:SetMinMaxValues(0, info.duration)
+					bar:SetValue(left)
+				end)
+			elseif type(info) == "table" and not Secret(info) and Readable(left) then
+				total = info.duration
+				local kind = info.auraType
+				if Readable(kind) and kind == "TempEnchant" then
+					local id = info.ID
+					local key = Readable(id) and id or 0
+					if not enchantLength[key] or left > enchantLength[key] then
+						enchantLength[key] = left
+					end
+					total = enchantLength[key]
+				end
 			end
-			list[#list + 1] = {
-				enchantSlot = slot,
-				icon = GetInventoryItemTexture("player", slot),
-				applications = charges,
-				duration = enchantLength[key],
-				expirationTime = now + left,
-			}
 		end
-	end
-	return list
-end
-
--- What the enchants are, so the poll below only repaints when one comes or goes.
-local function EnchantSignature()
-	if not GetWeaponEnchantInfo then return "" end
-	local info = { GetWeaponEnchantInfo() }
-	local parts = {}
-	for k = 0, 2 do
-		local has, id = info[k * 4 + 1], info[k * 4 + 4]
-		if Secret(has) or Secret(id) then return "secret" end
-		parts[#parts + 1] = tostring(has and id or false)
-	end
-	return table.concat(parts, ",")
-end
-
-local function MakeCancel(parent, icon)
-	local cancel = CreateFrame("Button", nil, parent, "SecureActionButtonTemplate")
-	cancel:RegisterForClicks("RightButtonUp")
-	cancel:SetAttribute("type2", "cancelaura")
-	cancel:SetAttribute("unit", "player")
-	cancel:SetScript("OnEnter", function(self) ShowTooltip(self, icon) end)
-	cancel:SetScript("OnLeave", GameTooltip_Hide)
-	cancel:Hide()
-	return cancel
-end
-
--- Out of combat only: one cancel button over each buff that is up.
-local function SyncCancels()
-	local frame = ns.Auras.frame
-	if not frame or InCombatLockdown() then return end
-	for i = 1, MAX_BUFFS do
-		local icon, cancel = frame.buffs[i], frame.cancels[i]
-		local name = icon:IsShown() and icon.name
-		if name and not Secret(name) then
-			cancel:SetAttribute("spell", name)
-			cancel:Show()
+		if hidden then
+			bar:SetStatusBarColor(skin.harmful and 0.85 or 0.95, skin.harmful and 0.35 or 0.75, skin.harmful and 0.25 or 0.3, 1)
+			bar:Show()
+		elseif Readable(left) and Readable(total) and total > 0 then
+			bar:SetMinMaxValues(0, 1)
+			bar:SetValue(math.max(0, math.min(1, left / total)))
+			if left <= BAR_WARN then
+				bar:SetStatusBarColor(0.95, 0.22, 0.12, 1)
+			elseif skin.harmful then
+				bar:SetStatusBarColor(0.85, 0.35, 0.25, 1)
+			else
+				bar:SetStatusBarColor(0.95, 0.75, 0.3, 1)
+			end
+			bar:Show()
 		else
-			cancel:Hide()
+			bar:Hide()
 		end
 	end
 end
 
-local function Paint(button, aura)
-	if not aura then
-		button.index, button.auraID, button.expires, button.name, button.enchantSlot = nil, nil, nil, nil, nil
-		button:Hide()
-		button.time:SetText("")
-		return
-	end
-	button.index, button.name, button.enchantSlot = aura.index, aura.name, aura.enchantSlot
-	button.auraID = aura.auraInstanceID
-	button:Show()
-	button.icon:SetTexture(aura.icon)
-	local stacks = aura.applications
-	if stacks and not Secret(stacks) and stacks > 1 then
-		button.count:SetText(stacks)
-	else
-		button.count:SetText("")
-	end
-	local duration, expiration = aura.duration, aura.expirationTime
-	if duration and expiration and not Secret(duration) and not Secret(expiration) and duration > 0 then
-		button.cooldown:SetCooldown(expiration - duration, duration)
-		button.expires, button.duration = expiration, duration
-	else
-		button.cooldown:Clear()
-		button.expires, button.duration = nil, nil
+---------------------------------------------------------------------------
+
+local hooked = {}
+
+-- A layout change (Edit Mode settings) re-anchors each button's duration text; ours sits
+-- under the strip.
+local function Hook(frame)
+	if not frame or hooked[frame] then return end
+	hooked[frame] = true
+	local container = frame.AuraContainer
+	if container and container.UpdateGridLayout then
+		hooksecurefunc(container, "UpdateGridLayout", function()
+			if not Opt().enabled then return end
+			for button in pairs(skins) do
+				PlaceDuration(button)
+			end
+		end)
 	end
 end
 
 function ns.Auras.Update()
-	local frame = ns.Auras.frame
-	if not frame then return end
-	local opt = Opt()
-	if not opt.enabled then
-		frame:Hide()
-		return
-	end
-	frame:Show()
-	local buffs = WeaponEnchants()
-	for _, aura in ipairs(Collect("HELPFUL", opt.maxBuffs)) do
-		buffs[#buffs + 1] = aura
-	end
-	frame.enchants = EnchantSignature()
-	local debuffs = Collect("HARMFUL", opt.maxDebuffs)
-	for i = 1, MAX_BUFFS do
-		Paint(frame.buffs[i], i <= opt.maxBuffs and buffs[i] or nil)
-	end
-	for i = 1, MAX_DEBUFFS do
-		Paint(frame.debuffs[i], i <= opt.maxDebuffs and debuffs[i] or nil)
-	end
-	SyncCancels()
-	ns.Auras.UpdateTimes()
+	if not Opt().enabled then return end
+	local buffs, debuffs = Frames()
+	SkinFrame(buffs, false)
+	SkinFrame(debuffs, true)
+	UpdateBars()
 end
 
 function ns.Auras.UpdateTimes()
-	local frame = ns.Auras.frame
-	if not frame then return end
-	local opt = Opt()
-	local show, bars = opt.duration, opt.bars
-	local now = GetTime()
-	local function each(list)
-		for i = 1, #list do
-			local button = list[i]
-			local left = button.expires and math.max(0, button.expires - now)
-			if left and show then
-				button.time:SetText(FormatTime(left))
-			else
-				button.time:SetText("")
-			end
-			local bar = button.bar
-			if left and bars and button.duration then
-				bar:SetValue(left / button.duration)
-				if left <= BAR_WARN then
-					bar:SetStatusBarColor(0.95, 0.22, 0.12, 1)
-				elseif button.harmful then
-					bar:SetStatusBarColor(0.85, 0.35, 0.25, 1)
-				else
-					bar:SetStatusBarColor(0.95, 0.75, 0.3, 1)
-				end
-				bar:Show()
-			else
-				bar:Hide()
-			end
-		end
-	end
-	each(frame.buffs)
-	each(frame.debuffs)
+	UpdateBars()
 end
 
--- Place icons (and, for buffs, their cancel buttons) on a grid in the aura frame.
-local function Grid(frame, list, cancels, count, size, gap, cols, lineH, top)
-	for i = 1, #list do
-		local col = (i - 1) % cols
-		local line = math.floor((i - 1) / cols)
-		local x, y = col * (size + gap), -(top + line * lineH)
-		local icon = list[i]
-		icon:SetSize(size, size)
-		icon:ClearAllPoints()
-		icon:SetPoint("TOPLEFT", frame, "TOPLEFT", x, y)
-		local cancel = cancels and cancels[i]
-		if cancel then
-			cancel:SetSize(size, size)
-			cancel:ClearAllPoints()
-			cancel:SetPoint("TOPLEFT", frame, "TOPLEFT", x, y)
-		end
-	end
-	return math.ceil(count / cols)
-end
-
--- Debuffs on top, buffs below them, nearest the skill bar as in D3.
+-- Position and size are Edit Mode's; only the duration text placement is ours.
 function ns.Auras.Layout()
-	local frame = ns.Auras.frame
-	local cluster = ns.Cluster
-	if not frame or not cluster then return end
-	if InCombatLockdown() then
-		ns.Auras.pending = true
-		return
+	if not Opt().enabled then return end
+	for button in pairs(skins) do
+		PlaceDuration(button)
 	end
-	ns.Auras.pending = nil
-	local opt = Opt()
-	local size, gap = opt.size, opt.spacing
-	local cols = math.max(1, opt.perLine)
-	local lineH = size + gap + (opt.bars and BAR_H + 4 or 0) + (opt.duration and 13 or 4)
-	local debuffLines = Grid(frame, frame.debuffs, nil, opt.maxDebuffs, size, gap, cols, lineH, 0)
-	local buffLines = Grid(frame, frame.buffs, frame.cancels, opt.maxBuffs, size, gap, cols, lineH, debuffLines * lineH)
-	local width = math.min(cols, math.max(opt.maxBuffs, opt.maxDebuffs)) * (size + gap) - gap
-	frame:SetSize(width, math.max(size, (debuffLines + buffLines) * lineH - gap))
-	frame:ClearAllPoints()
-	if opt.moved then
-		frame:SetPoint("CENTER", UIParent, "BOTTOMLEFT", opt.mx, opt.my)
-	else
-		local top = ns.ActionBar and ns.ActionBar.topY or 150
-		frame:SetPoint("BOTTOM", cluster, "BOTTOM", 0, top + 8)
-	end
-	frame:SetFrameLevel(cluster:GetFrameLevel() + ns.LEVEL.buttons)
 end
 
 function ns.Auras.ApplySettings()
 	if not ns.Auras.frame then return end
-	ns.Auras.Layout()
-	ns.Auras.Update()
-	ns.ActionBar.UpdateMovers()
+	local enabled = Opt().enabled
+	for button, skin in pairs(skins) do
+		Dress(button, skin, enabled)
+	end
+	if enabled then
+		ns.Auras.Update()
+	end
 end
 
-function ns.Auras.ResetPosition()
-	local opt = Opt()
-	opt.moved, opt.mx, opt.my = false, 0, 0
-	ns.Refresh()
+-- /sanctuary auras: whether the player's buffs can be read right now, and what Blizzard's
+-- buff frame is showing.
+function ns.Auras.Report()
+	local UA = C_UnitAuras or {}
+	local function kind(value)
+		if Secret(value) then return "secret" end
+		return value == nil and "nil" or tostring(value)
+	end
+	ns.Print(("auras report: combat %s"):format(tostring(InCombatLockdown())))
+	if UA.GetAuraSlots then
+		local ok, a = pcall(UA.GetAuraSlots, "player", "HELPFUL")
+		ns.Print(("slots: ok %s, %s"):format(tostring(ok), ok and kind(a) or tostring(a)))
+	end
+	local list, how = ns.ReadAuras("player", "HELPFUL")
+	ns.Print(("addon read: %d buffs via %s"):format(#list, how))
+	-- Routes other addons use, each tried on its own.
+	if UA.GetUnitAuraInstanceIDs then
+		local ok, ids = pcall(UA.GetUnitAuraInstanceIDs, "player", "HELPFUL")
+		local n = ok and type(ids) == "table" and not Secret(ids) and #ids or -1
+		ns.Print(("instance IDs: ok %s, count %d%s"):format(tostring(ok), n, ok and "" or (", " .. tostring(ids))))
+	end
+	local probe = ns.Auras.lastEvent
+	ns.Print("last UNIT_AURA in combat: " .. (probe or "none seen"))
+	if C_NamePlate and C_NamePlate.GetNamePlateForUnit then
+		local plate = C_NamePlate.GetNamePlateForUnit("player")
+		local token = plate and (plate.namePlateUnitToken or (plate.UnitFrame and plate.UnitFrame.unit))
+		if token and UA.GetUnitAuras then
+			local ok, auras = pcall(UA.GetUnitAuras, token, "HELPFUL")
+			ns.Print(("player nameplate %s: ok %s, %s"):format(tostring(token), tostring(ok),
+				ok and (type(auras) == "table" and not Secret(auras) and (#auras .. " buffs") or kind(auras)) or tostring(auras)))
+		else
+			ns.Print("player nameplate: none (personal resource display off?)")
+		end
+	end
+	-- What Blizzard's own buttons hold, and what the instance-ID calls give for them.
+	local blizzBuffs = Frames()
+	if blizzBuffs then
+		local n = 0
+		for _, button in ipairs(blizzBuffs.auraFrames or {}) do
+			if button:IsShown() and not button.isAuraAnchor and n < 6 then
+				n = n + 1
+				local info = button.buttonInfo
+				local id = type(info) == "table" and not Secret(info) and info.auraInstanceID
+				local data, timer, left = "-", "-", "-"
+				if Readable(id) then
+					local ok, aura = pcall(UA.GetAuraDataByAuraInstanceID, "player", id)
+					data = not ok and ("err " .. tostring(aura)) or type(aura) ~= "table" and kind(aura)
+						or ("spell %s, duration %s"):format(kind(aura.spellId), kind(aura.duration))
+					if UA.GetAuraDuration then
+						local ok2, object = pcall(UA.GetAuraDuration, "player", id)
+						timer = not ok2 and ("err " .. tostring(object)) or object == nil and "none" or "object"
+						if ok2 and object then
+							local ok3, r = pcall(object.GetRemainingDuration, object)
+							left = ok3 and kind(r) or "err"
+						end
+					end
+				end
+				local icon = button.Icon and button.Icon:GetTexture()
+				ns.Print(("blizz buff %d: instance %s, texture %s, timeLeft %s, data %s, duration object %s (left %s)"):format(
+					n, type(info) == "table" and not Secret(info) and kind(info.auraInstanceID) or kind(info),
+					kind(icon), kind(button.timeLeft), data, timer, left))
+			end
+		end
+	end
+	local buffs, debuffs = Frames()
+	for _, pair in ipairs({ { "BuffFrame", buffs }, { "DebuffFrame", debuffs } }) do
+		local name, frame = pair[1], pair[2]
+		if frame then
+			local shown, timed = 0, 0
+			for _, button in ipairs(frame.auraFrames or {}) do
+				if button:IsShown() and not button.isAuraAnchor then
+					shown = shown + 1
+					if Readable(button.timeLeft) then timed = timed + 1 end
+				end
+			end
+			local point, rel = frame:GetPoint(1)
+			ns.Print(("%s: %d icons shown (%d with readable time), visible %s, scale %.2f, anchored %s to %s"):format(
+				name, shown, timed, tostring(frame:IsVisible()), frame:GetScale(), tostring(point),
+				rel and rel.GetName and tostring(rel:GetName()) or "?"))
+		else
+			ns.Print(name .. ": missing")
+		end
+	end
 end
 
 function ns.Auras.Init()
-	local frame = CreateFrame("Frame", "SanctuaryUIAuras", ns.Cluster)
-	frame.buffs, frame.debuffs = {}, {}
-	for i = 1, MAX_BUFFS do
-		frame.buffs[i] = MakeIcon(frame, "SanctuaryUIBuff" .. i, false)
-	end
-	for i = 1, MAX_DEBUFFS do
-		frame.debuffs[i] = MakeIcon(frame, "SanctuaryUIDebuff" .. i, true)
-	end
-	-- The cancel layer: secure, over the buffs, out of combat only.
-	frame.cancelLayer = CreateFrame("Frame", nil, frame)
-	frame.cancelLayer:SetAllPoints()
-	frame.cancels = {}
-	for i = 1, MAX_BUFFS do
-		frame.cancels[i] = MakeCancel(frame.cancelLayer, frame.buffs[i])
-	end
+	-- Drives the countdown strips and dresses new buttons; Blizzard's frames do the rest.
+	local frame = CreateFrame("Frame", "SanctuaryUIAuras", UIParent)
 	ns.Auras.frame = frame
-	ns.Auras.mover = ns.MakeMover(frame, "Buffs", Opt, "Reset its position in /sanctuary > Buffs.")
 
-	local wait, enchantWait = 0, 0
+	local buffs, debuffs = Frames()
+	Hook(buffs)
+	Hook(debuffs)
+
+	local wait = 0
 	frame:SetScript("OnUpdate", function(_, elapsed)
-		-- Weapon enchants fire no aura event when they run out.
-		enchantWait = enchantWait - elapsed
-		if enchantWait <= 0 then
-			enchantWait = 0.5
-			if EnchantSignature() ~= frame.enchants then
-				ns.Auras.Update()
-			end
-		end
 		wait = wait - elapsed
 		if wait > 0 then return end
-		wait = 0.1 -- smooth countdown bars
-		ns.Auras.UpdateTimes()
+		wait = 0.1 -- smooth countdown strips
+		UpdateBars()
 	end)
 
-	local events = CreateFrame("Frame", nil, frame)
-	events:RegisterUnitEvent("UNIT_AURA", "player")
-	events:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
-	events:RegisterEvent("PLAYER_ENTERING_WORLD")
-	events:RegisterEvent("PLAYER_REGEN_DISABLED")
-	events:RegisterEvent("PLAYER_REGEN_ENABLED")
-	events:SetScript("OnEvent", function(_, event)
-		if event == "PLAYER_REGEN_DISABLED" then
-			-- Last chance before lockdown: put the cancel layer away (buff order will shift).
-			frame.cancelLayer:Hide()
-			return
-		end
-		if event == "PLAYER_REGEN_ENABLED" then
-			frame.cancelLayer:Show()
-		end
-		if event == "PLAYER_REGEN_ENABLED" and ns.Auras.pending then
-			ns.Auras.Layout()
+	frame:RegisterUnitEvent("UNIT_AURA", "player")
+	frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+	frame:SetScript("OnEvent", function(_, event, _, info)
+		-- Probe for /sanctuary auras: can the event's own aura data be read in combat?
+		if event == "UNIT_AURA" and InCombatLockdown() then
+			pcall(function()
+				if Secret(info) then
+					ns.Auras.lastEvent = "payload secret"
+					return
+				end
+				if type(info) ~= "table" then
+					ns.Auras.lastEvent = "payload " .. type(info)
+					return
+				end
+				local added = info.addedAuras
+				local first = type(added) == "table" and not Secret(added) and added[1]
+				ns.Auras.lastEvent = ("full %s, added %s%s"):format(
+					Secret(info.isFullUpdate) and "secret" or tostring(info.isFullUpdate),
+					Secret(added) and "secret" or type(added) == "table" and #added or "none",
+					type(first) == "table" and not Secret(first) and (", first: instance %s, spell %s, duration %s"):format(
+						Secret(first.auraInstanceID) and "secret" or tostring(first.auraInstanceID),
+						Secret(first.spellId) and "secret" or tostring(first.spellId),
+						Secret(first.duration) and "secret" or tostring(first.duration)) or "")
+			end)
 		end
 		ns.Auras.Update()
 	end)
-	ns.Auras.Layout()
-	ns.Auras.Update()
+	ns.Auras.ApplySettings()
 end
