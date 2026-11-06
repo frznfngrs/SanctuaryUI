@@ -324,8 +324,12 @@ local VISIBILITY = {
 	custom = "Custom conditional",
 }
 
-local function SourceValues()
-	local values = { main = "Main bar 10-12 (pages with the main bar)" }
+local function SourceValues(n)
+	-- Main bar 10-12 has three actions, too few for the console's twelve sockets.
+	local values = {}
+	if not (n and DB().rows[n].docked) then
+		values.main = "Main bar 10-12 (pages with the main bar)"
+	end
 	for page, name in pairs(ns.ActionBar.PAGE_NAMES) do
 		values[page] = name
 	end
@@ -341,7 +345,7 @@ end
 local function RowGroup(n, order)
 	local path = "rows." .. n
 	local opt = function() return DB().rows[n] end
-	local source = Select(2, "Source", "Which actions this bar shows. Pages 3-6 and 13-15 keep the keybinds you set for those bars in Key Bindings.", path, "source", SourceValues)
+	local source = Select(2, "Source", "Which actions this bar shows. Pages 3-6 and 13-15 keep the keybinds you set for those bars in Key Bindings.", path, "source", function() return SourceValues(n) end)
 	source.get = function()
 		local value = opt().source
 		return value == "main" and "main" or tonumber(value)
@@ -352,7 +356,20 @@ local function RowGroup(n, order)
 		name = "Bar " .. n,
 		args = {
 			enabled = Toggle(1, "Enabled", nil, path, "enabled"),
-			docked = Toggle(1.5, "In the console", "Set this bar into the console: a row of twelve stone sockets between the globes, with the XP rail and the centre skull lifted to sit on top. Up to two bars, stacked in bar order. Size, spacing and position below don't apply while it's in the console.", path, "docked"),
+			docked = (function()
+				local option = Toggle(1.5, "In the console", "Set this bar into the console: a row of twelve stone sockets between the globes, with the XP rail and the centre skull lifted to sit on top. Up to two bars, stacked in bar order. In the console the bar fills all twelve sockets, so a bar on Main bar 10-12 (three actions) moves to a free action page and takes its spells and keys with it. Size, spacing and position below don't apply while it's in the console.", path, "docked")
+				option.set = function(_, value)
+					opt().docked = value
+					if value then
+						local page = ns.ActionBar.LeaveMainSource(n)
+						if page then
+							ns.Print(("bar %d now shows action page %d, so all twelve console sockets take spells"):format(n, page))
+						end
+					end
+					Changed()
+				end
+				return option
+			end)(),
 			source = source,
 			-- The main bar has 12 actions and the console holds 9, so a main-bar row has at most
 			-- 3. Two sliders so the range matches the source.
@@ -368,6 +385,7 @@ local function RowGroup(n, order)
 					opt().count = value
 					Changed()
 				end,
+				disabled = function() return ns.ActionBar.DockIndex(n) ~= nil end,
 				hidden = function() return opt().source == "main" end,
 			},
 			countMain = {
@@ -389,6 +407,12 @@ local function RowGroup(n, order)
 				order = 4,
 				name = "The console holds main-bar actions 1-9, so this source has 3 left (10-12). Pick an action page as the source for a full 12-button bar.",
 				hidden = function() return opt().source ~= "main" end,
+			},
+			countDocked = {
+				type = "description",
+				order = 4.5,
+				name = "In the console this bar fills all twelve sockets.",
+				hidden = function() return not ns.ActionBar.DockIndex(n) end,
 			},
 			size = Header(10, "Size"),
 			scale = Undocked(n, Range(11, "Button size", "Relative to a main-bar socket.", path, "scale", 0.5, 1.2, 0.01, true)),
@@ -517,6 +541,13 @@ local function Build()
 				args = {
 					console = Header(1, "Console"),
 					locked = Toggle(2, "Lock frames", "When unlocked, drag the console to move it, and drag a bar's mover to move that bar.", nil, "locked"),
+					snapping = Toggle(2.5, "Bar snapping", "While dragging, the console, bars and other frames snap to each other's edges and centres and to the screen's edges and centre, as in Bartender4. Hold Shift while dragging to place one freely.", nil, "snapping"),
+					grid = Toggle(2.6, "Show grid", "While frames are unlocked, draw a grid like Edit Mode's, its centre lines brighter, and snap frames' edges and centres to its lines (with Bar snapping on).", nil, "grid"),
+					gridSize = (function()
+						local option = Range(2.7, "Grid spacing", "Distance between grid lines, counted out from the screen's centre.", nil, "gridSize", ns.Snap.GRID_MIN, ns.Snap.GRID_MAX, 5)
+						option.disabled = function() return not DB().grid end
+						return option
+					end)(),
 					scale = Range(3, "Scale", nil, nil, "scale", 0.5, 1.8, 0.01, true),
 					reset = {
 						type = "execute",
@@ -760,6 +791,11 @@ local function Build()
 					width = Range(7, "Width", "Stretches the frame and bar between their ornaments.", "target", "width", 0.6, 2.5, 0.05, true),
 					portrait = Toggle(8, "Target portrait", "The target's moving WoW portrait in a D3 hero portrait frame, left of the bar: silver for ordinary monsters, gold for elites and rares, the winged demon for bosses.", "target", "portrait"),
 					tot = Toggle(9.2, "Target of target", "Who your target is attacking: a small monster bar with its portrait, right of the target's frame. Its name turns red when it's you. Left-click targets it, right-click opens its menu.", "target", "tot"),
+					totPortrait = (function()
+						local option = Toggle(9.3, "Target of target portrait", "The target of target's portrait in its silver ring, left of its bar. Off, the bar alone sits beside the target's frame.", "target", "totPortrait")
+						option.disabled = function() return DB().target.tot == false end
+						return option
+					end)(),
 					cast = Toggle(9.5, "Cast bar", nil, "target", "cast"),
 					liquid = Toggle(9.7, "Liquid in the bar", "The globes' liquid drifting through the health bar.", "target", "liquid"),
 					edgeGlow = Toggle(9.8, "Edge glow", "An ember burning at the health bar's leading edge.", "target", "edgeGlow"),

@@ -199,10 +199,16 @@ function ns.ActionBar.RowSpec(n)
 		}
 	end
 	local page = tonumber(opt.source) or 2
+	-- In the console a bar fills its whole row of twelve sockets: every socket there takes a
+	-- spell. Its own button count is kept for when it leaves the console.
+	local count = math.max(1, math.min(ROW_MAX, opt.count))
+	if ns.ActionBar.DockIndex(n) then
+		count = ROW_MAX
+	end
 	return {
 		paged = false,
 		firstAction = (page - 1) * 12 + 1,
-		count = math.max(1, math.min(ROW_MAX, opt.count)),
+		count = count,
 		binding = BINDING_BY_PAGE[page],
 		bindingOffset = 0,
 	}
@@ -215,6 +221,60 @@ local function DockIndex(n)
 	end
 end
 ns.ActionBar.DockIndex = DockIndex
+
+-- Pages a docked bar may take over, in order of preference: page 2 first (bar 2's own in
+-- Bartender), then those Blizzard's bars use, then the stance pages last.
+local FREE_PAGES = { 2, 10, 6, 5, 3, 4, 13, 14, 15, 7, 8, 9 }
+
+-- A page no other bar shows and the main bar doesn't page to, for bar n.
+local function FreePage(n)
+	local db = ns.DB()
+	local used = {}
+	for _, id in ipairs(ROW_IDS) do
+		local opt = db.rows[id]
+		if id ~= n and opt.enabled and tonumber(opt.source) then
+			used[tonumber(opt.source)] = true
+		end
+	end
+	for _, mod in ipairs({ "ctrl", "alt", "shift" }) do
+		local page = tonumber(db.paging[mod]) or 0
+		if page > 0 then used[page] = true end
+	end
+	if db.paging.stances then
+		local _, class = UnitClass("player")
+		for _, form in ipairs(CLASS_PAGES[class] or {}) do
+			used[form.page] = true
+		end
+	end
+	for _, page in ipairs(FREE_PAGES) do
+		if not used[page] then return page end
+	end
+	return 2
+end
+
+-- A bar in the console has twelve sockets, but "Main bar 10-12" holds three actions, which
+-- left nine dead sockets. A bar set into the console on that source moves to a free page, and
+-- takes the three spells with it (into the page's first sockets, where those are empty); its
+-- keys follow through the usual binding move. Returns the page, or nil if nothing changed.
+function ns.ActionBar.LeaveMainSource(n)
+	local opt = ns.DB().rows[n]
+	if opt.source ~= "main" then return end
+	local count = math.max(1, math.min(12 - PRIMARY, opt.count))
+	local page = FreePage(n)
+	opt.source = page
+	opt.count = ROW_MAX -- a full page bar, in the console or out of it
+	if not InCombatLockdown() and not GetCursorInfo() then
+		for i = 1, count do
+			local from, to = PRIMARY + i, (page - 1) * 12 + i
+			if HasAction(from) and not HasAction(to) then
+				PickupAction(from)
+				PlaceAction(to)
+				ClearCursor()
+			end
+		end
+	end
+	return page
+end
 
 local function Visibility(opt)
 	local base = "[petbattle][overridebar][possessbar][vehicleui] hide;"
@@ -350,6 +410,7 @@ function ns.ActionBar.Layout()
 	-- Bars stack from the top of the centre ornament, or of your level's plaque over it.
 	local top = ns.DB().levelPlaque ~= false and metrics.levelPlaque and 28 or CONSOLE_TOP_Y
 	local consoleTop = base + metrics.height / 2 - top * metrics.scale + metrics.lift
+	ns.ActionBar.consoleTop = consoleTop
 	local rowY = consoleTop + 6
 	if ns.ActionBar.rows then
 		for _, n in ipairs(ROW_IDS) do
@@ -388,6 +449,14 @@ function ns.ActionBar.Layout()
 				local height = lines * bh + (lines - 1) * lineGap
 				local anchor = row.anchor
 				anchor:SetSize(width, height)
+				-- The mover covers the stone sockets too, so bars snap stone to stone.
+				local inset = ns.Art.SOCKET_INSET
+				local ox = bw * inset.left / (1 - inset.left - inset.right)
+				local ot = bh * inset.top / (1 - inset.top - inset.bottom)
+				local ob = bh * inset.bottom / (1 - inset.top - inset.bottom)
+				row.mover:ClearAllPoints()
+				row.mover:SetPoint("TOPLEFT", anchor, "TOPLEFT", -ox, ot)
+				row.mover:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", ox, -ob)
 				anchor:ClearAllPoints()
 				if opt.moved then
 					anchor:SetPoint("CENTER", UIParent, "BOTTOMLEFT", opt.mx, opt.my)
@@ -591,6 +660,17 @@ end
 ---------------------------------------------------------------------------
 -- Movers: with frames unlocked, each enabled row shows a labelled box that drags the row.
 
+-- A mover's gold edge brightens while the drag has caught on something.
+function ns.MoverLit(mover, lit)
+	if mover.edge then
+		if lit then
+			mover.edge:SetColorTexture(1, 0.9, 0.55, 1)
+		else
+			mover.edge:SetColorTexture(0.86, 0.72, 0.42, 0.8)
+		end
+	end
+end
+
 -- A labelled box that drags a frame while frames are unlocked. opt holds the position:
 -- moved, mx, my (the frame's centre, UIParent coordinates at the frame's scale).
 function ns.MakeMover(anchor, label, opt, hint)
@@ -614,26 +694,28 @@ function ns.MakeMover(anchor, label, opt, hint)
 	local text = mover:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	text:SetPoint("CENTER")
 	text:SetText(label)
-	mover:SetScript("OnDragStart", function()
-		if InCombatLockdown() then return end
-		anchor:SetMovable(true)
-		anchor:StartMoving()
-	end)
-	mover:SetScript("OnDragStop", function()
-		anchor:StopMovingOrSizing()
-		-- Our profile holds the position, not WoW's layout cache.
-		anchor:SetUserPlaced(false)
+	mover.edge = edge
+	local function Save()
 		local x, y = anchor:GetCenter()
 		if x then
 			local o = opt()
 			o.moved, o.mx, o.my = true, x, y
 		end
 		ns.Refresh()
+	end
+	mover:SetScript("OnDragStart", function()
+		if InCombatLockdown() then return end
+		GameTooltip_Hide()
+		ns.Snap.StartDrag(anchor, function() return ns.Snap.Rect(mover) end, Save, function(snapped)
+			ns.MoverLit(mover, snapped)
+		end)
 	end)
+	mover:SetScript("OnDragStop", ns.Snap.StopDrag)
+	ns.Snap.RegisterMover(mover, anchor)
 	mover:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_TOP")
 		GameTooltip:SetText(label)
-		GameTooltip:AddLine("Drag to move. Right-click to lock all frames.", 1, 1, 1, true)
+		GameTooltip:AddLine(ns.Snap.Enabled() and "Drag to move: it snaps to other frames and the screen edges (hold Shift to place freely). Right-click to lock all frames." or "Drag to move. Right-click to lock all frames.", 1, 1, 1, true)
 		if hint then
 			GameTooltip:AddLine(hint, 0.7, 0.7, 0.7, true)
 		end
@@ -652,7 +734,7 @@ end
 local function UnlockPanel()
 	if ns.UnlockPanel then return ns.UnlockPanel end
 	local panel = CreateFrame("Frame", "SanctuaryUIUnlockPanel", UIParent)
-	panel:SetSize(340, 64)
+	panel:SetSize(340, 112)
 	panel:SetPoint("TOP", UIParent, "TOP", 0, -120)
 	panel:SetFrameStrata("DIALOG")
 	panel:EnableMouse(true)
@@ -671,9 +753,98 @@ local function UnlockPanel()
 	lock:SetPoint("BOTTOM", 0, 9)
 	lock:SetText("Lock")
 	lock:SetScript("OnClick", function() ns.SetLocked(true) end)
+	local function Notify()
+		local registry = LibStub("AceConfigRegistry-3.0", true)
+		if registry then registry:NotifyChange("SanctuaryUI") end
+	end
+	local function Check(name, label, y, get, set)
+		local check = CreateFrame("CheckButton", name, panel, "UICheckButtonTemplate")
+		check:SetSize(24, 24)
+		check:SetPoint("TOPLEFT", 12, y)
+		local checkText = check.Text or _G[name .. "Text"]
+		if checkText then checkText:SetText(label) end
+		check:SetScript("OnShow", function(self) self:SetChecked(get()) end)
+		check:SetScript("OnClick", function(self)
+			set(self:GetChecked() and true or false)
+			Notify()
+		end)
+		return check
+	end
+	-- Bartender4's "Bar Snapping" box, and Edit Mode's grid with its spacing.
+	panel.snap = Check("SanctuaryUISnapping", "Bar snapping (hold Shift to place freely)", -30,
+		ns.Snap.Enabled, function(on) ns.DB().snapping = on end)
+	panel.grid = Check("SanctuaryUIShowGrid", "Show grid", -54,
+		function() return ns.DB().grid and true or false end,
+		function(on)
+			ns.DB().grid = on
+			ns.ActionBar.UpdateMovers()
+		end)
+
+	local slider = CreateFrame("Slider", "SanctuaryUIGridSpacing", panel)
+	slider:SetOrientation("HORIZONTAL")
+	slider:SetSize(120, 16)
+	slider:SetPoint("TOPLEFT", 150, -58)
+	slider:SetHitRectInsets(0, 0, -4, -4)
+	local track = slider:CreateTexture(nil, "BACKGROUND")
+	track:SetPoint("LEFT")
+	track:SetPoint("RIGHT")
+	track:SetHeight(4)
+	track:SetColorTexture(0.86, 0.72, 0.42, 0.45)
+	slider:SetThumbTexture("Interface\\Buttons\\UI-SliderBar-Button-Horizontal")
+	slider:SetMinMaxValues(ns.Snap.GRID_MIN, ns.Snap.GRID_MAX)
+	slider:SetValueStep(5)
+	if slider.SetObeyStepOnDrag then slider:SetObeyStepOnDrag(true) end
+	local value = slider:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	value:SetPoint("LEFT", slider, "RIGHT", 8, 0)
+	slider:SetScript("OnValueChanged", function(_, v, userInput)
+		v = math.floor(v / 5 + 0.5) * 5
+		value:SetText(v)
+		if userInput then
+			ns.DB().gridSize = v
+			ns.Snap.UpdateGrid()
+			Notify()
+		end
+	end)
+	slider:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip:SetText("Grid spacing")
+		GameTooltip:AddLine("Distance between grid lines, counted out from the screen's centre.", 1, 1, 1, true)
+		GameTooltip:Show()
+	end)
+	slider:SetScript("OnLeave", GameTooltip_Hide)
+	panel.spacing = slider
+
+	-- Keep the panel in step with the options window.
+	function panel.Sync()
+		panel.snap:SetChecked(ns.Snap.Enabled())
+		panel.grid:SetChecked(ns.DB().grid and true or false)
+		slider:SetValue(ns.Snap.GridSize())
+		value:SetText(ns.Snap.GridSize())
+		local on = ns.DB().grid and true or false
+		slider:SetAlpha(on and 1 or 0.4)
+		slider:EnableMouse(on)
+	end
 	panel:Hide()
 	ns.UnlockPanel = panel
 	return panel
+end
+
+-- The console's box for snapping, in screen pixels: the art from its bottom edge up to the top
+-- of the centre ornament (or level plaque), where the bars stack.
+function ns.ActionBar.ConsoleBox()
+	local frame, cluster = ns.ConsoleFrame, ns.Cluster
+	if not frame or not frame:IsVisible() or not ns.ActionBar.consoleTop then return end
+	local l, b, r = ns.Snap.Rect(frame)
+	local bottom = cluster:GetBottom()
+	if not l or not bottom then return end
+	return l, b, r, (bottom + ns.ActionBar.consoleTop) * cluster:GetEffectiveScale()
+end
+
+-- Drag the console (its mover, or the console itself while unlocked), snapping its box.
+function ns.ActionBar.DragConsole(highlight)
+	if ns.DB().locked or InCombatLockdown() then return end
+	GameTooltip_Hide()
+	ns.Snap.StartDrag(ns.Cluster, ns.ActionBar.ConsoleBox, ns.SavePosition, highlight)
 end
 
 -- The console's own mover: most of the console is buttons and globes, so this gives the
@@ -695,15 +866,11 @@ local function ConsoleMover()
 	local label = mover:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 	label:SetPoint("CENTER")
 	label:SetText("Console")
+	mover.edge = edge
 	mover:SetScript("OnDragStart", function()
-		if InCombatLockdown() then return end
-		ns.Cluster:StartMoving()
+		ns.ActionBar.DragConsole(function(snapped) ns.MoverLit(mover, snapped) end)
 	end)
-	mover:SetScript("OnDragStop", function()
-		ns.Cluster:StopMovingOrSizing()
-		ns.Cluster:SetUserPlaced(false)
-		ns.SavePosition()
-	end)
+	mover:SetScript("OnDragStop", ns.Snap.StopDrag)
 	mover:SetScript("OnMouseUp", function(_, button)
 		if button == "RightButton" then
 			ns.SetLocked(true)
@@ -712,12 +879,13 @@ local function ConsoleMover()
 	mover:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_TOP")
 		GameTooltip:SetText("Console")
-		GameTooltip:AddLine("Drag to move the globes, bars and menu. Right-click to lock all frames.", 1, 1, 1, true)
+		GameTooltip:AddLine("Drag to move the globes, bars and menu" .. (ns.Snap.Enabled() and ": it snaps to other frames and the screen edges (hold Shift to place freely)" or "") .. ". Right-click to lock all frames.", 1, 1, 1, true)
 		GameTooltip:Show()
 	end)
 	mover:SetScript("OnLeave", GameTooltip_Hide)
 	mover:Hide()
 	ns.ConsoleMover = mover
+	ns.Snap.Register(ns.Cluster, ns.ActionBar.ConsoleBox)
 	return mover
 end
 
@@ -725,6 +893,8 @@ function ns.ActionBar.UpdateMovers()
 	if not ns.ActionBar.rows then return end
 	local unlocked = not ns.DB().locked and not InCombatLockdown()
 	UnlockPanel():SetShown(unlocked)
+	ns.UnlockPanel.Sync()
+	ns.Snap.UpdateGrid()
 	if ns.ConsoleFrame then
 		ConsoleMover():SetShown(unlocked)
 	end
@@ -956,6 +1126,14 @@ function ns.ActionBar.Init()
 		local row = { header = header, buttons = buttons, spare = spare, anchor = anchor }
 		row.mover = MakeMover(n, row)
 		ns.ActionBar.rows[n] = row
+	end
+	-- Profiles saved with a "Main bar 10-12" bar in the console: move it to a page, and let the
+	-- binding move carry its keys from the bindings it answered to.
+	for _, n in ipairs(ROW_IDS) do
+		if ns.DB().rows[n].docked and ns.DB().rows[n].source == "main" then
+			ns.ActionBar.rows[n].bound = RowActions(n)
+			ns.ActionBar.LeaveMainSource(n)
+		end
 	end
 	ns.ActionBar.ApplyRows()
 

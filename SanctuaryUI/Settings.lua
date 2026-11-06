@@ -13,6 +13,9 @@ ns.DEFAULTS = {
 		scale = 1,
 		iconSize = 1, -- console skill icons, of their socket; below 1 the stone shows around them
 		locked = true,
+		snapping = true, -- unlocked frames snap to each other and the screen edges while dragged
+		grid = false, -- Edit Mode style grid while unlocked; frames snap to its lines
+		gridSize = 40, -- grid spacing, UIParent units out from the screen's centre
 		hideMicroMenu = true,
 
 		-- globes
@@ -149,6 +152,7 @@ ns.DEFAULTS = {
 			levelY = 0,
 			cast = true,
 			tot = true, -- the target of target: a small monster bar with its portrait, right of the frame
+			totPortrait = true, -- the target of target's portrait ring, left of its bar
 			liquid = true, -- the globes' liquid moving in the health bar
 			debuffs = true,
 			maxDebuffs = 16,

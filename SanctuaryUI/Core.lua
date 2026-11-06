@@ -308,7 +308,39 @@ local function Slash(msg)
 			ns.Options.Open()
 		end
 	elseif cmd == "help" then
-		ns.Print("/sanctuary opens options. Commands: lock, unlock, scale <n>, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, active, auras, watch, aura (test globe auras), health <percent>|off (preview the health globe), debug on|off, log")
+		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n>, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, active, auras, watch, aura (test globe auras), health <percent>|off (preview the health globe), debug on|off, log")
+	elseif cmd == "grid" then
+		-- grid: toggle; grid on|off; grid <spacing>. The grid only shows while frames are
+		-- unlocked, so showing it unlocks them.
+		local arg = rest:lower()
+		local size = tonumber(arg)
+		if size then
+			db.gridSize = math.max(ns.Snap.GRID_MIN, math.min(ns.Snap.GRID_MAX, math.floor(size / 5 + 0.5) * 5))
+			db.grid = true
+		elseif arg == "on" or arg == "show" then
+			db.grid = true
+		elseif arg == "off" or arg == "hide" then
+			db.grid = false
+		else
+			db.grid = not db.grid
+		end
+		ns.Print(db.grid and ("grid shown, spacing %d"):format(ns.Snap.GridSize()) or "grid hidden")
+		if db.grid and db.locked then
+			ns.SetLocked(false)
+		else
+			ns.Refresh()
+		end
+	elseif cmd == "snap" then
+		local arg = rest:lower()
+		if arg == "on" then
+			db.snapping = true
+		elseif arg == "off" then
+			db.snapping = false
+		else
+			db.snapping = not ns.Snap.Enabled()
+		end
+		ns.Print(db.snapping and "bar snapping on (hold Shift while dragging to place freely)" or "bar snapping off")
+		ns.Refresh()
 	elseif cmd == "lock" then
 		ns.SetLocked(true)
 	elseif cmd == "unlock" then
@@ -483,13 +515,13 @@ loader:SetScript("OnEvent", function(_, event)
 		ns.Cluster:SetClampedToScreen(true)
 		ns.Cluster:EnableMouse(true)
 		ns.Cluster:RegisterForDrag("LeftButton")
-		ns.Cluster:SetScript("OnDragStart", function(self)
-			if ns.DB().locked or InCombatLockdown() then return end
-			self:StartMoving()
+		ns.Cluster:SetScript("OnDragStart", function()
+			if ns.ActionBar and ns.ActionBar.DragConsole then
+				ns.ActionBar.DragConsole()
+			end
 		end)
-		ns.Cluster:SetScript("OnDragStop", function(self)
-			self:StopMovingOrSizing()
-			ns.SavePosition()
+		ns.Cluster:SetScript("OnDragStop", function()
+			ns.Snap.StopDrag()
 		end)
 		RegisterStateDriver(ns.Cluster, "visibility", "[petbattle] hide; show")
 
