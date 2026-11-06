@@ -1,0 +1,47 @@
+{
+  "globeFrame": {
+    "file": "globe-frame.png",
+    "target": 512,
+    "hints": ["healthorb", "healthglobe", "healthball", "orbframe", "orb_frame", "console_health", "ui_healthorb"]
+  },
+  "globeFrameResource": {
+    "file": "globe-frame-resource.png",
+    "target": 512,
+    "hints": ["resourceglobe", "resourceorb", "managlobeframe"]
+  },
+  "globeLiquid": {
+    "file": "globe-liquid.png",
+    "target": 512,
+    "hints": ["healthliquid", "orbfill", "orbliquid", "healthfill", "resourceorb", "furyorb"]
+  },
+  "buttonRing": {
+    "file": "button-ring.png",
+    "target": 256,
+    "hints": ["skillbutton", "actionbutton", "buttonframe", "hotbarbutton", "uibutton", "skillslot"]
+  },
+  "buttonRingSmall": {
+    "file": "button-ring-small.png",
+    "target": 256,
+    "hints": ["skillbutton", "smallbutton", "buttonframe"]
+  },
+  "trough": {
+    "file": "trough.png",
+    "target": 512,
+    "hints": ["hotbar", "actionbarframe", "skillbar", "consoleframe", "bottombar"]
+  },
+  "xpTrack": {
+    "file": "xp-track.png",
+    "target": 256,
+    "hints": ["experience", "xpbar", "progressbar"]
+  },
+  "xpFill": {
+    "file": "xp-fill.png",
+    "target": 256,
+    "hints": ["experiencefill", "xpfill", "progressfill"]
+  },
+  "pip": {
+    "file": "pip.png",
+    "target": 64,
+    "hints": ["pip", "rune", "orbgem", "stackgem"]
+  }
+}

@@ -1,0 +1,14 @@
+format: png
+reason: Questie on this Forever client loads Interface textures from PNG via SetTexture (Questie/Icons and MinimapIcon). SanctuaryUI probes each Art slot with SetTexture at login; /sanctuary check prints the count.
+upscale: Lanczos to the slot target when the cropped cell's long edge is smaller. Sheets larger than the target are cropped first, not shrunk.
+
+globeLiquid: Base/Textures/2DUI_HealthGlobe_Classic.tex DXT1 2048x512 crop (0, 0, 96, 96) cell 96x96 -> 512x512 globe-liquid.png
+globeFrame: BottomBar_GameRes_Classic.tex A8R8G8B8 1416x200 left bezel, glass hole centered, 256 crop -> 512 globe-frame.png
+globeFrameResource: same sheet, right bezel -> 512 globe-frame-resource.png. Hole is about 0.53 of the texture, so the globe frame is outset 16 and the liquid inset is 23.
+buttonRing: circular metal bezel from the health globe, horn gap closed from the opposite arc, 184 -> 256 button-ring.png and button-ring-small.png
+
+2DUIButtons.tex is DXT5 1024x512 of menu panels, not the skill sockets.
+2DUIBottomBar_Classic.tex is DXT3 1024x128 and is not the globe frame.
+bottomBar_buttonFX_frameGlow.tex is a square orange glow, not a socket ring.
+2DUI_ResourceGlobe_Classic.tex matches the health sheet (2048x512, 96px cells) in blue. The shipped liquid is the health sheet converted to luminance so power color can tint it.
+trough, xp, and pip stay on flat-color fallbacks. The console skill sockets are square stone panels, and stretching that strip to the circular row would squash it.

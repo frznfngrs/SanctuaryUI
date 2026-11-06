@@ -1,0 +1,7 @@
+<Bindings>
+	<Binding name="SANCTUARYUIHEARTH" category="ADDONS" header="SANCTUARYUI"/>
+	<Binding name="SANCTUARYUITOTEM1" category="ADDONS"/>
+	<Binding name="SANCTUARYUITOTEM2" category="ADDONS"/>
+	<Binding name="SANCTUARYUITOTEM3" category="ADDONS"/>
+	<Binding name="SANCTUARYUITOTEM4" category="ADDONS"/>
+</Bindings>
