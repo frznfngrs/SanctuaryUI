@@ -857,7 +857,9 @@ function ns.Globes.Layout()
 
 	local resource = ns.ResourceGlobe
 	if resource.Halves then
-		local size = metrics.resource.size
+		-- The halves are the globe's children, so they take its own size (pod units); the
+		-- console-unit size already has the globe scale in it and would apply it twice.
+		local size = spots.resource.size
 		for side, half in pairs(resource.Halves) do
 			half.bar:ClearAllPoints()
 			half.bar:SetSize(size / 2, size)
