@@ -705,7 +705,7 @@ local function Build()
 								bar = "Totem bar: cast, pick each socket's totem from a flyout",
 								tracker = "Tracker: only show totems that are down",
 							}),
-							modeNote = Note(4, "Bar mode: left-click casts. Right-click a socket to fan out that element's totems: left-click one to put it in the socket, right-click to cast it once. Shift + right-click dismisses. Tracker mode: right-click dismisses. Keybinds are under Key Bindings > AddOns > SanctuaryUI, or use hover-binding."),
+							modeNote = Note(4, "Bar mode: left-click casts, right-click dismisses. Shift + right-click a socket to fan out that element's totems: left-click one to put it in the socket, right-click to cast it once. Tracker mode: right-click dismisses. Keybinds are under Key Bindings > AddOns > SanctuaryUI, or use hover-binding."),
 							ring = Header(5, "Globe"),
 							attach = Select(6, "Attach to", "Ring a globe's rim like the combo point pips, or stand free as a row you can drag anywhere.", "totems", "attach", {
 								none = "Nothing: a free row",

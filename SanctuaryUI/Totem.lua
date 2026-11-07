@@ -7,10 +7,10 @@ ns.Totem = ns.Totem or {}
 -- from secure spell buttons and the totem API, in the look of the combo point pips.
 --
 -- Two modes:
---   bar      each socket casts the totem picked for its element. Right-click a socket to fan
---            out the element's known totems: left-click one to put it in the socket,
---            right-click to cast it without changing the socket. Shift + right-click on the
---            socket dismisses its totem.
+--   bar      each socket casts the totem picked for its element. Right-click a socket to
+--            dismiss its totem. Shift + right-click fans out the element's known totems:
+--            left-click one to put it in the socket, right-click to cast it without changing
+--            the socket.
 --   tracker  sockets only show totems that are down, and don't cast; right-click dismisses.
 -- Keybinds: Key Bindings > AddOns > SanctuaryUI, or hover-binding.
 
@@ -346,10 +346,10 @@ local function SlotTooltip(self)
 		GameTooltip:SetText(ELEMENTS[self.element].label .. " totem")
 	end
 	if not tracker and #known[self.element] > 1 then
-		GameTooltip:AddLine("Right-click: choose this socket's totem.", 0.7, 0.7, 0.7, true)
+		GameTooltip:AddLine("Shift + right-click: choose this socket's totem.", 0.7, 0.7, 0.7, true)
 	end
 	if info then
-		GameTooltip:AddLine((tracker and "Right-click" or "Shift + right-click") .. ": dismiss.", 0.7, 0.7, 0.7, true)
+		GameTooltip:AddLine("Right-click: dismiss.", 0.7, 0.7, 0.7, true)
 	end
 	GameTooltip:Show()
 end
@@ -362,12 +362,12 @@ local function EntryTooltip(self)
 	GameTooltip:Show()
 end
 
--- Right-click on a socket opens its picker (closing the others) instead of acting; Shift +
--- right-click falls through to dismiss. Restricted code, so it works in combat.
+-- Shift + right-click on a socket opens its picker (closing the others) instead of acting;
+-- plain right-click falls through to dismiss. Restricted code, so it works in combat.
 -- The buttons take both the down and the up click (cast-on-key-down acts on the down one), so
 -- the picker toggles on the up click only and swallows the down one.
 local FAN = [[
-	if button == "RightButton" and self:GetAttribute("fan") and not IsShiftKeyDown() then
+	if button == "RightButton" and self:GetAttribute("fan") and IsShiftKeyDown() then
 		if down then return false end
 		local flyout = self:GetFrameRef("flyout")
 		local open = not flyout:IsShown()
@@ -463,10 +463,10 @@ function ns.Totem.Configure()
 		local chosen = Chosen(i)
 		slot:SetAttribute("type1", (not tracker and not preview and chosen) and "spell" or nil)
 		slot:SetAttribute("spell", chosen and chosen.id or nil)
-		-- Tracker: right-click dismisses. Bar: right-click opens the picker, Shift dismisses.
-		local dismiss = not preview and "destroytotem" or nil
-		slot:SetAttribute("type2", tracker and dismiss or nil)
-		slot:SetAttribute("shift-type2", dismiss)
+		-- Right-click dismisses (Shift falls back to it too). Bar: the FAN snippet takes Shift +
+		-- right-click for the picker before it gets here.
+		slot:SetAttribute("type2", not preview and "destroytotem" or nil)
+		slot:SetAttribute("shift-type2", nil)
 		slot:SetAttribute("totem-slot", SlotFor(i))
 		slot:SetAttribute("fan", (not tracker and #list > 1) or nil)
 		slot:SetShown(#list > 0)
