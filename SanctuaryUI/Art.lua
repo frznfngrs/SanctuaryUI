@@ -424,8 +424,9 @@ local function FitGoldLights(button)
 	if not w or w <= 0 then return end
 	Rim(button, button.GetHighlightTexture and button:GetHighlightTexture() or button.HighlightTexture, "socketHover", 1)
 	Rim(button, button.GetPushedTexture and button:GetPushedTexture() or button.PushedTexture, "socketPress", 1)
-	-- Checked marks an active ability (auto attack, a channel): steady and dimmer than hover.
-	Rim(button, button.GetCheckedTexture and button:GetCheckedTexture() or button.CheckedTexture, "socketHover", 0.65)
+	-- Checked marks an active ability (auto attack, a channel): steady and dimmer than hover,
+	-- unless the button asks for more (the stance bar's active form).
+	Rim(button, button.GetCheckedTexture and button:GetCheckedTexture() or button.CheckedTexture, "socketHover", button.sanctuaryCheckedAlpha or 0.65)
 	for i = 1, #TEMPLATE_LIGHTS do
 		Fit(button, button[TEMPLATE_LIGHTS[i]], TEMPLATE_OUTSET)
 	end

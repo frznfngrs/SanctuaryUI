@@ -40,6 +40,10 @@ local function MakeButton(parent, i)
 	button.HotKey:SetTextColor(0.86, 0.72, 0.42)
 	button.HotKey:SetPoint("BOTTOM", 0, 2)
 	button.sanctuary, button.sanctuarySquare, button.sanctuarySocket = true, true, true
+	-- A plain CheckButton has no checked texture, so SetChecked showed nothing. The reskin turns
+	-- this one into the gold socket rim; full strength, since it is the only mark of the form.
+	button:SetCheckedTexture("Interface\\Buttons\\CheckButtonHilight")
+	button.sanctuaryCheckedAlpha = 1
 	ns.Art.ReskinActionButton(nil, button)
 	button:SetScript("OnEnter", function(self)
 		if GameTooltip:IsForbidden() then return end
@@ -102,19 +106,32 @@ function ns.Stance.ReassignBindings()
 	end
 end
 
+-- The active form. GetShapeshiftFormInfo's flag can come back secret in combat; the current
+-- form's index answers instead, and failing that the button takes the secret flag itself.
+local function SetActive(button, i, active, current)
+	if not ns.Secret(active) then
+		button:SetChecked(active and true or false)
+	elseif current then
+		button:SetChecked(current == i)
+	elseif not pcall(button.SetChecked, button, active) then
+		button:SetChecked(false)
+	end
+end
+
 -- Icons, active form, usable, cooldowns: safe any time.
 function ns.Stance.Update()
 	local bar = ns.Stance.bar
 	if not bar then return end
+	local current = GetShapeshiftForm and GetShapeshiftForm()
+	if current ~= nil and ns.Secret(current) then current = nil end
 	for i = 1, math.min(MAX, NumForms()) do
 		local button = bar.buttons[i]
 		local icon, active, castable = GetShapeshiftFormInfo(i)
-		if ns.Secret(active) then active = false end
 		if ns.Secret(castable) then castable = true end
 		button.icon:SetTexture(icon)
 		button.icon:SetDesaturated(not castable)
 		button.icon:SetVertexColor(castable and 1 or 0.6, castable and 1 or 0.6, castable and 1 or 0.6)
-		button:SetChecked(active and true or false)
+		SetActive(button, i, active, current)
 		if GetShapeshiftFormCooldown then
 			local start, duration, enable = GetShapeshiftFormCooldown(i)
 			pcall(CooldownFrame_Set, button.cooldown, start, duration, enable)
