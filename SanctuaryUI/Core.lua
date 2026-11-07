@@ -161,6 +161,45 @@ function ns.Print(msg)
 	ns.Log("print: %s", msg)
 end
 
+-- Changing a Blizzard CVar from addon code taints Blizzard's copy of it: the CVAR_UPDATE
+-- handlers run tainted and store the new value (CVarCallbackRegistry's cache, the Settings
+-- values), and every Blizzard frame that reads it afterwards runs tainted too. Its action
+-- buttons then fail on secret cooldowns, its bars are blocked in combat, and Edit Mode taints
+-- the party frames. A reload clears those caches and the CVar keeps its new value, so a CVar is
+-- only ever changed right before a reload, after asking.
+local pendingCVar
+-- (Only a new key in StaticPopupDialogs: reassigning the global itself would taint it.)
+StaticPopupDialogs.SANCTUARYUI_CVAR_RELOAD = {
+	text = "%s",
+	button1 = "Change and reload",
+	button2 = "Not now",
+	OnAccept = function()
+		local change = pendingCVar
+		pendingCVar = nil
+		if not change or InCombatLockdown() then return end
+		local SetCVar = C_CVar and C_CVar.SetCVar or SetCVar
+		pcall(SetCVar, change.cvar, change.value)
+		ns.Log("cvar %s = %s, reloading", change.cvar, tostring(change.value))
+		ReloadUI()
+	end,
+	OnCancel = function() pendingCVar = nil end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+}
+
+-- Ask to set a Blizzard CVar and reload. Nothing happens in combat or if it already has the value.
+function ns.AskCVarReload(cvar, value, why)
+	local GetCVar = C_CVar and C_CVar.GetCVar or GetCVar
+	if GetCVar and GetCVar(cvar) == tostring(value) then return end
+	if InCombatLockdown() then
+		ns.Print("cannot change Blizzard settings in combat")
+		return
+	end
+	pendingCVar = { cvar = cvar, value = tostring(value) }
+	StaticPopup_Show("SANCTUARYUI_CVAR_RELOAD", why .. "\n\nChanging a Blizzard setting needs a reload, or Blizzard's own frames start throwing errors.")
+end
+
 local function ClampScale(value)
 	value = tonumber(value) or 1
 	if value < 0.5 then value = 0.5 end

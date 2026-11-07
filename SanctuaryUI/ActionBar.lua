@@ -1115,13 +1115,14 @@ end
 function ns.ActionBar.StyleCountdowns()
 	if not ns.ActionBar.primary then return end
 	-- The client only draws cooldown numbers with Blizzard's "Show numbers for cooldowns" on,
-	-- whatever a cooldown is told (ElvUI turns it on too), so Show turns it on.
-	if ns.DB().buttons.cooldownNumbers == "show" then
+	-- whatever a cooldown is told (ElvUI turns it on too), so Show asks to turn it on. Asked once a
+	-- session: setting it means a reload (see ns.AskCVarReload).
+	if ns.DB().buttons.cooldownNumbers == "show" and not ns.ActionBar.countdownAsked then
 		local GetCVarBool = C_CVar and C_CVar.GetCVarBool or GetCVarBool
-		local SetCVar = C_CVar and C_CVar.SetCVar or SetCVar
-		if GetCVarBool and SetCVar and not GetCVarBool("countdownForCooldowns") then
-			pcall(SetCVar, "countdownForCooldowns", "1")
-			ns.Log("cooldown numbers: turned on countdownForCooldowns")
+		if GetCVarBool and not GetCVarBool("countdownForCooldowns") and not InCombatLockdown() then
+			ns.ActionBar.countdownAsked = true
+			ns.Log("cooldown numbers: countdownForCooldowns is off, asking")
+			ns.AskCVarReload("countdownForCooldowns", "1", "SanctuaryUI shows cooldown numbers on your buttons, and the game only draws them with Blizzard's \"Show Numbers for Cooldowns\" on. Turn it on?\n\n(To keep it off, set Action Bars > Cooldown numbers to Hide or Blizzard setting.)")
 		end
 	end
 	ns.ActionBar.ForEachButton(function(button) StyleCountdown(button, nil) end)
@@ -1176,12 +1177,9 @@ end
 
 function ns.ActionBar.ApplySettings()
 	if InCombatLockdown() or not ns.ActionBar.primary then return end
+	-- The lock is the buttons' own "buttonlock" attribute. Blizzard's lockActionBars is left
+	-- alone: writing it taints Blizzard's settings (see ns.AskCVarReload).
 	ns.ActionBar.ForEachButton(ApplyLock)
-	-- Keep Blizzard's own setting in step, for anything else that reads it.
-	local SetCVar = C_CVar and C_CVar.SetCVar or SetCVar
-	if SetCVar then
-		pcall(SetCVar, "lockActionBars", ns.DB().buttons.lock and "1" or "0")
-	end
 	for i = 1, PRIMARY do
 		ns.ActionBar.primary[i]:UpdateConfig(ButtonConfig("ACTIONBUTTON" .. i, true))
 	end
