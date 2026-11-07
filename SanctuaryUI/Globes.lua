@@ -154,7 +154,7 @@ local function MakeGlobe(name, parent, tint)
 	globe.Max = maxText
 
 	-- Hover mode shows the numbers only under the mouse, like D3. Motion only, so a drag
-	-- still reaches the cluster.
+	-- still reaches the console.
 	if globe.SetMouseMotionEnabled then
 		globe:SetMouseMotionEnabled(true)
 		if globe.SetMouseClickEnabled then
@@ -709,10 +709,12 @@ function ns.Globes.Layout()
 	if not cluster or not ns.HealthGlobe or not metrics then return end
 	local base = metrics.baseY
 	local level = cluster:GetFrameLevel()
-	local function place(globe, spot)
+	local pods, spots = ns.Pods, metrics.pods
+	local function place(globe, side)
+		local spot = spots[side]
 		globe:SetSize(spot.size, spot.size)
 		globe:ClearAllPoints()
-		globe:SetPoint("CENTER", cluster, "BOTTOM", spot.x, base + spot.y)
+		globe:SetPoint("CENTER", pods[side], "BOTTOM", spot.x, base + spot.y)
 		globe:SetFrameLevel(level + ns.LEVEL.globe)
 		globe.Liquid:SetFrameLevel(level + ns.LEVEL.liquid)
 		globe.Chrome:SetFrameLevel(level + ns.LEVEL.chrome)
@@ -723,17 +725,17 @@ function ns.Globes.Layout()
 			globe.Shade:SetFrameLevel(level + ns.LEVEL.shade)
 		end
 	end
-	place(ns.HealthGlobe, metrics.health)
-	place(ns.ResourceGlobe, metrics.resource)
+	place(ns.HealthGlobe, "health")
+	place(ns.ResourceGlobe, "resource")
 
-	-- The health globe's click button: on the globe's circle (anchored to the cluster, like
-	-- the globe), above the art. Unlocked, clicks go through to drag the console.
+	-- The health globe's click button: on the globe's circle (anchored to its pod, like the
+	-- globe), above the art. Unlocked, clicks go through to drag the console.
 	local click = ns.Globes.click
 	if click and not InCombatLockdown() then
-		local spot = metrics.health
+		local spot = spots.health
 		click:SetSize(spot.size * 0.86, spot.size * 0.86)
 		click:ClearAllPoints()
-		click:SetPoint("CENTER", cluster, "BOTTOM", spot.x, base + spot.y)
+		click:SetPoint("CENTER", pods.health, "BOTTOM", spot.x, base + spot.y)
 		click:SetFrameLevel(level + ns.LEVEL.chrome + 1)
 		click:EnableMouse(ns.DB().locked and true or false)
 	end
@@ -760,7 +762,7 @@ function ns.Globes.Layout()
 	-- The blade belongs to the console art, so it draws at the console's level, above the glass.
 	local blade = ns.Globes.Blade
 	if not blade then
-		blade = CreateFrame("Frame", "SanctuaryUIBlade", cluster)
+		blade = CreateFrame("Frame", "SanctuaryUIBlade", pods.resource)
 		blade:EnableMouse(false)
 		blade.tex = blade:CreateTexture(nil, "ARTWORK")
 		blade.tex:SetAllPoints()
@@ -770,7 +772,7 @@ function ns.Globes.Layout()
 	local scale = metrics.scale
 	blade:SetSize(BLADE_W * scale, BLADE_H * scale)
 	blade:ClearAllPoints()
-	blade:SetPoint("CENTER", cluster, "BOTTOM", (BLADE_X0 + BLADE_W / 2) * scale - metrics.width / 2, base)
+	blade:SetPoint("CENTER", pods.resource, "BOTTOM", (BLADE_X0 + BLADE_W / 2) * scale - metrics.width / 2, base)
 	blade:SetFrameLevel(level + ns.LEVEL.blade)
 
 	-- Glass sits between the liquid and the console art, over the whole console, in ADD.
@@ -787,6 +789,21 @@ function ns.Globes.Layout()
 	glass:ClearAllPoints()
 	glass:SetPoint("CENTER", cluster, "BOTTOM", 0, base)
 	glass:SetFrameLevel(level + ns.LEVEL.glass)
+	-- Scaled separately, each globe takes its own piece of the glass (only the globes have any).
+	glass.split = metrics.split
+	for side, pod in pairs(pods) do
+		local piece = pod.glass
+		if not piece then
+			piece = CreateFrame("Frame", nil, pod)
+			piece:EnableMouse(false)
+			piece.tex = piece:CreateTexture(nil, "ARTWORK")
+			piece.tex:SetAllPoints()
+			pod.glass = piece
+		end
+		ns.PlacePiece(piece, pod, side, metrics)
+		piece:SetFrameLevel(level + ns.LEVEL.glass)
+	end
+	ns.Globes.ShowGlass()
 
 	-- Pips sit on the rim, above the console art: their own liquid stack starts at pips.
 	if ns.ResourceGlobe.Pips then
@@ -848,27 +865,42 @@ function ns.Globes.RefreshArt()
 	if ns.Globes.Blade and ns.Art.Apply(ns.Globes.Blade.tex, "blade") then
 		ns.Globes.Blade.tex:SetTexCoord(0, 1, 0, BLADE_H / 256)
 	end
-	if ns.GlassFrame then
-		if ns.Art.Apply(ns.GlassFrame.tex, "glass") then
-			ns.GlassFrame.tex:SetTexCoord(unpack(ns.FRAME_TEXCOORD))
-			ns.GlassFrame.tex:SetBlendMode("ADD")
-			ns.GlassFrame:Show()
-		else
-			ns.GlassFrame:Hide()
-		end
-	end
+	ns.Globes.ShowGlass()
 	ns.Globes.UpdateHealth()
 	ns.Globes.UpdatePower()
 end
 
+-- The glass over the whole console, or with the globes scaled separately, a piece in each pod.
+function ns.Globes.ShowGlass()
+	local glass = ns.GlassFrame
+	if not glass then return end
+	local path = ns.Art.Path("glass")
+	local split = glass.split and true or false
+	if path and ns.Art.Apply(glass.tex, "glass") then
+		glass.tex:SetTexCoord(unpack(ns.FRAME_TEXCOORD))
+		glass.tex:SetBlendMode("ADD")
+	end
+	glass:SetShown(path ~= nil and not split)
+	for side, pod in pairs(ns.Pods or {}) do
+		local piece = pod.glass
+		if piece then
+			if path and ns.Art.Apply(piece.tex, "glass") then
+				ns.CropPiece(piece.tex, side)
+				piece.tex:SetBlendMode("ADD")
+			end
+			piece:SetShown(path ~= nil and split)
+		end
+	end
+end
+
 function ns.Globes.Init()
 	local parent = ns.Cluster
-	ns.HealthGlobe = MakeGlobe("SanctuaryUIHealthGlobe", parent, { 0.72, 0.08, 0.08 })
-	ns.ResourceGlobe = MakeGlobe("SanctuaryUIResourceGlobe", parent, { 0.15, 0.4, 0.85 })
+	ns.HealthGlobe = MakeGlobe("SanctuaryUIHealthGlobe", ns.Pods.health, { 0.72, 0.08, 0.08 })
+	ns.ResourceGlobe = MakeGlobe("SanctuaryUIResourceGlobe", ns.Pods.resource, { 0.15, 0.4, 0.85 })
 
 	-- Click your health globe to target yourself; right-click for your unit menu (leave group,
 	-- loot, raid markers). It covers the globe, so it passes hover on for the numbers.
-	local click = CreateFrame("Button", "SanctuaryUIHealthClick", parent, "SecureUnitButtonTemplate")
+	local click = CreateFrame("Button", "SanctuaryUIHealthClick", ns.Pods.health, "SecureUnitButtonTemplate")
 	click:SetAttribute("unit", "player")
 	click:SetAttribute("*type1", "target")
 	click:SetAttribute("*type2", "togglemenu")

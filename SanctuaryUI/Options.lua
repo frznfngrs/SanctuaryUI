@@ -548,7 +548,13 @@ local function Build()
 						option.disabled = function() return not DB().grid end
 						return option
 					end)(),
-					scale = Range(3, "Scale", nil, nil, "scale", 0.5, 1.8, 0.01, true),
+					scale = Range(3, "Scale", "The console: its bars, menu and rail, and the globes unless they are scaled separately.", nil, "scale", 0.5, 1.8, 0.01, true),
+					globesSeparate = Toggle(3.1, "Scale globes separately", "Give the globes their own scale. They stay on the ends of the bar, bottoms level, whatever its size.", nil, "globesSeparate"),
+					globeScale = (function()
+						local option = Range(3.2, "Globe scale", "The globes and their statues.", nil, "globeScale", 0.5, 1.8, 0.01, true)
+						option.disabled = function() return not DB().globesSeparate end
+						return option
+					end)(),
 					reset = {
 						type = "execute",
 						order = 4,

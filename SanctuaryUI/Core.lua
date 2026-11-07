@@ -120,15 +120,45 @@ function ns.Print(msg)
 	ns.Log("print: %s", msg)
 end
 
+local function ClampScale(value)
+	value = tonumber(value) or 1
+	if value < 0.5 then value = 0.5 end
+	if value > 1.8 then value = 1.8 end
+	return value
+end
+
+-- The globes' size against the console's: 1 unless they are scaled separately (General >
+-- Globe scale), when they keep their own scale whatever the console's.
+function ns.GlobeRatio()
+	local db = ns.DB()
+	if not db.globesSeparate then return 1 end
+	return ClampScale(db.globeScale) / ClampScale(db.scale)
+end
+
+-- Each globe and its statue is a pod: a console-sized frame in the cluster, scaled by the
+-- globe ratio about the seam where it meets the bar, so the globe's piece of the console art
+-- stays bolted to the bar's end, bottoms level. Inside a pod, ns.Metrics().pods positions
+-- mean what ns.Metrics() positions mean in the cluster.
+local function PlacePods()
+	if not ns.Pods then return end
+	local metrics = ns.Metrics()
+	local ratio = metrics.globeRatio
+	for side, pod in pairs(ns.Pods) do
+		pod:SetScale(ratio)
+		pod:SetSize(metrics.width, metrics.height)
+		pod:ClearAllPoints()
+		pod:SetPoint("BOTTOM", ns.Cluster, "BOTTOM", metrics.pods[side].seam * (1 - ratio) / ratio, 0)
+	end
+end
+
 local function ApplyScale()
 	local db = ns.DB()
-	local scale = tonumber(db.scale) or 1
-	if scale < 0.5 then scale = 0.5 end
-	if scale > 1.8 then scale = 1.8 end
-	db.scale = scale
+	db.scale = ClampScale(db.scale)
+	db.globeScale = ClampScale(db.globeScale)
 	if ns.Cluster then
-		ns.Cluster:SetScale(scale)
+		ns.Cluster:SetScale(db.scale)
 	end
+	PlacePods()
 end
 
 -- BottomBar_GameRes.tex (1416x201) widened by two socket columns and one menu plate to
@@ -136,6 +166,11 @@ end
 -- widened sheet. CONSOLE_W keeps the original on-screen scale (1100 / 1416).
 local TEX_W, TEX_H = 1595, 201
 local CONSOLE_W = 1595 * 1100 / 1416
+ns.TEX_W = TEX_W
+
+-- Where the globes' pieces of the console art meet the bar, in sheet px: just past the outer
+-- edge of each globe's ring. Left of SEAM_L and right of SEAM_R scale with the globes.
+ns.SEAM_L, ns.SEAM_R = 330, 1265
 
 ns.FRAME_TEXCOORD = { 0, TEX_W / 2048, 0, TEX_H / 256 }
 
@@ -215,6 +250,22 @@ function ns.Metrics()
 			dock[j][i] = box(cx - 34, 111 - ns.TIER_H * j, cx + 34, 178 - ns.TIER_H * j)
 		end
 	end
+	-- Globe spots in pod units (see PlacePods), and where they land on the console.
+	local ratio = ns.GlobeRatio()
+	local base = height / 2
+	local seamL = (ns.SEAM_L / TEX_W - 0.5) * width
+	local seamR = (ns.SEAM_R / TEX_W - 0.5) * width
+	local pods = {
+		health = { x = hx, y = hy, size = globe, seam = seamL },
+		resource = { x = rx, y = ry, size = globe, seam = seamR },
+	}
+	local function onConsole(spot)
+		return {
+			x = spot.seam + (spot.x - spot.seam) * ratio,
+			y = (base + spot.y) * ratio - base,
+			size = spot.size * ratio,
+		}
+	end
 	local rail = box(336, 96, 1259, 104)
 	rail.y = rail.y + lift
 	-- Your level, in a medallion resting on the centre skull.
@@ -228,9 +279,15 @@ function ns.Metrics()
 		height = height,
 		scale = scale,
 		-- The console art sits on the cluster's bottom edge.
-		baseY = height / 2,
-		health = { x = hx, y = hy, size = globe },
-		resource = { x = rx, y = ry, size = globe },
+		baseY = base,
+		globeRatio = ratio,
+		split = ratio ~= 1,
+		seamL = seamL,
+		seamR = seamR,
+		pods = pods,
+		-- Where the globes are on the console, in cluster units.
+		health = onConsole(pods.health),
+		resource = onConsole(pods.resource),
 		slots = sockets,
 		hearth = box(1010, 110, 1051, 179),
 		menu = box(1056, 110, 1244, 178),
@@ -238,6 +295,31 @@ function ns.Metrics()
 		levelPlaque = plaque,
 		socketArt = box(336, 104, 412, 184),
 	}
+end
+
+-- A globe's piece of a console-sheet texture (frame, glass): left of SEAM_L for health, right
+-- of SEAM_R for resource. PlacePiece puts a frame over that piece, in its pod.
+local function PieceSpan(side)
+	if side == "health" then return 0, ns.SEAM_L end
+	return ns.SEAM_R, TEX_W
+end
+
+function ns.CropPiece(tex, side)
+	local x0, x1 = PieceSpan(side)
+	tex:SetTexCoord(x0 / 2048, x1 / 2048, 0, TEX_H / 256)
+end
+
+function ns.PlacePiece(frame, pod, side, metrics)
+	local x0, x1 = PieceSpan(side)
+	local scale = metrics.scale
+	frame:SetSize((x1 - x0) * scale, metrics.height)
+	frame:ClearAllPoints()
+	frame:SetPoint("CENTER", pod, "BOTTOM", (x0 + x1) / 2 * scale - metrics.width / 2, metrics.baseY)
+end
+
+-- The bar's piece of the sheet, between the seams.
+function ns.CropBar(tex)
+	tex:SetTexCoord(ns.SEAM_L / 2048, ns.SEAM_R / 2048, 0, TEX_H / 256)
 end
 
 function ns.ApplyPosition()
@@ -308,7 +390,7 @@ local function Slash(msg)
 			ns.Options.Open()
 		end
 	elseif cmd == "help" then
-		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n>, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, active, auras, watch, aura (test globe auras), health <percent>|off (preview the health globe), debug on|off, log")
+		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n>, globes <n>|off, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, active, auras, watch, aura (test globe auras), health <percent>|off (preview the health globe), debug on|off, log")
 	elseif cmd == "grid" then
 		-- grid: toggle; grid on|off; grid <spacing>. The grid only shows while frames are
 		-- unlocked, so showing it unlocks them.
@@ -353,8 +435,28 @@ local function Slash(msg)
 			ns.Print("cannot change scale in combat")
 		else
 			db.scale = value
-			ApplyScale()
+			ns.Refresh()
 			ns.Print(("scale set to %.2f"):format(db.scale))
+		end
+	elseif cmd == "globes" then
+		-- globes <n>: scale the globes on their own; globes off: back with the console's scale.
+		local arg = rest:lower()
+		local value = tonumber(arg)
+		if arg == "" then
+			ns.Print(db.globesSeparate and ("globe scale is %.2f"):format(db.globeScale or 1) or "globes follow the console scale")
+		elseif InCombatLockdown() then
+			ns.Print("cannot change scale in combat")
+		elseif value or arg == "on" then
+			db.globesSeparate = true
+			if value then db.globeScale = value end
+			ns.Refresh()
+			ns.Print(("globe scale set to %.2f"):format(db.globeScale))
+		elseif arg == "off" then
+			db.globesSeparate = false
+			ns.Refresh()
+			ns.Print("globes follow the console scale")
+		else
+			ns.Print("globes <scale>|on|off")
 		end
 	elseif cmd == "bar" or cmd == "row" then -- "row" kept from before the rename
 		local n, on = rest:lower():match("^(%d)%s+(%a+)$")
@@ -400,7 +502,8 @@ local function Slash(msg)
 			ns.Print("cannot reset in combat")
 		else
 			db.point, db.rel, db.x, db.y, db.scale = "BOTTOM", "BOTTOM", 0, 0, 1
-			ns.ApplyPosition()
+			db.globesSeparate, db.globeScale = false, 1
+			ns.Refresh()
 			ns.Print("position and scale reset")
 		end
 	elseif cmd == "mouse" then
@@ -524,6 +627,13 @@ loader:SetScript("OnEvent", function(_, event)
 			ns.Snap.StopDrag()
 		end)
 		RegisterStateDriver(ns.Cluster, "visibility", "[petbattle] hide; show")
+		ns.Pods = {
+			health = CreateFrame("Frame", "SanctuaryUIHealthPod", ns.Cluster),
+			resource = CreateFrame("Frame", "SanctuaryUIResourcePod", ns.Cluster),
+		}
+		for _, pod in pairs(ns.Pods) do
+			pod:EnableMouse(false)
+		end
 
 		local function Safe(label, fn)
 			if not fn then return end
