@@ -22,6 +22,47 @@ function ns.Secret(value)
 	return issecretvalue and issecretvalue(value) or false
 end
 
+-- Incoming heals and damage shields on a unit, through the client's calculator: heals clamp to
+-- missing health, shields to what's left after them, and clamped says the shield is bigger than
+-- that room. In combat they come back secret, for StatusBars to take as they are. Older
+-- clients: the plain totals, clamped here when readable. Globes (player) and target plate.
+local healCalc
+function ns.IncomingHeals(unit, health, maxHealth)
+	if healCalc == nil then
+		healCalc = false
+		if CreateUnitHealPredictionCalculator and UnitGetDetailedHealPrediction then
+			local ok, calc = pcall(CreateUnitHealPredictionCalculator)
+			if ok and calc then
+				local clamp = Enum and Enum.UnitIncomingHealClampMode and Enum.UnitIncomingHealClampMode.MissingHealth
+				if clamp then pcall(calc.SetIncomingHealClampMode, calc, clamp) end
+				-- Shields: what fits in the missing health left after the heals.
+				clamp = Enum and Enum.UnitDamageAbsorbClampMode and Enum.UnitDamageAbsorbClampMode.MissingHealth
+				if clamp then pcall(calc.SetDamageAbsorbClampMode, calc, clamp) end
+				pcall(calc.SetIncomingHealOverflowPercent, calc, 1)
+				healCalc = calc
+			end
+		end
+	end
+	if healCalc and pcall(UnitGetDetailedHealPrediction, unit, "player", healCalc) then
+		local ok, amount = pcall(healCalc.GetIncomingHeals, healCalc)
+		local okAbsorb, absorb, clamped = pcall(healCalc.GetDamageAbsorbs, healCalc)
+		if ok then
+			if not okAbsorb then absorb, clamped = 0, false end
+			return amount, absorb, clamped
+		end
+	end
+	local amount = UnitGetIncomingHeals and UnitGetIncomingHeals(unit)
+	local absorb = UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(unit)
+	local clamped = false
+	if health and maxHealth and not (ns.Secret(health) or ns.Secret(maxHealth) or ns.Secret(amount) or ns.Secret(absorb)) then
+		local missing = math.max(0, maxHealth - health)
+		amount = math.min(amount or 0, missing)
+		clamped = (absorb or 0) > missing - amount
+		absorb = math.min(absorb or 0, missing - amount)
+	end
+	return amount, absorb, clamped
+end
+
 -- `value or default` that is safe on secrets: a secret comes back as is (for widgets to take).
 function ns.Or(value, default)
 	if ns.Secret(value) then return value end
@@ -390,7 +431,7 @@ local function Slash(msg)
 			ns.Options.Open()
 		end
 	elseif cmd == "help" then
-		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n>, globes <n>|off, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, aura (test globe auras), health <percent>|off (preview the health globe), predict (heal and spell cost demo), debug on|off, log")
+		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n>, globes <n>|off, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), debug on|off, log")
 	elseif cmd == "grid" then
 		-- grid: toggle; grid on|off; grid <spacing>. The grid only shows while frames are
 		-- unlocked, so showing it unlocks them.
@@ -563,9 +604,10 @@ local function Slash(msg)
 			ns.Print("health globe shows your health")
 		end
 	elseif cmd == "predict" then
-		-- Heal and spell cost prediction demo on preview levels: lands after 2.5 s, real at 5 s.
+		-- Heal, shield and spell cost demo on preview levels: lands at 2.5 s, full health at 5 s,
+		-- real values at 8 s.
 		ns.Globes.PredictDemo()
-		ns.Print("prediction demo: an incoming heal and a spell cost, landing in 2.5 s")
+		ns.Print("prediction demo: incoming heal, shield and spell cost; they land at 2.5 s, health tops up at 5 s")
 	elseif cmd == "log" then
 		ns.ShowLog()
 	elseif cmd == "debug" then

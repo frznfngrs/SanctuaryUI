@@ -752,7 +752,9 @@ function ns.Liquid.Attach(globe, bar, opts)
 end
 
 -- Prediction bands, ridden on the fill guide so they follow the animated level:
---   heal  incoming heals, a pale green liquid poured on top of the level
+--   heal    incoming heals, a pale green liquid poured on top of the level
+--   absorb  damage shields, pale silver liquid on top of the heal (what fits in missing
+--           health; the rest lights the shield glow, see Pool:SetShield)
 --   cost  the cast's power cost, the top of the liquid lit from the level down to where it
 --         will settle
 -- Each is an invisible StatusBar one globe tall with the same range as the fill, so the
@@ -761,6 +763,7 @@ end
 -- below. A zero band clips to nothing, edge glow and all.
 local BAND = {
 	heal = { color = { 0.42, 1.0, 0.36 }, alpha = 0.55, edge = 0.75 },
+	absorb = { color = { 0.8, 0.88, 1.0 }, alpha = 0.5, edge = 0.85 },
 	cost = { alpha = 0.32, edge = 0.6 },
 }
 local BAND_EDGE = 0.07 -- edge glow height, of the globe
@@ -779,9 +782,11 @@ function ns.Liquid.Band(pool, kind)
 	pb:SetStatusBarColor(1, 1, 1, 0)
 	pb:SetMinMaxValues(0, 1)
 	pb:SetValue(0)
-	if kind == "heal" then
-		pb:SetPoint("BOTTOMLEFT", guide, "TOPLEFT")
-		pb:SetPoint("BOTTOMRIGHT", guide, "TOPRIGHT")
+	if kind == "heal" or kind == "absorb" then
+		-- The shield stacks on the heal when there is one.
+		local below = kind == "absorb" and pool.bands.heal and pool.bands.heal.bar:GetStatusBarTexture() or guide
+		pb:SetPoint("BOTTOMLEFT", below, "TOPLEFT")
+		pb:SetPoint("BOTTOMRIGHT", below, "TOPRIGHT")
 	else
 		-- Fills down from the level.
 		pb:SetReverseFill(true)
@@ -812,7 +817,7 @@ function ns.Liquid.Band(pool, kind)
 	local edge = frame:CreateTexture(nil, "ARTWORK", nil, 2)
 	edge:SetTexture(ns.Art.Path("surfaceGlow") or ns.Art.Path("hotline") or "Interface\\Buttons\\WHITE8X8")
 	edge:SetBlendMode("ADD")
-	if kind == "heal" then
+	if kind ~= "cost" then
 		edge:SetPoint("TOPLEFT", fill, "TOPLEFT", 0, 1)
 		edge:SetPoint("TOPRIGHT", fill, "TOPRIGHT", 0, 1)
 	else
@@ -917,6 +922,80 @@ function Pool:BandAnimate(realTime, cu, cv, half, angle)
 	end
 end
 
+-- Shield glow: more shield than the globe has room for (always so at full health). The
+-- globe's inner rim light in silver, flipped to be brightest at the top, over a fainter full
+-- ring, with a highlight slowly sweeping round: a bubble over the liquid. The client gates it
+-- from a secret boolean through SetAlphaFromBoolean; a readable one fades in and out.
+local SHIELD_COLOR = { 0.72, 0.84, 1.0 }
+local SHIELD_FADE = 4 -- per second
+local SHIELD_SWEEP = 0.35 -- rad/s
+
+function ns.Liquid.Shield(pool)
+	if not pool or pool.shield or not ns.Art.Path("globeRim") then return pool and pool.shield end
+	local globe = pool.globe
+	local frame = CreateFrame("Frame", nil, globe)
+	frame:SetAllPoints(globe)
+	local layers = {}
+	for i, spec in ipairs({ { flip = true, alpha = 0.85 }, { alpha = 0.35 }, { sweep = true, alpha = 0.5 } }) do
+		local tex = frame:CreateTexture(nil, "ARTWORK", nil, i)
+		tex:SetAllPoints(globe)
+		tex:SetTexture(ns.Art.Path("globeRim"))
+		tex:SetBlendMode("ADD")
+		if spec.flip then tex:SetTexCoord(0, 1, 1, 0) end
+		Smooth(tex)
+		tex:SetAlpha(0)
+		layers[i] = { tex = tex, spec = spec }
+	end
+	pool.shield = frame
+	pool.shieldLayers = layers
+	pool.shieldAlpha, pool.shieldTarget = 0, 0
+	return frame
+end
+
+-- clamped: the calculator's "more shield than room" flag, nil or false for none.
+function Pool:SetShield(clamped)
+	if not self.shield then return end
+	if Secret(clamped) then
+		self.shieldSecret = true
+		for _, layer in ipairs(self.shieldLayers) do
+			if not (layer.tex.SetAlphaFromBoolean and pcall(layer.tex.SetAlphaFromBoolean, layer.tex, clamped, 1, 0)) then
+				layer.tex:SetAlpha(0)
+			end
+		end
+		return
+	end
+	if self.shieldSecret then
+		-- Back from a secret flag: take over the alpha again from where it can be known.
+		self.shieldSecret = nil
+		self.shieldAlpha = clamped and 1 or 0
+	end
+	self.shieldTarget = clamped and 1 or 0
+end
+
+function Pool:ShieldAnimate(realTime, dt)
+	local target, alpha = self.shieldTarget or 0, self.shieldAlpha or 0
+	if not self.shieldSecret and alpha ~= target then
+		alpha = target > alpha and math.min(target, alpha + dt * SHIELD_FADE) or math.max(target, alpha - dt * SHIELD_FADE)
+		self.shieldAlpha = alpha
+	end
+	if not self.shieldSecret and alpha <= 0 and target <= 0 then
+		if self.shieldShown ~= false then
+			self.shieldShown = false
+			for _, layer in ipairs(self.shieldLayers) do layer.tex:SetAlpha(0) end
+		end
+		return
+	end
+	self.shieldShown = true
+	local c = SHIELD_COLOR
+	local breathe = 0.85 + 0.15 * math.sin(realTime * 1.6 + self.phase * 3)
+	for _, layer in ipairs(self.shieldLayers) do
+		local tex, spec = layer.tex, layer.spec
+		if not self.shieldSecret then tex:SetAlpha(alpha * alpha * (3 - 2 * alpha)) end
+		tex:SetVertexColor(c[1], c[2], c[3], spec.alpha * breathe)
+		if spec.sweep then tex:SetRotation(realTime * SHIELD_SWEEP + self.phase * 6) end
+	end
+end
+
 -- Set a bar's value through its pool (glide) if it has one.
 function ns.Liquid.SetValue(bar, value, maxValue)
 	local pool = byBar[bar]
@@ -939,13 +1018,16 @@ function Pool:SetLevels(base, offset)
 	self.clip:SetFrameLevel(base + ns.LEVEL.clip + offset)
 	self.frame:SetFrameLevel(base + ns.LEVEL.pool + offset)
 	self.surface:SetFrameLevel(base + ns.LEVEL.surface + offset)
-	-- Heal sits above the level beside the ghost; cost lights the top of the liquid, so it
+	-- Heal and shield sit above the level beside the ghost; cost lights the top of the liquid, so it
 	-- goes over the liquid layers (ADD, so its order against the surface glow doesn't matter).
 	for kind, band in pairs(self.bands or {}) do
-		local level = base + (kind == "heal" and ns.LEVEL.clip or ns.LEVEL.surface) + offset
+		local level = base + (kind == "cost" and ns.LEVEL.surface or ns.LEVEL.clip) + offset
 		band.bar:SetFrameLevel(base + ns.LEVEL.liquid + offset)
 		band.clip:SetFrameLevel(level)
 		band.frame:SetFrameLevel(level)
+	end
+	if self.shield then
+		self.shield:SetFrameLevel(base + ns.LEVEL.surface + offset)
 	end
 end
 
@@ -990,6 +1072,7 @@ function ns.Liquid.Start()
 			if pool.frame:IsVisible() then
 				pool:Animate(pool.t, now, dt)
 			end
+			if pool.shield then pool:ShieldAnimate(now, dt) end
 		end
 	end)
 	ns.Liquid.driver = driver
