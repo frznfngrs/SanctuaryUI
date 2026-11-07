@@ -87,7 +87,7 @@ local function SlotRow(win)
 	local list = {}
 	for slotID = 1, #TABS do
 		local button = ns.Bags.SlotButton(win.frame, "SanctuaryUIBankSlot" .. slotID)
-		button.slotID = slotID
+		button.slotID, button.sanctuaryBag = slotID, TABS[slotID]
 		button:SetScript("OnClick", function(self)
 			if GetCursorInfo() then PickupTab(self) end
 		end)

@@ -14,7 +14,8 @@ local W = ns.InvWindow
 --   containers  function() -> list of container IDs, in display order
 --   template    function(bag) -> item button template
 --   initSlot    optional function(button, bag, slot), after the button is made
---   slotRow     function(window) -> list of buttons for the top row (bag slots)
+--   slotRow     function(window) -> list of buttons for the top row (bag slots); a button's
+--               sanctuaryBag is the container it holds, lit in the grid while hovered
 --   updateRow   function(window), refreshes them
 --   footer      list of { label, width, onClick, setup } text buttons, left to right
 --   onClose     function(window), when the close X or Escape closes it
@@ -80,6 +81,38 @@ end
 ---------------------------------------------------------------------------
 -- Item slots
 
+local QUEST_GLOW = { 1, 0.62, 0.18 }
+local BAG_GLOW = { 1, 0.84, 0.45 }
+
+-- The new-item frame cell, tinted and added over the slot, with a faint wash of the same
+-- color across the icon. Hidden until asked for.
+local function Glow(button, sublevel, color, frameAlpha, fillAlpha)
+	local r, g, b = color[1], color[2], color[3]
+	local glow = button:CreateTexture(nil, "OVERLAY", nil, sublevel)
+	glow:SetPoint("TOPLEFT", -2, 2)
+	glow:SetPoint("BOTTOMRIGHT", 2, -2)
+	if ns.Art.Apply(glow, "bagCells") then
+		glow:SetTexCoord(CellCoord(CELL.newItem))
+		glow:SetBlendMode("ADD")
+		glow:SetVertexColor(r, g, b, frameAlpha)
+	else
+		glow:SetColorTexture(r, g, b, frameAlpha * 0.3)
+	end
+	local fill = button:CreateTexture(nil, "OVERLAY", nil, sublevel - 1)
+	fill:SetAllPoints()
+	fill:SetColorTexture(r, g, b, fillAlpha)
+	fill:SetBlendMode("ADD")
+	glow.fill = fill
+	glow:Hide()
+	fill:Hide()
+	return glow
+end
+
+local function ShowGlow(glow, shown)
+	glow:SetShown(shown)
+	glow.fill:SetShown(shown)
+end
+
 local function MakeSlot(win, holder, bag, slot)
 	local name = ("%sB%dS%d"):format(win.def.name, bag < 0 and 100 - bag or bag, slot)
 	local button = CreateFrame("ItemButton", name, holder, win.def.template(bag))
@@ -107,6 +140,11 @@ local function MakeSlot(win, holder, bag, slot)
 	end
 	fresh:Hide()
 	button.sanctuaryNew = fresh
+
+	-- Quest items: a soft amber frame, under the new-item light.
+	button.sanctuaryQuest = Glow(button, 4, QUEST_GLOW, 0.55, 0.06)
+	-- Hovering a bag in the slot row lights the slots that bag holds.
+	button.sanctuaryBagGlow = Glow(button, 7, BAG_GLOW, 0.95, 0.16)
 
 	-- The template's square border, slot art and quality border give way to the D3 cells.
 	local normal = button:GetNormalTexture()
@@ -170,10 +208,18 @@ local function UpdateSlot(win, button)
 		end
 	end
 
+	-- Quest items get the amber glow; items that start a quest you don't have yet also keep
+	-- Blizzard's "!" badge.
+	local questInfo = C_Container and C_Container.GetContainerItemQuestInfo and texture and C_Container.GetContainerItemQuestInfo(bag, slot)
+	local isQuest = questInfo and (questInfo.isQuestItem or questInfo.questID) and true or false
+	local starter = isQuest and questInfo.questID and not questInfo.isActive and TEXTURE_ITEM_QUEST_BANG
+	ShowGlow(button.sanctuaryQuest, isQuest)
 	local quest = button.IconQuestTexture or _G[button:GetName() .. "IconQuestTexture"]
 	if quest then
-		local questInfo = C_Container and C_Container.GetContainerItemQuestInfo and texture and C_Container.GetContainerItemQuestInfo(bag, slot)
-		quest:SetShown(questInfo and (questInfo.isQuestItem or questInfo.questID) and true or false)
+		if starter then
+			quest:SetTexture(starter)
+		end
+		quest:SetShown(starter and true or false)
 	end
 	button.hasItem = texture ~= nil
 
@@ -375,6 +421,16 @@ function Window:Layout()
 	self.laidOut = true
 end
 
+-- Light the slots of one container (nil: none).
+function Window:HighlightBag(bag)
+	for id, holder in pairs(self.frame.holders) do
+		local on = id == bag
+		for _, button in ipairs(holder.slots) do
+			ShowGlow(button.sanctuaryBagGlow, on and button:IsShown())
+		end
+	end
+end
+
 function Window:Update()
 	local frame = self.frame
 	if not frame:IsShown() then return end
@@ -490,6 +546,16 @@ function W.New(def)
 	win.frame = frame
 
 	frame.rowButtons = def.slotRow and def.slotRow(win) or {}
+	-- A row button names the container it holds in sanctuaryBag; hovering it lights that
+	-- container's slots in the grid.
+	for _, button in ipairs(frame.rowButtons) do
+		button:HookScript("OnEnter", function(self)
+			win:HighlightBag(self.sanctuaryBag)
+		end)
+		button:HookScript("OnLeave", function()
+			win:HighlightBag(nil)
+		end)
+	end
 
 	-- Search: Blizzard's search box (magnifier, clear button, placeholder) in a D3 plate.
 	local search = CreateFrame("EditBox", def.name .. "Search", frame, "SearchBoxTemplate")
