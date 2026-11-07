@@ -554,6 +554,9 @@ function ns.Globes.ApplySettings()
 		ns.Liquid.ApplySettings()
 	end
 	ns.Globes.ApplyNumbers()
+	-- The prediction toggles.
+	ns.Globes.UpdateHealPrediction()
+	ns.Globes.UpdatePower()
 end
 
 -- Number fades: quick in, slower out, and a short wait after combat before they go.
@@ -647,6 +650,96 @@ function ns.Globes.PreviewHealth(percent)
 	ns.Globes.UpdateHealth()
 end
 
+-- Incoming heals, through the client's calculator: it clamps to missing health and hands back
+-- secret values in combat, which the band's StatusBar takes as they are. Older clients: the
+-- plain total, clamped here when readable.
+local healCalc
+local function IncomingHeals(health, maxHealth)
+	if healCalc == nil then
+		healCalc = false
+		if CreateUnitHealPredictionCalculator and UnitGetDetailedHealPrediction then
+			local ok, calc = pcall(CreateUnitHealPredictionCalculator)
+			if ok and calc then
+				local clamp = Enum and Enum.UnitIncomingHealClampMode and Enum.UnitIncomingHealClampMode.MissingHealth
+				if clamp then pcall(calc.SetIncomingHealClampMode, calc, clamp) end
+				pcall(calc.SetIncomingHealOverflowPercent, calc, 1)
+				healCalc = calc
+			end
+		end
+	end
+	if healCalc and pcall(UnitGetDetailedHealPrediction, "player", "player", healCalc) then
+		local ok, amount = pcall(healCalc.GetIncomingHeals, healCalc)
+		if ok then return amount end
+	end
+	local amount = UnitGetIncomingHeals and UnitGetIncomingHeals("player")
+	if amount ~= nil and not Secret(amount) and not Secret(health) and not Secret(maxHealth) and health and maxHealth then
+		amount = math.min(amount, math.max(0, maxHealth - health))
+	end
+	return amount
+end
+
+function ns.Globes.UpdateHealPrediction(health, maxHealth)
+	local pool = ns.HealthGlobe and ns.HealthGlobe.pool
+	if not pool or not pool.bands then return end
+	local demo = ns.Globes.demo
+	if demo then
+		pool:SetBand("heal", demo.heal * 1000, 1000)
+		return
+	end
+	if ns.Globes.healthPreview or not ns.DB().healPrediction then
+		pool:SetBand("heal", 0)
+		return
+	end
+	health = health or UnitHealth("player")
+	maxHealth = maxHealth or UnitHealthMax("player")
+	pool:SetBand("heal", IncomingHeals(health, maxHealth), maxHealth)
+end
+
+-- Power cost of the spell being cast, by power type, from cast start until the cast ends. An
+-- end event while a cast is still going (an instant fired off the GCD, a spam press that
+-- failed) belongs to another spell and leaves it, as Blizzard's player frame does.
+local castCost
+local GetPowerCost = C_Spell and C_Spell.GetSpellPowerCost or GetSpellPowerCost
+
+local function StillCasting()
+	if not UnitCastingInfo then return false end
+	local ok, still = pcall(function()
+		return select(9, UnitCastingInfo("player")) ~= nil
+	end)
+	return ok and still
+end
+
+function ns.Globes.CastStarted(spellID)
+	castCost = nil
+	if spellID == nil or Secret(spellID) or not GetPowerCost then return end
+	local ok, costs = pcall(GetPowerCost, spellID)
+	if not ok or type(costs) ~= "table" then return end
+	-- Spells listing several costs carry one per spec or form; hasRequiredAura picks the live one.
+	local checkAura = #costs > 1
+	for _, info in ipairs(costs) do
+		local okType, kind = pcall(function()
+			if checkAura and not info.hasRequiredAura then return nil end
+			return info.type
+		end)
+		if okType and kind ~= nil and not Secret(kind) then
+			castCost = castCost or {}
+			if castCost[kind] == nil then castCost[kind] = info.cost end
+		end
+	end
+end
+
+function ns.Globes.CastEnded()
+	if castCost and not StillCasting() then
+		castCost = nil
+	end
+end
+
+local function CostFor(powerType)
+	if ns.Globes.demo then return ns.Globes.demo.cost * 1000 end
+	if not castCost or powerType == nil or Secret(powerType) or not ns.DB().costPrediction then return 0 end
+	return castCost[powerType] or 0
+end
+
 function ns.Globes.UpdateHealth()
 	local globe = ns.HealthGlobe
 	if not globe then return end
@@ -657,10 +750,36 @@ function ns.Globes.UpdateHealth()
 		health = math.floor(ns.Globes.healthPreview * maxHealth + 0.5)
 	end
 	Fill(globe.Liquid, health, maxHealth)
+	ns.Globes.UpdateHealPrediction(health, maxHealth)
 	SetNumber(globe.Number, health)
 	SetMax(globe.Max, maxHealth)
 	ns.Globes.ApplyNumbers()
 	ns.Globes.PlaceSurface(globe)
+end
+
+-- The active resource, or the /sanctuary predict demo's level out of 1000.
+local function Power()
+	local preview = ns.Globes.powerPreview
+	if preview then return math.floor(preview * 1000 + 0.5), 1000 end
+	return UnitPower("player"), UnitPowerMax("player")
+end
+
+-- /sanctuary predict: a heal on its way and a spell being cast, on preview levels, then both
+-- land, then the globes go back to your real values. Each run replaces the last.
+function ns.Globes.PredictDemo()
+	local G = ns.Globes
+	local run = {}
+	G.demoRun = run
+	local function Step(heal, cost, health, power)
+		if G.demoRun ~= run then return end
+		G.demo = heal and { heal = heal, cost = cost } or nil
+		G.healthPreview, G.powerPreview = health, power
+		G.UpdateHealth()
+		G.UpdatePower()
+	end
+	Step(0.3, 0.25, 0.4, 0.8) -- 40% health with 30% incoming; 80% resource, a 25% cast
+	C_Timer.After(2.5, function() Step(0, 0, 0.7, 0.55) end) -- both land
+	C_Timer.After(5, function() Step(nil, nil, nil, nil) end)
 end
 
 function ns.Globes.UpdatePower()
@@ -682,18 +801,29 @@ function ns.Globes.UpdatePower()
 		local left, right = globe.Halves.left, globe.Halves.right
 		TintHalf(left, { r, g, b })
 		TintHalf(right, POWER_COLORS.MANA)
-		Fill(left.bar, UnitPower("player"), UnitPowerMax("player"))
+		local power, maxPower = Power()
+		Fill(left.bar, power, maxPower)
 		Fill(right.bar, UnitPower("player", MANA), UnitPowerMax("player", MANA))
-		SetNumber(left.number, UnitPower("player"))
+		if left.pool and left.pool.bands then
+			left.pool:SetBand("cost", CostFor(UnitPowerType("player")), maxPower)
+		end
+		if right.pool and right.pool.bands then
+			right.pool:SetBand("cost", CostFor(MANA), UnitPowerMax("player", MANA))
+		end
+		SetNumber(left.number, power)
 		SetNumber(right.number, UnitPower("player", MANA))
 		globe.Hotline:Hide()
 		ns.Globes.PlaceHalfSurface(globe, left)
 		ns.Globes.PlaceHalfSurface(globe, right)
 	else
 		Tint(globe, r, g, b)
-		Fill(globe.Liquid, UnitPower("player"), UnitPowerMax("player"))
-		SetNumber(globe.Number, UnitPower("player"))
-		SetMax(globe.Max, UnitPowerMax("player"))
+		local power, maxPower = Power()
+		Fill(globe.Liquid, power, maxPower)
+		if globe.pool and globe.pool.bands then
+			globe.pool:SetBand("cost", CostFor(UnitPowerType("player")), maxPower)
+		end
+		SetNumber(globe.Number, power)
+		SetMax(globe.Max, maxPower)
 		ns.Globes.PlaceSurface(globe)
 	end
 	ns.Globes.ApplyNumbers()
@@ -932,6 +1062,12 @@ function ns.Globes.Init()
 		for _, half in pairs(ns.ResourceGlobe.Halves) do
 			half.pool = ns.Liquid.Attach(ns.ResourceGlobe, half.bar, { motes = 4, slices = 8 })
 		end
+		-- Incoming heals on the health globe, the cast's cost on the resource globe.
+		ns.Liquid.Band(ns.HealthGlobe.pool, "heal")
+		ns.Liquid.Band(ns.ResourceGlobe.pool, "cost")
+		for _, half in pairs(ns.ResourceGlobe.Halves) do
+			ns.Liquid.Band(half.pool, "cost")
+		end
 	end
 
 	ns.ResourceGlobe.Pips = {}
@@ -958,8 +1094,21 @@ function ns.Globes.Init()
 	events:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
 	events:RegisterEvent("PLAYER_REGEN_DISABLED")
 	events:RegisterEvent("PLAYER_REGEN_ENABLED")
-	events:SetScript("OnEvent", function(_, event)
-		if event == "PLAYER_REGEN_DISABLED" then
+	events:RegisterUnitEvent("UNIT_HEAL_PREDICTION", "player")
+	for _, event in ipairs({ "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_FAILED",
+		"UNIT_SPELLCAST_INTERRUPTED", "UNIT_SPELLCAST_SUCCEEDED" }) do
+		events:RegisterUnitEvent(event, "player")
+	end
+	events:SetScript("OnEvent", function(_, event, _, _, spellID)
+		if event == "UNIT_HEAL_PREDICTION" then
+			ns.Globes.UpdateHealPrediction()
+		elseif event == "UNIT_SPELLCAST_START" then
+			ns.Globes.CastStarted(spellID)
+			ns.Globes.UpdatePower()
+		elseif event:find("^UNIT_SPELLCAST_") then
+			ns.Globes.CastEnded()
+			ns.Globes.UpdatePower()
+		elseif event == "PLAYER_REGEN_DISABLED" then
 			ns.Globes.SetCombat(true)
 		elseif event == "PLAYER_REGEN_ENABLED" then
 			ns.Globes.SetCombat(false)

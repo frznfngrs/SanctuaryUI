@@ -390,7 +390,7 @@ local function Slash(msg)
 			ns.Options.Open()
 		end
 	elseif cmd == "help" then
-		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n>, globes <n>|off, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, aura (test globe auras), health <percent>|off (preview the health globe), debug on|off, log")
+		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n>, globes <n>|off, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, aura (test globe auras), health <percent>|off (preview the health globe), predict (heal and spell cost demo), debug on|off, log")
 	elseif cmd == "grid" then
 		-- grid: toggle; grid on|off; grid <spacing>. The grid only shows while frames are
 		-- unlocked, so showing it unlocks them.
@@ -562,6 +562,10 @@ local function Slash(msg)
 			ns.Globes.PreviewHealth(nil)
 			ns.Print("health globe shows your health")
 		end
+	elseif cmd == "predict" then
+		-- Heal and spell cost prediction demo on preview levels: lands after 2.5 s, real at 5 s.
+		ns.Globes.PredictDemo()
+		ns.Print("prediction demo: an incoming heal and a spell cost, landing in 2.5 s")
 	elseif cmd == "log" then
 		ns.ShowLog()
 	elseif cmd == "debug" then

@@ -28,6 +28,8 @@ ns.DEFAULTS = {
 		liquidSpeed = 1,
 		lowHealthPulse = true,
 		lowHealthAgitate = true, -- the health globe turns faster and sloshes as health falls
+		healPrediction = true, -- incoming heals poured on top of the health globe
+		costPrediction = true, -- the cast's cost lit at the top of the resource globe
 		-- light radiating from behind a globe while a chosen buff is up (GlobeAura.lua)
 		globeAuras = {
 			enabled = true,
