@@ -210,7 +210,6 @@ end
 -- CVar toggles (Blizzard settings that also drive the action buttons).
 local function CVarToggle(order, name, desc, cvar)
 	local GetCVar = C_CVar and C_CVar.GetCVar or GetCVar
-	local SetCVar = C_CVar and C_CVar.SetCVar or SetCVar
 	return {
 		type = "toggle",
 		order = order,
@@ -219,12 +218,7 @@ local function CVarToggle(order, name, desc, cvar)
 		width = "full",
 		get = function() return GetCVar(cvar) == "1" end,
 		set = function(_, value)
-			if InCombatLockdown() then
-				ns.Print("cannot change that in combat")
-				return
-			end
-			SetCVar(cvar, value and "1" or "0")
-			Changed()
+			ns.AskCVarReload(cvar, value and "1" or "0", ("Turn Blizzard's %s %s?"):format(name, value and "on" or "off"))
 		end,
 	}
 end
@@ -646,7 +640,16 @@ local function Build()
 					range = Select(11, "Out of range", nil, "buttons", "range", { button = "Tint the icon", hotkey = "Tint the keybind", none = "Nothing" }),
 					tooltips = Select(12, "Tooltips", nil, "buttons", "tooltips", { enabled = "Always", nocombat = "Out of combat", disabled = "Never" }),
 					grid = Toggle(13, "Show empty sockets' grid", "Keep empty buttons visible so actions can be dropped on them.", "buttons", "grid"),
-					cooldownNumbers = Select(14, "Cooldown numbers", "The time left on a skill's cooldown, counted down on its button. The global cooldown never shows one.", "buttons", "cooldownNumbers", { cvar = "Blizzard setting", show = "Show", hide = "Hide" }),
+					cooldownNumbers = (function()
+						local option = Select(14, "Cooldown numbers", "The time left on a skill's cooldown, counted down on its button. The global cooldown never shows one.", "buttons", "cooldownNumbers", { cvar = "Blizzard setting", show = "Show", hide = "Hide" })
+						local set = option.set
+						option.set = function(...)
+							-- Choosing Show again asks again to turn on Blizzard's setting.
+							if ns.ActionBar then ns.ActionBar.countdownAsked = nil end
+							return set(...)
+						end
+						return option
+					end)(),
 					cooldownTenths = (function()
 						local option = Range(14.5, "Tenths of a second below", "Cooldowns with less than this many seconds left count down in tenths (4.7). 0 shows whole seconds only.", "buttons", "cooldownTenths", 0, 60, 1)
 						option.disabled = function() return DB().buttons.cooldownNumbers == "hide" end
