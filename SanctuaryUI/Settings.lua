@@ -52,7 +52,8 @@ ns.DEFAULTS = {
 			range = "button", -- button | hotkey | none
 			tooltips = "enabled", -- enabled | nocombat | disabled
 			grid = true,
-			cooldownNumbers = "cvar", -- cvar | show | hide
+			cooldownNumbers = "show", -- cvar | show | hide
+			cooldownTenths = 60, -- seconds; below this cooldown numbers count tenths (0: never)
 			lock = false, -- locked buttons still pick up with the pickup modifier (Shift)
 			activeGlow = true, -- D3 burning frame while a skill's effect is up
 			activeTimer = true, -- D3 tab in the socket with a bar draining to the end
@@ -385,4 +386,6 @@ function ns.Refresh()
 	Run("bank", ns.Bank and ns.Bank.ApplySettings)
 	Run("stance", ns.Stance and ns.Stance.ApplySettings)
 	Run("totems", ns.Totem and ns.Totem.ApplySettings)
+	-- Last: buttons are sized by the layout and the stance and totem settings.
+	Run("cooldown numbers", ns.ActionBar and ns.ActionBar.StyleCountdowns)
 end

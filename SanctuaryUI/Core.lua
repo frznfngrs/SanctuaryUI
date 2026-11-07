@@ -390,7 +390,7 @@ local function Slash(msg)
 			ns.Options.Open()
 		end
 	elseif cmd == "help" then
-		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n>, globes <n>|off, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, active, auras, watch, aura (test globe auras), health <percent>|off (preview the health globe), debug on|off, log")
+		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n>, globes <n>|off, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, aura (test globe auras), health <percent>|off (preview the health globe), debug on|off, log")
 	elseif cmd == "grid" then
 		-- grid: toggle; grid on|off; grid <spacing>. The grid only shows while frames are
 		-- unlocked, so showing it unlocks them.
@@ -573,6 +573,12 @@ local function Slash(msg)
 			or "debug trace off. Errors are still recorded. /sanctuary log shows them")
 	elseif cmd == "check" then
 		ns.Check()
+	elseif cmd == "cooldowns" then
+		-- Run while a skill on the main bar is cooling down.
+		ns.forceLog = true
+		local ok, err = pcall(ns.ActionBar.CountdownReport)
+		ns.forceLog = nil
+		if not ok then ns.Print("report failed: " .. tostring(err)) end
 	elseif cmd == "active" or cmd == "auras" or cmd == "watch" then
 		-- Reports go into the log even with debug off, so /reload hands them over whole.
 		ns.forceLog = true

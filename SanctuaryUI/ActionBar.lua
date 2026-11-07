@@ -1027,6 +1027,142 @@ local function ApplyLock(button)
 	button:SetAttribute("unlockedpreventdrag", true)
 end
 
+---------------------------------------------------------------------------
+-- Cooldown numbers. This client hides cooldown timing from addons in combat, so the Cooldown
+-- frame counts down by itself; a rule formatter (C_StringUtil, as ElvUI and Plater use here)
+-- shapes its text: tenths of a second below buttons.cooldownTenths seconds, whole seconds,
+-- then m:ss, minutes and hours.
+
+local countdown -- the shared formatter and the setting it was built for
+
+local function CountdownFormatter()
+	local create = C_StringUtil and C_StringUtil.CreateNumericRuleFormatter
+	if not create then return end
+	local tenths = math.max(0, math.min(60, tonumber(ns.DB().buttons.cooldownTenths) or 0))
+	if countdown and countdown.tenths == tenths then return countdown.formatter end
+	local rounding = Enum and Enum.NumericRuleFormatRounding
+	local up = rounding and rounding.Up or 1
+	local points = {}
+	if tenths > 0 then
+		points[#points + 1] = { threshold = 0, step = 0.1, format = "%.1f", rounding = up }
+	end
+	if tenths < 60 then
+		points[#points + 1] = { threshold = tenths, step = 1, format = "%d", rounding = up }
+	end
+	points[#points + 1] = { threshold = 60, format = "%d:%02d", components = { { div = 60 }, { mod = 60 } } }
+	points[#points + 1] = { threshold = 600, format = "%dm", components = { { div = 60, step = 1 } } }
+	points[#points + 1] = { threshold = 3600, format = "%dh", components = { { div = 3600, step = 1 } } }
+	-- A new formatter each time: one already handed to cooldowns is left as it is.
+	local formatter = create()
+	local ok, err = pcall(formatter.SetBreakpoints, formatter, points)
+	if not ok then
+		ns.Log("cooldown formatter refused: %s", tostring(err))
+		formatter = nil
+	end
+	countdown = { tenths = tenths, formatter = formatter }
+	return formatter
+end
+
+local function CountdownText(cooldown)
+	if cooldown.GetCountdownFontString then
+		local ok, text = pcall(cooldown.GetCountdownFontString, cooldown)
+		if ok and text then return text end
+	end
+	for _, region in ipairs({ cooldown:GetRegions() }) do
+		if region.GetObjectType and region:GetObjectType() == "FontString" then return region end
+	end
+end
+
+-- Whether buttons that aren't LibActionButton's (pet, stance, portal) show numbers.
+local function CountdownShown()
+	local mode = ns.DB().buttons.cooldownNumbers
+	if mode == "show" then return true end
+	if mode == "hide" then return false end
+	local GetCVarBool = C_CVar and C_CVar.GetCVarBool or GetCVarBool
+	return GetCVarBool and GetCVarBool("countdownForCooldowns") and true or false
+end
+
+-- One button's countdown: the formatter and white numbers sized to the button (the client
+-- leaves the global cooldown without numbers itself). show nil leaves showing them to
+-- LibActionButton, which follows the Cooldown numbers setting.
+local function StyleCountdown(button, show)
+	local cooldown = button and button.cooldown
+	if not cooldown then return end
+	if show ~= nil and cooldown.SetHideCountdownNumbers then
+		cooldown:SetHideCountdownNumbers(not show)
+	end
+	local formatter = CountdownFormatter()
+	if formatter and cooldown.SetCountdownFormatter then
+		pcall(cooldown.SetCountdownFormatter, cooldown, formatter)
+	end
+	local text = CountdownText(cooldown)
+	local side = math.min(button:GetWidth() or 0, button:GetHeight() or 0)
+	if text and side > 0 then
+		-- "12.3" fits across a socket at this size (and "59:59" across the narrow portal).
+		local size = math.max(9, math.floor(side * 0.34 + 0.5))
+		if text.sanctuarySize ~= size then
+			text:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", size, "OUTLINE")
+			text.sanctuarySize = size
+		end
+		text:SetTextColor(1, 1, 1)
+		text:SetShadowOffset(1, -1)
+		text:ClearAllPoints()
+		text:SetPoint("CENTER", button, "CENTER", 0, 0)
+	end
+end
+
+-- Every hotbar button's countdown, after its size or the settings change.
+function ns.ActionBar.StyleCountdowns()
+	if not ns.ActionBar.primary then return end
+	-- The client only draws cooldown numbers with Blizzard's "Show numbers for cooldowns" on,
+	-- whatever a cooldown is told (ElvUI turns it on too), so Show turns it on.
+	if ns.DB().buttons.cooldownNumbers == "show" then
+		local GetCVarBool = C_CVar and C_CVar.GetCVarBool or GetCVarBool
+		local SetCVar = C_CVar and C_CVar.SetCVar or SetCVar
+		if GetCVarBool and SetCVar and not GetCVarBool("countdownForCooldowns") then
+			pcall(SetCVar, "countdownForCooldowns", "1")
+			ns.Log("cooldown numbers: turned on countdownForCooldowns")
+		end
+	end
+	ns.ActionBar.ForEachButton(function(button) StyleCountdown(button, nil) end)
+	local show = CountdownShown()
+	for _, button in ipairs(ns.ActionBar.pets or {}) do StyleCountdown(button, show) end
+	local stance = ns.Stance and ns.Stance.bar
+	for _, button in ipairs(stance and stance.buttons or {}) do StyleCountdown(button, show) end
+	StyleCountdown(ns.HearthButton, show)
+end
+
+-- /sanctuary cooldowns: what the main bar's cooldowns are set to show, for the log.
+function ns.ActionBar.CountdownReport()
+	local GetCVarBool = C_CVar and C_CVar.GetCVarBool or GetCVarBool
+	ns.Print(("cooldown numbers: setting %s, tenths below %s s, Blizzard option %s, formatter API %s"):format(
+		tostring(ns.DB().buttons.cooldownNumbers), tostring(ns.DB().buttons.cooldownTenths),
+		tostring(GetCVarBool and GetCVarBool("countdownForCooldowns")),
+		tostring(C_StringUtil and C_StringUtil.CreateNumericRuleFormatter ~= nil)))
+	for i, button in ipairs(ns.ActionBar.primary or {}) do
+		local cd = button.cooldown
+		if cd then
+			local text = CountdownText(cd)
+			local function call(obj, method)
+				if not obj or not obj[method] then return "n/a" end
+				local ok, value = pcall(obj[method], obj)
+				if not ok then return "error" end
+				if ns.Secret(value) then return "secret" end
+				return tostring(value)
+			end
+			local font, size = "n/a", "n/a"
+			if text and text.GetFont then
+				local ok, f, sz = pcall(text.GetFont, text)
+				if ok then font, size = tostring(f), tostring(sz) end
+			end
+			ns.Print(("socket %d: cooldown shown %s visible %s, numbers hidden %s, text %s shown %s visible %s says '%s' size %s alpha %s, button %sx%s"):format(
+				i, call(cd, "IsShown"), call(cd, "IsVisible"), call(cd, "GetHideCountdownNumbers"),
+				text and "yes" or "none", call(text, "IsShown"), call(text, "IsVisible"), call(text, "GetText"),
+				size, call(text, "GetAlpha"), call(button, "GetWidth"), call(button, "GetHeight")))
+		end
+	end
+end
+
 function ns.ActionBar.ForEachButton(fn)
 	for i = 1, #(ns.ActionBar.primary or {}) do
 		fn(ns.ActionBar.primary[i])
