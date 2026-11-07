@@ -234,6 +234,9 @@ ns.LEVEL = {
 	menu = 14,
 	chrome = 18, -- globe numbers
 	pips = 20,
+	-- The target plate, when dragged near the console: above the whole console stack (pips and
+	-- their surfaces reach about +28), or the console takes the mouse from its aura icons.
+	target = 50,
 }
 
 -- Bars docked in the console (Options > Bars > Bar n > In the console): each fills a row of
