@@ -213,6 +213,10 @@ local function SetPiece(plate, rank)
 		b:SetSize(bar[3] + extra, bar[4])
 	end
 	plate.barW, plate.barH = bar[3] + extra, bar[4]
+	if plate.HealBand then
+		plate.HealBand:SetWidth(plate.barW)
+		plate.AbsorbBand:SetWidth(plate.barW)
+	end
 	if plate.edgeGlow then
 		plate.edgeGlow.bloom:SetHeight(bar[4])
 		plate.edgeGlow.core:SetHeight(bar[4])
@@ -514,6 +518,43 @@ local function QueueSecretTrail(plate)
 	end)
 end
 
+-- Heal prediction on the target, for healers: incoming heals in green, then damage shields in
+-- silver, running on from the fill's end, and a silver glow at the bar's end when the shield is
+-- bigger than the missing health. The bands are their own StatusBars, a bar wide, in raw health
+-- (secret or not), so the client sizes them either way; it also eases them.
+local PREVIEW_HEAL, PREVIEW_ABSORB = 0.12, 0.08
+
+local function SetPrediction(plate, health, maxHealth)
+	local heal, absorb = plate.HealBand, plate.AbsorbBand
+	if not heal then return end
+	local amount, shield, clamped = 0, 0, false
+	if Opt().healPrediction ~= false then
+		if Previewing() then
+			-- The stand-in's falling health, with a heal on the way and a shield on top.
+			local missing = 1 - preview.health
+			amount = math.min(PREVIEW_HEAL, missing)
+			shield = math.min(PREVIEW_ABSORB, missing - amount)
+			clamped = PREVIEW_ABSORB > missing - amount
+			maxHealth = 1
+		else
+			amount, shield, clamped = ns.IncomingHeals(U(), health, maxHealth)
+		end
+	end
+	local top = ns.Or(maxHealth, 1)
+	pcall(heal.SetMinMaxValues, heal, 0, top)
+	pcall(absorb.SetMinMaxValues, absorb, 0, top)
+	SecretValue(heal, ns.Or(amount, 0), Ease())
+	SecretValue(absorb, ns.Or(shield, 0), Ease())
+	local glow = plate.OverShield
+	if Secret(clamped) then
+		if not (glow.SetAlphaFromBoolean and pcall(glow.SetAlphaFromBoolean, glow, clamped, 1, 0)) then
+			glow:SetAlpha(0)
+		end
+	else
+		glow:SetAlpha(clamped and 1 or 0)
+	end
+end
+
 local function SetHealth(plate, snap)
 	local health, maxHealth = UnitHealth(U()), UnitHealthMax(U())
 	if Previewing() then
@@ -536,6 +577,7 @@ local function SetHealth(plate, snap)
 		plate.Trail:Show()
 		SetHealthText(plate, health, maxHealth)
 		UpdateGlow(plate, nil)
+		SetPrediction(plate, health, maxHealth)
 		return
 	end
 	if plate.secret then
@@ -561,6 +603,7 @@ local function SetHealth(plate, snap)
 	end
 	plate.Trail:Show()
 	SetHealthText(plate, health, maxHealth)
+	SetPrediction(plate, health, maxHealth)
 end
 
 -- Previewing: a hit every 1.2 s, back to full when empty, the next rank every full cycle.
@@ -1622,6 +1665,37 @@ function ns.TargetPlate.Init()
 		plate.edgeGlow = { frame = edge, bloom = bloom, core = core }
 	end
 
+	-- Heal prediction (see SetPrediction): beside the fill, over the trail and well, clipped to
+	-- the bar. The heal rides the fill's right end, the shield the heal's.
+	local predict = CreateFrame("Frame", nil, plate.Health)
+	predict:SetAllPoints(plate.Health)
+	if predict.SetClipsChildren then predict:SetClipsChildren(true) end
+	predict:SetFrameLevel(plate.Health:GetFrameLevel())
+	local function Band(after, r, g, b, a)
+		local band = CreateFrame("StatusBar", nil, predict)
+		band:SetFrameLevel(plate.Health:GetFrameLevel())
+		band:SetStatusBarTexture(ns.Art.Path("unitFillWhite") or "Interface\\Buttons\\WHITE8X8")
+		band:SetStatusBarColor(r, g, b, a)
+		band:SetMinMaxValues(0, 1)
+		band:SetValue(0)
+		band:SetPoint("TOPLEFT", after, "TOPRIGHT")
+		band:SetPoint("BOTTOMLEFT", after, "BOTTOMRIGHT")
+		band:SetWidth(10) -- the bar's width, set by SetPiece
+		return band
+	end
+	-- The globes' colours: green heal, silver shield.
+	plate.HealBand = Band(plate.Health:GetStatusBarTexture(), 0.42, 1.0, 0.36, 0.6)
+	plate.AbsorbBand = Band(plate.HealBand:GetStatusBarTexture(), 0.8, 0.88, 1.0, 0.6)
+	local over = predict:CreateTexture(nil, "OVERLAY")
+	over:SetTexture("Interface\\RaidFrame\\Shield-Overshield")
+	over:SetBlendMode("ADD")
+	over:SetVertexColor(0.75, 0.87, 1.0, 0.95)
+	over:SetPoint("TOPRIGHT", plate.Health, "TOPRIGHT", 0, 0)
+	over:SetPoint("BOTTOMRIGHT", plate.Health, "BOTTOMRIGHT", 0, 0)
+	over:SetWidth(14)
+	over:SetAlpha(0)
+	plate.OverShield = over
+
 	-- Glass over the whole bar (well, trail, fill and liquid), under the frame and the text: an
 	-- inner shadow below the frame's lips and a soft highlight band, so it reads as a tube.
 	local glass = CreateFrame("Frame", nil, plate)
@@ -1797,6 +1871,8 @@ function ns.TargetPlate.Init()
 	events:RegisterEvent("DISPLAY_SIZE_CHANGED")
 	events:RegisterUnitEvent("UNIT_HEALTH", "target")
 	events:RegisterUnitEvent("UNIT_MAXHEALTH", "target")
+	events:RegisterUnitEvent("UNIT_HEAL_PREDICTION", "target")
+	events:RegisterUnitEvent("UNIT_ABSORB_AMOUNT_CHANGED", "target")
 	events:RegisterUnitEvent("UNIT_AURA", "target")
 	events:RegisterUnitEvent("UNIT_NAME_UPDATE", "target")
 	events:RegisterUnitEvent("UNIT_FACTION", "target")
@@ -1834,6 +1910,8 @@ function ns.TargetPlate.Init()
 			SetShield(plate.Cast, event == "UNIT_SPELLCAST_NOT_INTERRUPTIBLE")
 		elseif event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
 			SetHealth(plate)
+		elseif event == "UNIT_HEAL_PREDICTION" or event == "UNIT_ABSORB_AMOUNT_CHANGED" then
+			SetPrediction(plate, UnitHealth(U()), UnitHealthMax(U()))
 		elseif event == "UNIT_AURA" then
 			-- The containers watch auras themselves.
 			if not plate.debuffBox then UpdateAuraIcons(plate) end

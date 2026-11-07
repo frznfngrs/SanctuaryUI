@@ -29,6 +29,7 @@ ns.DEFAULTS = {
 		lowHealthPulse = true,
 		lowHealthAgitate = true, -- the health globe turns faster and sloshes as health falls
 		healPrediction = true, -- incoming heals poured on top of the health globe
+		absorbPrediction = true, -- damage shields: silver liquid above the heals, a glow when full
 		costPrediction = true, -- the cast's cost lit at the top of the resource globe
 		-- light radiating from behind a globe while a chosen buff is up (GlobeAura.lua)
 		globeAuras = {
@@ -131,6 +132,7 @@ ns.DEFAULTS = {
 			width = 1, -- frame and bar width, stretched between the ornaments
 			portrait = false, -- 3D portrait of the target in a skill socket, left of the bar
 			edgeGlow = true, -- ember at the health bar's leading edge
+			healPrediction = true, -- incoming heals and shields on the health bar, for healers
 			-- text on the bar: name, level and health, each placed, sized and fonted
 			-- pos: left | center | right (inside the bar) | above | below (the frame)
 			-- font: d3 (Exocet) | wow (Friz Quadrata) | narrow (Arial Narrow)
