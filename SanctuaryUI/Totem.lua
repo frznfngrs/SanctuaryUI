@@ -401,7 +401,7 @@ local function MakeElement(bar, i)
 	slot.horn = Horn(bar.horns)
 	slot:RegisterForClicks("AnyUp", "AnyDown")
 	slot.HotKey = slot.top:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
-	slot.HotKey:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+	ns.ActionBar.StyleHotkey(slot.HotKey)
 	slot.HotKey:SetTextColor(0.86, 0.72, 0.42)
 	slot.HotKey:SetPoint("CENTER", slot, "BOTTOM", 0, 1)
 	slot:SetScript("OnEnter", SlotTooltip)
@@ -745,6 +745,9 @@ end
 
 function ns.Totem.ApplySettings()
 	if not ns.Totem.bar then return end
+	for _, slot in ipairs(ns.Totem.bar.slots) do
+		ns.ActionBar.StyleHotkey(slot.HotKey)
+	end
 	ns.Totem.Configure()
 	ns.Totem.Layout()
 	ns.Totem.Update()

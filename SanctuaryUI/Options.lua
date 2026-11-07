@@ -635,6 +635,11 @@ local function Build()
 					intro = Note(0, "The main bar is the nine sockets in the console. Bars 2-9 stack above it, bar 2 at the bottom, or dock in the console. The settings on this page apply to every bar's buttons."),
 					text = Header(1, "Text"),
 					hotkeys = Toggle(2, "Show keybinds", nil, "buttons", "hotkeys"),
+					hotkeySize = (function()
+						local option = Range(2.5, "Keybind size", "Font size of the keybind text on every bar's buttons. Stance and totem sockets use one point less.", "buttons", "hotkeySize", 6, 24, 1)
+						option.disabled = function() return not DB().buttons.hotkeys end
+						return option
+					end)(),
 					macroNames = Toggle(3, "Show macro names", nil, "buttons", "macroNames"),
 					look = Header(10, "Behaviour"),
 					range = Select(11, "Out of range", nil, "buttons", "range", { button = "Tint the icon", hotkey = "Tint the keybind", none = "Nothing" }),
