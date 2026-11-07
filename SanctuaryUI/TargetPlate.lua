@@ -213,6 +213,17 @@ local function SetPiece(plate, rank)
 		b:SetSize(bar[3] + extra, bar[4])
 	end
 	plate.barW, plate.barH = bar[3] + extra, bar[4]
+	-- Clicks only on the frame drawn for this rank (and its rank line), not the room the boss
+	-- banner needs: the plate sits above the console, and its empty margins would block the
+	-- console's buttons. A secure button: out of combat only; in combat it keeps the last size.
+	if not InCombatLockdown() then
+		local side = (ns.Art.UNIT.boss[3] - piece[3]) * (Opt().width or 1) / 2
+		local bottom = math.max(0, PLATE_H - math.max(piece[4], SUB_Y + 8))
+		plate:SetHitRectInsets(side, side, 0, bottom)
+		plate.hitStale = nil
+	else
+		plate.hitStale = true
+	end
 	if plate.HealBand then
 		plate.HealBand:SetWidth(plate.barW)
 		plate.AbsorbBand:SetWidth(plate.barW)
@@ -1576,7 +1587,11 @@ end
 function ns.TargetPlate.Init()
 	local plate = CreateFrame("Button", "SanctuaryUITargetPlate", UIParent, "SecureUnitButtonTemplate")
 	plate:SetSize(ns.Art.UNIT.boss[3], PLATE_H)
-	plate:SetFrameStrata("LOW")
+	-- In the console's strata and above its stack, so that moved down near the console it still
+	-- gets the mouse (its aura tooltips) and draws over it. Its pieces take their levels from
+	-- the plate's, so this comes first. The bag window is top-level and still rises over it.
+	plate:SetFrameStrata("MEDIUM")
+	plate:SetFrameLevel((ns.Cluster and ns.Cluster:GetFrameLevel() or 1) + ns.LEVEL.target)
 	plate:SetAttribute("unit", "target")
 	plate:SetAttribute("*type1", "target")
 	plate:SetAttribute("*type2", "togglemenu")
@@ -1919,6 +1934,11 @@ function ns.TargetPlate.Init()
 			UpdatePortrait(plate)
 		elseif event == "PLAYER_REGEN_ENABLED" then
 			if ns.TargetPlate.pending then ns.TargetPlate.Layout() end
+			-- The rank changed in combat: fit the click area to its frame now.
+			if plate.hitStale then
+				plate.rank = nil
+				ns.TargetPlate.Update()
+			end
 			-- Aura settings changed in combat wait for now.
 			if plate.debuffBox then UpdateAuras(plate) end
 		else
