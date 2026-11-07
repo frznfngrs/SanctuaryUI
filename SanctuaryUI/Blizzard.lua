@@ -33,6 +33,17 @@ local REPLACED_BY = {
 -- Hidden only while the "hide micro menu" option is on.
 local MICRO_NAMES = { "MicroMenuContainer", "MicroMenu" }
 
+-- Edit Mode systems (the action bars, PlayerFrame, TargetFrame, the micro menu, the bags bar)
+-- replace Hide/SetShown with Lua overrides that write their own state: isShownExternal on the
+-- action bars, Edit Mode's snapped frames (re-anchoring other frames) on all of them. Called
+-- from here, those writes are tainted, and Blizzard's code that later reads them runs tainted:
+-- in combat that blocks the stance bar, the action bars and the party frames. So hide through
+-- the frame's own C Hide (HideBase, kept by the override) and never run the override.
+local function RawHide(frame)
+	local hide = rawget(frame, "HideBase") or frame.Hide
+	hide(frame)
+end
+
 local function Suppress(frame)
 	if not frame or not frame.Show then return end
 	if not frame.sanctuaryHooked then
@@ -40,11 +51,11 @@ local function Suppress(frame)
 		hooksecurefunc(frame, "Show", function(self)
 			if InCombatLockdown() then return end
 			if self.sanctuaryAllow then return end
-			self:Hide()
+			RawHide(self)
 		end)
 	end
 	if InCombatLockdown() then return end
-	frame:Hide()
+	RawHide(frame)
 	frame:SetAlpha(0)
 	pcall(frame.EnableMouse, frame, false)
 end
