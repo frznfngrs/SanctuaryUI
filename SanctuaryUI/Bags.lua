@@ -62,7 +62,7 @@ local function SlotRow(win)
 	local list = {}
 	for _, bag in ipairs(BAGS) do
 		local button = ns.Bags.SlotButton(win.frame, "SanctuaryUIBagSlot" .. bag)
-		button.bag = bag
+		button.bag, button.sanctuaryBag = bag, bag
 		button.inv = bag > 0 and InvSlot(bag) or nil
 		button:SetScript("OnClick", function(self)
 			if GetCursorInfo() then DropOn(self) end
