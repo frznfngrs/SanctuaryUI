@@ -135,20 +135,8 @@ local FLYOUT = {
 		toggle = TogglePvP,
 		available = function() return TogglePVPUI or TogglePVPFrame or PVPFrame or _G.PVPMicroButton end,
 	},
-	{
-		key = "currency",
-		label = CURRENCY or "Currency",
-		binding = "TOGGLECURRENCY",
-		toggle = function() ToggleCharacter("TokenFrame") end,
-		available = function() return _G.TokenFrame or (C_CurrencyInfo and C_CurrencyInfo.GetCurrencyListSize) end,
-	},
-	{
-		key = "reputation",
-		label = REPUTATION or "Reputation",
-		binding = "TOGGLECHARACTER2",
-		toggle = function() ToggleCharacter("ReputationFrame") end,
-		available = function() return _G.ReputationFrame or ToggleCharacter end,
-	},
+	-- No Currency or Reputation: they are tabs of the character sheet, and opening that from
+	-- addon code taints it (see the Character button).
 }
 
 -- The menu buttons. cell picks the plate art when it differs from the key: Character wears the
@@ -159,6 +147,10 @@ local ENTRIES = {
 		cell = "spellbook",
 		label = CHARACTER_BUTTON or "Character",
 		binding = "TOGGLECHARACTER0",
+		-- Blizzard's own button opens the sheet. Called from addon code, the character frame's
+		-- OnShow runs tainted, errors comparing your hidden health in combat, and leaves the
+		-- player bars' text fields tainted for later; a secure click on it taints nothing.
+		secureClick = "CharacterMicroButton",
 		toggle = function() ToggleCharacter("PaperDollFrame") end,
 	},
 	{
@@ -254,17 +246,27 @@ end
 local ToggleFlyout
 
 local function MakeMenuButton(parent, entry)
-	local button = CreateFrame("Button", "SanctuaryUIMenu_" .. entry.key, parent)
-	button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-	button:SetScript("OnClick", function(_, mouseButton)
-		if entry.flyout then
-			ToggleFlyout()
-		elseif mouseButton == "RightButton" and entry.right then
-			Run(entry, entry.right)
-		else
-			Run(entry, entry.toggle)
-		end
-	end)
+	local delegate = entry.secureClick and _G[entry.secureClick]
+	local button
+	if delegate then
+		-- The secure template clicks Blizzard's (hidden) button for us, out of the addon's taint.
+		button = CreateFrame("Button", "SanctuaryUIMenu_" .. entry.key, parent, "SecureActionButtonTemplate")
+		button:RegisterForClicks("AnyUp", "AnyDown")
+		button:SetAttribute("type", "click")
+		button:SetAttribute("clickbutton", delegate)
+	else
+		button = CreateFrame("Button", "SanctuaryUIMenu_" .. entry.key, parent)
+		button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+		button:SetScript("OnClick", function(_, mouseButton)
+			if entry.flyout then
+				ToggleFlyout()
+			elseif mouseButton == "RightButton" and entry.right then
+				Run(entry, entry.right)
+			else
+				Run(entry, entry.toggle)
+			end
+		end)
+	end
 	button:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_TOP")
 		GameTooltip:SetText(entry.label)
