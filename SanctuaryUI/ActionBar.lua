@@ -83,6 +83,17 @@ local function FitSocket(button, slot)
 	button:SetHitRectInsets(-px, -px, -py, -py)
 end
 
+-- Keybind text size. Stance and totem sockets are smaller and take one point less.
+function ns.ActionBar.HotkeySize(smaller)
+	local size = ns.DB().buttons.hotkeySize or 11
+	return smaller and math.max(6, size - 1) or size
+end
+
+-- Font for the keybind text the addon draws itself (stance and totem sockets).
+function ns.ActionBar.StyleHotkey(fontString)
+	fontString:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", ns.ActionBar.HotkeySize(true), "OUTLINE")
+end
+
 local function ButtonConfig(binding, onPlaque)
 	local opt = ns.DB().buttons
 	local hotkeyPosition = {
@@ -125,7 +136,7 @@ local function ButtonConfig(binding, onPlaque)
 		},
 		text = {
 			hotkey = {
-				font = { font = false, size = 11, flags = "OUTLINE" },
+				font = { font = false, size = ns.ActionBar.HotkeySize(), flags = "OUTLINE" },
 				color = { 0.86, 0.72, 0.42 },
 				position = hotkeyPosition,
 				justifyH = "CENTER",

@@ -51,6 +51,7 @@ ns.DEFAULTS = {
 		-- action buttons (main bar and rows)
 		buttons = {
 			hotkeys = true,
+			hotkeySize = 11, -- keybind text on action buttons; stance and totem sockets use one less
 			macroNames = false,
 			range = "button", -- button | hotkey | none
 			tooltips = "enabled", -- enabled | nocombat | disabled

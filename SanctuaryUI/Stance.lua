@@ -36,7 +36,7 @@ local function MakeButton(parent, i)
 	button.cooldown = CreateFrame("Cooldown", button:GetName() .. "Cooldown", button, "CooldownFrameTemplate")
 	button.cooldown:SetAllPoints()
 	button.HotKey = button:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
-	button.HotKey:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+	ns.ActionBar.StyleHotkey(button.HotKey)
 	button.HotKey:SetTextColor(0.86, 0.72, 0.42)
 	button.HotKey:SetPoint("BOTTOM", 0, 2)
 	button.sanctuary, button.sanctuarySquare, button.sanctuarySocket = true, true, true
@@ -182,6 +182,9 @@ end
 
 function ns.Stance.ApplySettings()
 	if not ns.Stance.bar then return end
+	for _, button in ipairs(ns.Stance.bar.buttons) do
+		ns.ActionBar.StyleHotkey(button.HotKey)
+	end
 	Configure()
 	ns.Stance.Layout()
 	ns.Stance.Update()
