@@ -216,7 +216,7 @@ end
 
 local function BuildRadiate(g)
 	local r = NewInstance("radiate")
-	local frame = Layer(ns.Cluster, "aura")
+	local frame = Layer(g.parent, "aura")
 	frame:Hide()
 	r.frame = frame
 	r.corona = Sprite(frame, "auraCorona", 0)
@@ -233,7 +233,7 @@ local function BuildRadiate(g)
 		if tex then r.motes[i] = { tex = tex, cycle = -1 } end
 	end
 	-- The catch light rides on the glass, above the liquid and under the console art.
-	local catch = Layer(ns.Cluster, "glass")
+	local catch = Layer(g.parent, "glass")
 	catch:Hide()
 	r.catchFrame = catch
 	if ns.Art.Path("globeRim") then
@@ -491,7 +491,7 @@ local function BuildShell(g)
 	-- The gate: everything but the shatter lives in a clip frame whose top follows the fill of
 	-- an invisible 0..1 status bar. Fed the hidden absorb amount it is full while any absorb
 	-- holds and empty at none; fed 1 it is always full.
-	local bar = CreateFrame("StatusBar", nil, ns.Cluster)
+	local bar = CreateFrame("StatusBar", nil, g.parent)
 	bar:SetOrientation("VERTICAL")
 	bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
 	bar:SetStatusBarColor(0, 0, 0, 0)
@@ -499,7 +499,7 @@ local function BuildShell(g)
 	bar:SetValue(1)
 	bar:EnableMouse(false)
 	s.bar = bar
-	local clip = CreateFrame("Frame", nil, ns.Cluster)
+	local clip = CreateFrame("Frame", nil, g.parent)
 	clip:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT")
 	clip:SetPoint("TOPRIGHT", bar:GetStatusBarTexture(), "TOPRIGHT")
 	if clip.SetClipsChildren then clip:SetClipsChildren(true) end
@@ -528,8 +528,8 @@ local function BuildShell(g)
 		s.mask = mask
 	end
 	-- The shatter flies free of the gate: when an absorb breaks, the gate has already shut.
-	local shatterBehind = Layer(ns.Cluster, "aura")
-	local shards = Layer(ns.Cluster, "shards")
+	local shatterBehind = Layer(g.parent, "aura")
+	local shards = Layer(g.parent, "shards")
 	s.ring = Sprite(shatterBehind, "auraRing", 0)
 	s.ringHot = Sprite(shatterBehind, "auraRing", 1)
 	s.shards = {}
@@ -665,8 +665,8 @@ end
 
 local function BuildSurge(g)
 	local u = NewInstance("surge")
-	local behind = Layer(ns.Cluster, "aura")
-	local front = Layer(ns.Cluster, "glass")
+	local behind = Layer(g.parent, "aura")
+	local front = Layer(g.parent, "glass")
 	behind:Hide()
 	front:Hide()
 	u.behind, u.front = behind, front
@@ -761,8 +761,8 @@ end
 
 local function BuildFlare(g)
 	local f = { started = nil }
-	local behind = Layer(ns.Cluster, "aura")
-	local front = Layer(ns.Cluster, "glass")
+	local behind = Layer(g.parent, "aura")
+	local front = Layer(g.parent, "glass")
 	behind:Hide()
 	front:Hide()
 	f.behind, f.front = behind, front
@@ -1165,7 +1165,8 @@ function ns.GlobeAura.ApplySettings()
 end
 
 local function BuildGlobe(frame)
-	local g = { frame = frame, size = frame:GetWidth() }
+	-- Its looks live in the globe's pod, so they scale with it (Core.lua PlacePods).
+	local g = { frame = frame, parent = frame:GetParent(), size = frame:GetWidth() }
 	g.looks = { radiate = {}, shell = {}, surge = {} }
 	for i = 1, STACK do
 		g.looks.radiate[i] = BuildRadiate(g)

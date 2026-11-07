@@ -9,6 +9,7 @@ local PETS = 10
 -- Top of the console's centre ornament in the sheet; rows start above it.
 local CONSOLE_TOP_Y = 58
 local LayoutTiers -- the console's art for docked rows (below)
+local LayoutPieces -- the console art in one sheet or three pieces (below)
 
 -- Rows stacked above the console, bottom to top.
 local ROW_IDS = { 2, 3, 4, 5, 6, 7, 8, 9 }
@@ -329,6 +330,54 @@ function ns.ActionBar.ReassignBindings()
 	end
 end
 
+-- The console art as one sheet, or with the globes scaled separately, three pieces: the bar
+-- on the console frame and each globe's statue in its pod (Core.lua PlacePods). Each pod then
+-- takes the mouse over its piece, as the cluster does over the bar.
+function LayoutPieces(metrics, lifted)
+	local split = metrics.split
+	local trough = ns.Trough
+	local s = metrics.scale
+	trough:ClearAllPoints()
+	if split then
+		trough:SetPoint("BOTTOMLEFT", ns.ConsoleFrame, "BOTTOMLEFT", ns.SEAM_L * s, 0)
+		trough:SetSize((ns.SEAM_R - ns.SEAM_L) * s, metrics.height)
+	else
+		trough:SetAllPoints()
+	end
+	local file = lifted and "consoleBase" or "frame"
+	local hasArt = ns.Art.Path(file) ~= nil
+	if hasArt then
+		if split then ns.CropBar(trough) else trough:SetTexCoord(unpack(ns.FRAME_TEXCOORD)) end
+	end
+	local level = ns.Cluster:GetFrameLevel()
+	for side, pod in pairs(ns.Pods) do
+		local art = pod.art
+		if not art then
+			art = CreateFrame("Frame", nil, pod)
+			art:EnableMouse(false)
+			art.tex = art:CreateTexture(nil, "ARTWORK")
+			art.tex:SetAllPoints()
+			pod.art = art
+			pod:RegisterForDrag("LeftButton")
+			pod:SetScript("OnDragStart", function() ns.ActionBar.DragConsole() end)
+			pod:SetScript("OnDragStop", function() ns.Snap.StopDrag() end)
+		end
+		if art.file ~= file and hasArt then
+			ns.Art.Apply(art.tex, file)
+			art.file = file
+		end
+		ns.CropPiece(art.tex, side)
+		ns.PlacePiece(art, pod, side, metrics)
+		art:SetFrameLevel(level + ns.LEVEL.console)
+		art:SetShown(split and hasArt)
+		pod:SetFrameLevel(level)
+		pod:EnableMouse(split)
+		local x0 = (side == "health" and 0 or ns.SEAM_R) * s
+		local x1 = (side == "health" and ns.SEAM_L or ns.TEX_W) * s
+		pod:SetHitRectInsets(x0, metrics.width - x1, 0, 0)
+	end
+end
+
 -- The console's art for docked rows: with none, the whole frame as D3 drew it; with some, the
 -- frame without its rail band and, over it, the band lifted above that many rows of sockets,
 -- walled in out to the globes (one piece of art per height).
@@ -352,11 +401,16 @@ function LayoutTiers(metrics)
 	if lifted then
 		local h = CREST_H + ns.TIER_H * tiers
 		local y0 = TIER_ATLAS_Y[tiers]
-		frame.tier:SetTexCoord(0, TIER_W / 2048, y0 / 512, (y0 + h) / 512)
-		frame.tier:SetSize(TIER_W * s, h * s)
+		-- Its wings reach out over the globes; with the globes scaled separately they would miss
+		-- them, so the band stops at the seams.
+		local x0, x1 = TIER_X, TIER_X + TIER_W
+		if metrics.split then x0, x1 = ns.SEAM_L, ns.SEAM_R end
+		frame.tier:SetTexCoord((x0 - TIER_X) / 2048, (x1 - TIER_X) / 2048, y0 / 512, (y0 + h) / 512)
+		frame.tier:SetSize((x1 - x0) * s, h * s)
 		frame.tier:ClearAllPoints()
-		frame.tier:SetPoint("TOPLEFT", frame, "TOPLEFT", TIER_X * s, metrics.lift)
+		frame.tier:SetPoint("TOPLEFT", frame, "TOPLEFT", x0 * s, metrics.lift)
 	end
+	LayoutPieces(metrics, lifted)
 end
 
 function ns.ActionBar.Layout()
@@ -366,14 +420,29 @@ function ns.ActionBar.Layout()
 	local base = metrics.baseY
 	local clusterH = metrics.height + 80 + metrics.lift
 	cluster:SetSize(metrics.width + 40, clusterH)
+	-- The console's outline in cluster units, about its bottom centre: the globes' pieces
+	-- reach further out (and up) or less with the globes scaled separately.
+	local ratio = metrics.globeRatio
+	local half = metrics.width / 2
+	local span = {
+		left = metrics.seamL - (half + metrics.seamL) * ratio,
+		right = metrics.seamR + (half - metrics.seamR) * ratio,
+		top = metrics.height * math.max(1, ratio),
+	}
+	ns.ActionBar.span = span
 	-- Clamp to the console art, not the padded cluster: it may touch the screen's edges.
-	cluster:SetClampRectInsets(20, -20, -80, 0)
+	cluster:SetClampRectInsets(20 + (-half - span.left), -20 + (span.right - half), -80, 0)
 	-- Only the console art (with its docked tiers) takes the mouse, so clicks on it never fall
 	-- through to the world. The padding around it lets the mouse through to whatever is placed
-	-- there, such as a target bar moved down over the console.
+	-- there, such as a target bar moved down over the console. Scaled separately, the globes'
+	-- pods take the mouse over their own pieces.
 	local artTop = base + metrics.height / 2 + metrics.lift
 	local artBottom = base - metrics.height / 2
-	cluster:SetHitRectInsets(20, 20, math.max(0, clusterH - artTop), math.max(0, artBottom))
+	local sideL, sideR = 20, 20
+	if metrics.split then
+		sideL, sideR = 20 + metrics.seamL + half, 20 + half - metrics.seamR
+	end
+	cluster:SetHitRectInsets(sideL, sideR, math.max(0, clusterH - artTop), math.max(0, artBottom))
 
 	if ns.ConsoleFrame then
 		ns.ConsoleFrame:SetSize(metrics.width, metrics.height)
@@ -832,12 +901,12 @@ end
 -- The console's box for snapping, in screen pixels: the art from its bottom edge up to the top
 -- of the centre ornament (or level plaque), where the bars stack.
 function ns.ActionBar.ConsoleBox()
-	local frame, cluster = ns.ConsoleFrame, ns.Cluster
-	if not frame or not frame:IsVisible() or not ns.ActionBar.consoleTop then return end
-	local l, b, r = ns.Snap.Rect(frame)
-	local bottom = cluster:GetBottom()
-	if not l or not bottom then return end
-	return l, b, r, (bottom + ns.ActionBar.consoleTop) * cluster:GetEffectiveScale()
+	local frame, cluster, span = ns.ConsoleFrame, ns.Cluster, ns.ActionBar.span
+	if not frame or not frame:IsVisible() or not ns.ActionBar.consoleTop or not span then return end
+	local left, right, bottom = cluster:GetLeft(), cluster:GetRight(), cluster:GetBottom()
+	if not left or not bottom then return end
+	local centre, s = (left + right) / 2, cluster:GetEffectiveScale()
+	return (centre + span.left) * s, bottom * s, (centre + span.right) * s, (bottom + ns.ActionBar.consoleTop) * s
 end
 
 -- Drag the console (its mover, or the console itself while unlocked), snapping its box.
@@ -852,7 +921,6 @@ end
 local function ConsoleMover()
 	if ns.ConsoleMover then return ns.ConsoleMover end
 	local mover = CreateFrame("Frame", "SanctuaryUIConsoleMover", ns.Cluster)
-	mover:SetAllPoints(ns.ConsoleFrame)
 	mover:SetFrameStrata("DIALOG")
 	mover:EnableMouse(true)
 	mover:RegisterForDrag("LeftButton")
@@ -896,7 +964,14 @@ function ns.ActionBar.UpdateMovers()
 	ns.UnlockPanel.Sync()
 	ns.Snap.UpdateGrid()
 	if ns.ConsoleFrame then
-		ConsoleMover():SetShown(unlocked)
+		local mover, span = ConsoleMover(), ns.ActionBar.span
+		-- Over the whole console art, out to the globes' statues at whatever their scale.
+		if span then
+			mover:ClearAllPoints()
+			mover:SetPoint("BOTTOMLEFT", ns.Cluster, "BOTTOM", span.left, 0)
+			mover:SetPoint("TOPRIGHT", ns.Cluster, "BOTTOM", span.right, span.top)
+		end
+		mover:SetShown(unlocked)
 	end
 	if ns.TargetPlate and ns.TargetPlate.mover then
 		ns.TargetPlate.mover:SetShown(unlocked and ns.DB().target.enabled)
