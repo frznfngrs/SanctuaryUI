@@ -642,7 +642,12 @@ local function Build()
 					range = Select(11, "Out of range", nil, "buttons", "range", { button = "Tint the icon", hotkey = "Tint the keybind", none = "Nothing" }),
 					tooltips = Select(12, "Tooltips", nil, "buttons", "tooltips", { enabled = "Always", nocombat = "Out of combat", disabled = "Never" }),
 					grid = Toggle(13, "Show empty sockets' grid", "Keep empty buttons visible so actions can be dropped on them.", "buttons", "grid"),
-					cooldownNumbers = Select(14, "Cooldown numbers", nil, "buttons", "cooldownNumbers", { cvar = "Blizzard setting", show = "Show", hide = "Hide" }),
+					cooldownNumbers = Select(14, "Cooldown numbers", "The time left on a skill's cooldown, counted down on its button. The global cooldown never shows one.", "buttons", "cooldownNumbers", { cvar = "Blizzard setting", show = "Show", hide = "Hide" }),
+					cooldownTenths = (function()
+						local option = Range(14.5, "Tenths of a second below", "Cooldowns with less than this many seconds left count down in tenths (4.7). 0 shows whole seconds only.", "buttons", "cooldownTenths", 0, 60, 1)
+						option.disabled = function() return DB().buttons.cooldownNumbers == "hide" end
+						return option
+					end)(),
 					keyDown = CVarToggle(15, "Cast on key down", "Blizzard's ActionButtonUseKeyDown.", "ActionButtonUseKeyDown"),
 					lock = Toggle(16, "Lock buttons", "Locked buttons only pick up actions while holding Shift. Unlocked buttons drag freely.", "buttons", "lock"),
 					active = Header(16.9, "Active skills"),
