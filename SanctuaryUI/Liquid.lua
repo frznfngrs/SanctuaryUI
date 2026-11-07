@@ -211,6 +211,7 @@ function Pool:SetColor(r, g, b)
 		self.ghostTex:SetVertexColor(gr, gg, gb, GHOST_ALPHA)
 		self.ghostColor = { gr, gg, gb }
 	end
+	self:BandColors()
 end
 
 local function Fill(self)
@@ -251,6 +252,7 @@ function Pool:Size()
 		local s = h * MOTE.size * mote.scale
 		mote.tex:SetSize(s, s)
 	end
+	self:SizeBands()
 	self:PlaceSurface(true)
 end
 
@@ -457,6 +459,8 @@ function Pool:Physics(dt)
 		end
 	end
 
+	if self.bands then self:BandPhysics(dt) end
+
 	if self.flare then
 		self.flare = self.flare * math.exp(-dt * FLARE_DECAY)
 		if self.flare < 0.01 then self.flare = nil end
@@ -488,6 +492,9 @@ function Pool:Animate(t, realTime, dt)
 	local m = LAYERS.base
 	local breathe = 1 + m.breathe * math.sin(t * m.breatheRate + phase * 7)
 	Affine(self.base, phase + t * m.du * zoom, phase * 0.7 + t * m.dv * zoom, m.span * zoom * 0.5 * breathe, t * m.spin + phase * 6)
+	if self.bands then
+		self:BandAnimate(realTime, phase + t * m.du * zoom, phase * 0.7 + t * m.dv * zoom, m.span * zoom * 0.5 * breathe, t * m.spin + phase * 6)
+	end
 	if self.ghostTex and self.ghost then
 		Affine(self.ghostTex, phase + t * m.du * zoom, phase * 0.7 + t * m.dv * zoom, m.span * zoom * 0.5 * breathe, t * m.spin + phase * 6)
 	end
@@ -744,6 +751,172 @@ function ns.Liquid.Attach(globe, bar, opts)
 	return pool
 end
 
+-- Prediction bands, ridden on the fill guide so they follow the animated level:
+--   heal  incoming heals, a pale green liquid poured on top of the level
+--   cost  the cast's power cost, the top of the liquid lit from the level down to where it
+--         will settle
+-- Each is an invisible StatusBar one globe tall with the same range as the fill, so the
+-- client sizes it even from secret values. Its fill texture bounds a clip; inside, the liquid
+-- tile at full globe size under the circle mask, so the pattern lines up with the liquid
+-- below. A zero band clips to nothing, edge glow and all.
+local BAND = {
+	heal = { color = { 0.42, 1.0, 0.36 }, alpha = 0.55, edge = 0.75 },
+	cost = { alpha = 0.32, edge = 0.6 },
+}
+local BAND_EDGE = 0.07 -- edge glow height, of the globe
+local BAND_BREATHE = 2.2 -- rad/s
+
+function ns.Liquid.Band(pool, kind)
+	if not pool or not BAND[kind] then return nil end
+	pool.bands = pool.bands or {}
+	if pool.bands[kind] then return pool.bands[kind] end
+	local bar, globe, guide = pool.bar, pool.globe, pool.guide
+	local spec = BAND[kind]
+
+	local pb = CreateFrame("StatusBar", nil, bar)
+	pb:SetOrientation("VERTICAL")
+	pb:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+	pb:SetStatusBarColor(1, 1, 1, 0)
+	pb:SetMinMaxValues(0, 1)
+	pb:SetValue(0)
+	if kind == "heal" then
+		pb:SetPoint("BOTTOMLEFT", guide, "TOPLEFT")
+		pb:SetPoint("BOTTOMRIGHT", guide, "TOPRIGHT")
+	else
+		-- Fills down from the level.
+		pb:SetReverseFill(true)
+		pb:SetPoint("TOPLEFT", guide, "TOPLEFT")
+		pb:SetPoint("TOPRIGHT", guide, "TOPRIGHT")
+	end
+	local fill = pb:GetStatusBarTexture()
+
+	local clip = CreateFrame("Frame", nil, pb)
+	clip:SetClipsChildren(true)
+	clip:SetPoint("TOPLEFT", fill, "TOPLEFT")
+	clip:SetPoint("BOTTOMRIGHT", fill, "BOTTOMRIGHT")
+	local frame = CreateFrame("Frame", nil, clip)
+	frame:SetAllPoints(globe)
+	local mask = Mask(frame, globe)
+	-- Heal is new liquid, laid on; cost lights the liquid already there.
+	local blend = kind == "cost" and "ADD" or nil
+	local tex = Layer(frame, globe, mask, "liquidTile", 0, blend)
+	if not tex then
+		tex = frame:CreateTexture(nil, "ARTWORK")
+		tex:SetAllPoints(globe)
+		tex:SetColorTexture(1, 1, 1, 1)
+		if blend then tex:SetBlendMode(blend) end
+		tex:AddMaskTexture(mask)
+	end
+	-- The edge that means something: the heal's top (where health will be), the cost's bottom
+	-- (where the resource will be). Inside the clip, so it only shows on a real band.
+	local edge = frame:CreateTexture(nil, "ARTWORK", nil, 2)
+	edge:SetTexture(ns.Art.Path("surfaceGlow") or ns.Art.Path("hotline") or "Interface\\Buttons\\WHITE8X8")
+	edge:SetBlendMode("ADD")
+	if kind == "heal" then
+		edge:SetPoint("TOPLEFT", fill, "TOPLEFT", 0, 1)
+		edge:SetPoint("TOPRIGHT", fill, "TOPRIGHT", 0, 1)
+	else
+		edge:SetPoint("BOTTOMLEFT", fill, "BOTTOMLEFT", 0, -1)
+		edge:SetPoint("BOTTOMRIGHT", fill, "BOTTOMRIGHT", 0, -1)
+		edge:SetTexCoord(0, 1, 1, 0) -- glow faces up, into the band
+	end
+	edge:SetHeight(1)
+	edge:AddMaskTexture(mask)
+	Smooth(tex)
+	Smooth(edge)
+	pb:Hide()
+
+	local band = { kind = kind, bar = pb, clip = clip, frame = frame, tex = tex, edge = edge, spec = spec, vel = 0 }
+	pool.bands[kind] = band
+	pool:SizeBands()
+	pool:SetColor(unpack(pool.color))
+	return band
+end
+
+function Pool:SizeBands()
+	if not self.bands then return end
+	local h = self.height or self.globe:GetHeight()
+	if not h or h <= 0 then return end
+	for _, band in pairs(self.bands) do
+		band.bar:SetHeight(h)
+		band.edge:SetHeight(math.max(1, h * BAND_EDGE))
+	end
+end
+
+function Pool:BandColors()
+	if not self.bands then return end
+	local c = self.color
+	for kind, band in pairs(self.bands) do
+		local r, g, b
+		if band.spec.color then
+			r, g, b = band.spec.color[1], band.spec.color[2], band.spec.color[3]
+		else
+			r, g, b = Lighter(c[1], c[2], c[3], 0.55)
+		end
+		band.rgb = { r, g, b }
+		band.edgeRgb = { Lighter(r, g, b, 0.4) }
+	end
+end
+
+-- value nil or 0 clears the band. Readable values spring like the level, with the same
+-- stiffness, so a heal landing fills the band from below instead of the band vanishing first,
+-- and a cast going off drains the cost from the top. Secret values go straight to the bar.
+function Pool:SetBand(kind, value, maxValue)
+	local band = self.bands and self.bands[kind]
+	if not band then return end
+	local pb = band.bar
+	if maxValue ~= nil then
+		pcall(pb.SetMinMaxValues, pb, 0, maxValue)
+	end
+	if Secret(value) then
+		band.target, band.shown, band.vel = nil, nil, 0
+		local ease = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.ExponentialEaseOut
+		if not (ease and pcall(pb.SetValue, pb, value, ease)) and not pcall(pb.SetValue, pb, value) then
+			pb:SetValue(0)
+		end
+		pb:Show()
+		return
+	end
+	value = math.max(0, tonumber(value) or 0)
+	if not band.shown then
+		-- Coming from nothing or a secret value: grow from zero.
+		band.shown, band.vel = 0, 0
+		pb:SetValue(0)
+	end
+	band.target = value
+	if value > 0 then pb:Show() end
+end
+
+function Pool:BandPhysics(dt)
+	for _, band in pairs(self.bands) do
+		if band.target and band.shown then
+			local shown, vel = Spring(band.shown, band.vel or 0, band.target, LEVEL_OMEGA, dt)
+			if math.abs(shown - band.target) < 0.5 and math.abs(vel) < 2 then
+				shown, vel = band.target, 0
+			end
+			band.shown, band.vel = shown, vel
+			band.bar:SetValue(shown)
+			if shown <= 0 and band.target <= 0 then
+				band.bar:Hide()
+				band.target = nil
+			end
+		end
+	end
+end
+
+-- Breathes gently, and the texture moves with the liquid's base layer.
+function Pool:BandAnimate(realTime, cu, cv, half, angle)
+	for _, band in pairs(self.bands) do
+		if band.bar:IsShown() then
+			local spec, c, e = band.spec, band.rgb, band.edgeRgb
+			local breathe = 0.82 + 0.18 * math.sin(realTime * BAND_BREATHE + self.phase * 5)
+			band.tex:SetVertexColor(c[1], c[2], c[3], spec.alpha * breathe)
+			band.edge:SetVertexColor(e[1], e[2], e[3], spec.edge * breathe)
+			if half then Affine(band.tex, cu, cv, half, angle) end
+		end
+	end
+end
+
 -- Set a bar's value through its pool (glide) if it has one.
 function ns.Liquid.SetValue(bar, value, maxValue)
 	local pool = byBar[bar]
@@ -766,6 +939,14 @@ function Pool:SetLevels(base, offset)
 	self.clip:SetFrameLevel(base + ns.LEVEL.clip + offset)
 	self.frame:SetFrameLevel(base + ns.LEVEL.pool + offset)
 	self.surface:SetFrameLevel(base + ns.LEVEL.surface + offset)
+	-- Heal sits above the level beside the ghost; cost lights the top of the liquid, so it
+	-- goes over the liquid layers (ADD, so its order against the surface glow doesn't matter).
+	for kind, band in pairs(self.bands or {}) do
+		local level = base + (kind == "heal" and ns.LEVEL.clip or ns.LEVEL.surface) + offset
+		band.bar:SetFrameLevel(base + ns.LEVEL.liquid + offset)
+		band.clip:SetFrameLevel(level)
+		band.frame:SetFrameLevel(level)
+	end
 end
 
 -- Fixed sphere shading over the liquid, so the volume stays put while the liquid moves.
