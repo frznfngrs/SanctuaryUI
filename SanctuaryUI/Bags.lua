@@ -12,6 +12,11 @@ local BAGS = {}
 for bag = 0, NUM_BAG_SLOTS or 4 do
 	BAGS[#BAGS + 1] = bag
 end
+-- The reagent bag (bag 5 on modern clients) sits after the four bag slots.
+local REAGENT_BAG = Enum and Enum.BagIndex and Enum.BagIndex.ReagentBag
+if REAGENT_BAG then
+	BAGS[#BAGS + 1] = REAGENT_BAG
+end
 
 local BACKPACK_ICON = 133633 -- Interface\Icons\INV_Misc_Bag_08
 
@@ -20,7 +25,7 @@ local function Opt()
 end
 
 ---------------------------------------------------------------------------
--- Bag slots: the backpack and the four equippable bag slots.
+-- Bag slots: the backpack, the four equippable bag slots and the reagent bag slot.
 
 local function InvSlot(bag)
 	if C_Container and C_Container.ContainerIDToInventoryID then
