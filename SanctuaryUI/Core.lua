@@ -473,7 +473,7 @@ local function Slash(msg)
 			ns.Options.Open()
 		end
 	elseif cmd == "help" then
-		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n>, globes <n>|off, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), debug on|off, log")
+		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n>, globes <n>|off, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), debug on|off, log, report [on|off]")
 	elseif cmd == "grid" then
 		-- grid: toggle; grid on|off; grid <spacing>. The grid only shows while frames are
 		-- unlocked, so showing it unlocks them.
@@ -652,6 +652,13 @@ local function Slash(msg)
 		ns.Print("prediction demo: incoming heal, shield and spell cost; they land at 2.5 s, health tops up at 5 s")
 	elseif cmd == "log" then
 		ns.ShowLog()
+	elseif cmd == "report" then
+		local arg = rest:lower()
+		if arg == "on" or arg == "off" then
+			ns.SetReportPrompt(arg == "on")
+		else
+			ns.ShowReport()
+		end
 	elseif cmd == "debug" then
 		local arg = rest:lower()
 		local on
