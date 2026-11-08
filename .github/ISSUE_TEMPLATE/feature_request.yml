@@ -1,0 +1,19 @@
+name: Feature request
+description: Suggest something new for SanctuaryUI.
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like, and why?
+      description: Describe what you'd like to see and what it would help with.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: SanctuaryUI version
+      description: Optional. It's in the addon list, or filled in if you came from the game.
+    validations:
+      required: false
