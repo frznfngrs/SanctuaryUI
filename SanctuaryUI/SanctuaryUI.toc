@@ -40,6 +40,10 @@ Totem.lua
 Auras.lua
 TargetPlate.lua
 Portraits.lua
+PartyArt.lua
+PartyStyles.lua
+Party.lua
+Pollution.lua
 Experience.lua
 InventoryWindow.lua
 Bags.lua

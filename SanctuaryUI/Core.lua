@@ -452,6 +452,7 @@ function ns.Check()
 	end
 	if ns.Liquid and ns.Liquid.Status then
 		ns.Print(ns.Liquid.Status())
+		if ns.Pollution then ns.Print(ns.Pollution.Status()) end
 	end
 	local key = GetBindingKey("ACTIONBUTTON1")
 	ns.Print("ACTIONBUTTON1 is bound to " .. (key or "nothing"))
@@ -473,7 +474,7 @@ local function Slash(msg)
 			ns.Options.Open()
 		end
 	elseif cmd == "help" then
-		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n>, globes <n>|off, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), debug on|off, log")
+		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n>, globes <n>|off, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), debug on|off, log, report [on|off], request (suggest a feature)")
 	elseif cmd == "grid" then
 		-- grid: toggle; grid on|off; grid <spacing>. The grid only shows while frames are
 		-- unlocked, so showing it unlocks them.
@@ -645,6 +646,13 @@ local function Slash(msg)
 			ns.Globes.PreviewHealth(nil)
 			ns.Print("health globe shows your health")
 		end
+	elseif cmd == "pollute" then
+		-- /sanctuary pollute [poison|curse|magic|disease|off]: the look, without needing the debuff.
+		local key = (rest or ""):lower()
+		if key == "" then key = "poison" end
+		if key == "off" then key = nil end
+		local ok, why = ns.Pollution.Preview(key)
+		ns.Print(ok and (key and ("Previewing " .. key .. " in the health globe. /sanctuary pollute off to stop.") or "Pollution preview off.") or ("Pollution preview failed: " .. tostring(why)))
 	elseif cmd == "predict" then
 		-- Heal, shield and spell cost demo on preview levels: lands at 2.5 s, full health at 5 s,
 		-- real values at 8 s.
@@ -652,6 +660,15 @@ local function Slash(msg)
 		ns.Print("prediction demo: incoming heal, shield and spell cost; they land at 2.5 s, health tops up at 5 s")
 	elseif cmd == "log" then
 		ns.ShowLog()
+	elseif cmd == "report" then
+		local arg = rest:lower()
+		if arg == "on" or arg == "off" then
+			ns.SetReportPrompt(arg == "on")
+		else
+			ns.ShowReport()
+		end
+	elseif cmd == "request" or cmd == "suggest" then
+		ns.ShowRequest()
 	elseif cmd == "debug" then
 		local arg = rest:lower()
 		local on
@@ -752,6 +769,8 @@ loader:SetScript("OnEvent", function(_, event)
 		Safe("auras", ns.Auras and ns.Auras.Init)
 		Safe("target plate", ns.TargetPlate and ns.TargetPlate.Init)
 		Safe("portraits", ns.Portraits and ns.Portraits.Init)
+		Safe("party", ns.Party and ns.Party.Init)
+		Safe("pollution", ns.Pollution and ns.Pollution.Init)
 		Safe("experience", ns.Experience and ns.Experience.Init)
 		Safe("layout", ns.Layout)
 		Safe("position", ns.ApplyPosition)

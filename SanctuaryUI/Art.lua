@@ -37,6 +37,29 @@ ns.Art.slots = {
 	liquidTile = { file = "liquid-tile.png" },
 	liquidStreaks = { file = "liquid-streaks.png" },
 	liquidWisps = { file = "liquid-wisps.png" },
+	-- Rendered liquid (Liquid.lua FLIP): big sheets, so lazy: Probe skips them and only
+	-- ns.Art.Require, when that style is on, ever touches them.
+	liquidCalmBody = { file = "liquid-calm-body.png", lazy = true },
+	liquidCalmLight = { file = "liquid-calm-light.png", lazy = true },
+	liquidAgitatedBody = { file = "liquid-agitated-body.png", lazy = true },
+	liquidAgitatedLight = { file = "liquid-agitated-light.png", lazy = true },
+	-- Surge styles (GlobeAura.lua SURGE_ART): lazy too, loaded only for styles in use.
+	surgeInhaleRays = { file = "surge-inhale-rays.png", lazy = true },
+	surgeStreak = { file = "surge-streak.png", lazy = true },
+	surgePourColumn = { file = "surge-pour-column.png", lazy = true },
+	surgePourUnder = { file = "surge-pour-under.png", lazy = true },
+	surgeUpwellBody = { file = "surge-upwell-body.png", lazy = true },
+	surgeUpwellCore = { file = "surge-upwell-core.png", lazy = true },
+	-- The rendered shield break (GlobeAura.lua BREAK): lazy the same way.
+	shellShatter = { file = "shell-shatter.png", lazy = true },
+	shellHit = { file = "shell-hit.png", lazy = true },
+	pollutionPoisonMix = { file = "pollution-poison-mix.png", lazy = true },
+	pollutionPoisonGlow = { file = "pollution-poison-glow.png", lazy = true },
+	pollutionDiseaseMix = { file = "pollution-disease-mix.png", lazy = true },
+	pollutionCurseMix = { file = "pollution-curse-mix.png", lazy = true },
+	pollutionCurseGlow = { file = "pollution-curse-glow.png", lazy = true },
+	pollutionMagicMix = { file = "pollution-magic-mix.png", lazy = true },
+	pollutionMagicGlow = { file = "pollution-magic-glow.png", lazy = true },
 	globeRim = { file = "globe-rim.png" },
 	surfaceGlow = { file = "surface-glow.png" },
 	surfaceShimmer = { file = "surface-shimmer.png" },
@@ -81,6 +104,9 @@ ns.Art.slots = {
 	stormArcsE = { file = "storm-arcs-e.png" },
 	stormArcsF = { file = "storm-arcs-f.png" },
 	stormStatic = { file = "storm-static.png" },
+	-- Rendered lightning (GlobeAura.lua STORM): lazy, for those who can have it.
+	stormFlipCore = { file = "storm-flip-core.png", lazy = true },
+	stormFlipGlow = { file = "storm-flip-glow.png", lazy = true },
 }
 
 -- socket.png holds a 76x80 crop in a 128x128 PNG. The stone interior starts 4px in from the left and 7px down.
@@ -265,14 +291,18 @@ function ns.Art.Probe()
 	local ready = {}
 	local loaded, total = 0, 0
 	for slot, info in pairs(ns.Art.slots) do
-		total = total + 1
-		local path = ROOT .. info.file
-		local ok = probe:SetTexture(path)
-		if ok then
-			ready[slot] = true
-			loaded = loaded + 1
+		if info.lazy then
+			ready[slot] = ns.Art.ready and ns.Art.ready[slot] -- still unknown unless required
 		else
-			ready[slot] = false
+			total = total + 1
+			local path = ROOT .. info.file
+			local ok = probe:SetTexture(path)
+			if ok then
+				ready[slot] = true
+				loaded = loaded + 1
+			else
+				ready[slot] = false
+			end
 		end
 	end
 	probe:SetTexture(nil)
@@ -280,6 +310,24 @@ function ns.Art.Probe()
 	ns.Art.loadedCount = loaded
 	ns.Art.totalCount = total
 	return loaded, total
+end
+
+-- A lazy slot's path, checked the first time something actually wants it.
+function ns.Art.Require(slot)
+	local info = ns.Art.slots[slot]
+	if not info then return nil end
+	ns.Art.ready = ns.Art.ready or {}
+	if ns.Art.ready[slot] == nil then
+		local probe = ns.Art.probe
+		if not probe then
+			probe = UIParent:CreateTexture(nil, "BACKGROUND")
+			probe:Hide()
+			ns.Art.probe = probe
+		end
+		ns.Art.ready[slot] = probe:SetTexture(ROOT .. info.file) and true or false
+		probe:SetTexture(nil)
+	end
+	return ns.Art.Path(slot)
 end
 
 function ns.Art.Apply(texture, slot, color)

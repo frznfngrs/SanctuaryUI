@@ -109,6 +109,8 @@ local function GlobeAuraArgs()
 		sparks = Toggle(13, "Sparks", "Motes of light rising off a radiating globe's rim.", "globeAuras", "sparks"),
 		catch = Toggle(14, "Light on the glass", "Radiance wraps round onto the top of the globe's glass.", "globeAuras", "catch"),
 		settleLong = Toggle(15, "Long buffs settle down", "Buffs kept up for minutes (Lightning Shield, Inner Fire) light up in full when cast, then calm to a quiet glow after a few seconds. They still flare when recast, discharge when their charges are spent and blink in their last seconds.", "globeAuras", "settleLong"),
+		renderedStorm = Toggle(16.5, "Rendered lightning", "Lightning Shield's arcs branch and strike round the rim, crawl over the glass, and spending its charges flings bolts off the whole rim. Off, it uses the older static and bolts. Uses about 20 MB of video memory, only for characters who can have it.", "globeAuras", "renderedStorm"),
+		renderedBreak = Toggle(16, "Rendered shield break", "Shields crack along their seams and shatter with a 3D render, and blows run light along the crystal. Off, they use the drawn shards and ripple. The art uses about 20 MB of video memory, only while this is on.", "globeAuras", "renderedBreak"),
 	}
 
 	-- One page per class, with your class first.
@@ -124,18 +126,41 @@ local function GlobeAuraArgs()
 		for _, effect in ipairs(DATA.EFFECTS) do
 			if effect.class == class then
 				n = n + 1
+				local flareOnly = effect.look == "flare"
 				page.args[effect.key] = {
 					type = "toggle",
 					order = n,
 					name = effect.label,
 					desc = effect.desc:sub(1, 1):upper() .. effect.desc:sub(2) .. ".",
-					width = "full",
+					width = flareOnly and "full" or 1.5,
 					get = function() return DB().globeAuras.effects[effect.key] end,
 					set = function(_, value)
 						DB().globeAuras.effects[effect.key] = value
 						Changed()
 					end,
 				}
+				if not flareOnly then
+					local LOOK_NAMES = { radiate = "Radiance", shell = "Crystal shell", pour = "Pour", inhale = "Inhale", upwell = "Upwell", swirl = "Swirl" }
+					local native = effect.look == "surge" and (effect.surge or "swirl") or effect.look
+					page.args[effect.key .. "Look"] = {
+						type = "select",
+						order = n + 0.5,
+						name = "",
+						desc = "What this skill shows on the globe. Default is " .. LOOK_NAMES[native] .. ".",
+						width = 1,
+						values = {
+							default = "Default (" .. LOOK_NAMES[native] .. ")",
+							radiate = "Radiance", shell = "Crystal shell", pour = "Pour", inhale = "Inhale", upwell = "Upwell", swirl = "Swirl",
+						},
+						sorting = { "default", "radiate", "shell", "pour", "inhale", "upwell", "swirl" },
+						disabled = function() return not DB().globeAuras.effects[effect.key] end,
+						get = function() return DB().globeAuras.looks[effect.key] or "default" end,
+						set = function(_, value)
+							DB().globeAuras.looks[effect.key] = value ~= "default" and value or nil
+							Changed()
+						end,
+					}
+				end
 			end
 		end
 		args["class" .. class] = page
@@ -596,6 +621,8 @@ local function Build()
 					numbersMax = Toggle(3, "Show maximum under the value", nil, nil, "numbersMax"),
 					numberSize = Range(4, "Number size", nil, nil, "numberSize", 12, 34, 1),
 					liquid = Header(10, "Liquid"),
+					liquidStyle = Select(10.5, "Liquid style", "Classic is D3's layered tiles. Rendered is a test style: a looping 3D render with real depth, which boils at low health. It uses more video memory (about 48 MB) and only loads while it is selected. Changes straight away.", nil, "liquidStyle", { classic = "Classic", rendered = "Rendered (test)" }),
+					pollution = Toggle(10.6, "Debuffs pollute the health globe", "While you carry a poison, disease, curse or magic debuff, its colour bleeds into your health globe until it wears off or is cleansed. /sanctuary pollute poison, disease, curse or magic shows the look without the debuff. Uses about 28 MB of video memory while on.", nil, "pollution"),
 					liquidAnimate = Toggle(11, "Swirl", "Animate the globe liquid.", nil, "liquidAnimate"),
 					liquidSpeed = Range(12, "Swirl speed", nil, nil, "liquidSpeed", 0.25, 3, 0.05, true),
 					lowHealthPulse = Toggle(13, "Low health heartbeat", "The health globe pulses below 35%, faster as it empties.", nil, "lowHealthPulse"),
@@ -910,6 +937,70 @@ local function Build()
 					},
 				},
 			},
+			party = {
+				type = "group",
+				order = 6.15,
+				name = "Party",
+				args = {
+					intro = Note(1, "Your party members under your portrait, each with their own portrait. Left-click targets, right-click opens the unit menu, and click-casting addons (Clique) work on them. In a raid they hide and Blizzard's raid frames take over."),
+					style = Select(2, "Style", "Globes: a small health globe of your own liquid for each member. Slab: a thin slab of D3 stone. None: Blizzard's party frames (or another addon's) instead.", "party", "style",
+						{ globes = "Globes", slab = "Slab", none = "None (Blizzard or another addon)" }, { "globes", "slab", "none" }),
+					preview = {
+						type = "toggle",
+						order = 2.5,
+						name = "Preview",
+						desc = "Show four stand-in members (drawn from you) in different states: leader with aggro, your target with heals, a shield and a debuff you can dispel, dead, out of range. Also shown while frames are unlocked, so you can place them.",
+						get = function() return ns.Party.preview end,
+						set = function(_, value) ns.Party.SetPreview(value) end,
+						disabled = function() return not ns.Party.Style() end,
+						width = "full",
+					},
+					scale = Range(3, "Scale", "100% is the art's own size.", "party", "scale", 0.5, 2, 0.05, true),
+					stone = {
+						type = "range",
+						order = 3.5,
+						name = "Stone opacity",
+						desc = "The slab's stone. Turn it down to let the world show through; the metal stays solid.",
+						min = 0.2, max = 1, step = 0.05, isPercent = true,
+						get = function() return DB().party.stone end,
+						set = function(_, value) DB().party.stone = value Changed() end,
+						disabled = function() return DB().party.style ~= "slab" end,
+					},
+					shows = Header(10, "Shows"),
+					pets = Toggle(11, "Pets", "Party pets, by their owner.", "party", "pets"),
+					portrait3d = {
+						type = "toggle",
+						order = 12,
+						name = "3D portraits",
+						desc = "Slab: the member's moving 3D bust in the socket while they're in view (their 2D portrait otherwise). Globes always use the 2D portrait in the round medallion.",
+						get = function() return DB().party.portrait3d end,
+						set = function(_, value) DB().party.portrait3d = value Changed() end,
+						disabled = function() return DB().party.style ~= "slab" end,
+						width = "full",
+					},
+					healthText = Select(13, "Health text", nil, "party", "healthText",
+						{ none = "Nothing", percent = "Percent (62%)", current = "Hitpoints (15.4K)", missing = "Missing hitpoints (-9.4K)" },
+						{ "none", "percent", "current", "missing" }),
+					healPrediction = Toggle(14, "Incoming heals and shields", "Heals on the way and damage shields poured on top of their health, as on your globe.", "party", "healPrediction"),
+					threat = Toggle(15, "Threat halo", "A red halo on a member with aggro (orange as they near it).", "party", "threat"),
+					rangeFade = Toggle(16, "Fade out of range", nil, "party", "rangeFade"),
+					auras = Header(20, "Auras"),
+					debuffs = Toggle(21, "Debuffs", "Their debuffs in D3's debuff frame, coloured by type: blue magic, purple curse, brown disease, green poison.", "party", "debuffs"),
+					maxDebuffs = Range(22, "Most debuffs", nil, "party", "maxDebuffs", 1, 8, 1),
+					buffs = Toggle(23, "Your buffs on them", "Your heals over time, shields and buffs on each member, in D3's gold frame.", "party", "buffs"),
+					maxBuffs = Range(24, "Most buffs", nil, "party", "maxBuffs", 1, 6, 1),
+					dispelGlow = Toggle(25, "Dispel halo", "A halo in the debuff's colour while a member has one you can remove.", "party", "dispelGlow"),
+					place = Header(30, "Position"),
+					placeNote = Note(31, "Under your portrait by default. Turn off General > Lock frames (stand-ins show while unlocked) and drag its mover to place it anywhere. Changes wait for the end of combat."),
+					reset = {
+						type = "execute",
+						order = 32,
+						name = "Reset position",
+						func = function() ns.Party.ResetPosition() end,
+						disabled = function() return not DB().party.moved end,
+					},
+				},
+			},
 			bank = {
 				type = "group",
 				order = 6.6,
@@ -965,6 +1056,33 @@ local function Build()
 							local opt = DB().bags
 							opt.point, opt.x, opt.y = "BOTTOMRIGHT", -60, 260
 							Changed()
+						end,
+					},
+				},
+			},
+			feedback = {
+				type = "group",
+				order = 99,
+				name = "Feedback",
+				args = {
+					note = Note(1, "Each of these gives you a link to paste into a browser. Nothing is sent until you submit it on GitHub."),
+					request = {
+						type = "execute",
+						order = 2,
+						name = "Suggest a feature",
+						func = function()
+							LibStub("AceConfigDialog-3.0"):Close(APP)
+							ns.ShowRequest()
+						end,
+					},
+					report = {
+						type = "execute",
+						order = 3,
+						name = "Report a bug",
+						desc = "Makes a report from the errors SanctuaryUI has recorded on this version.",
+						func = function()
+							LibStub("AceConfigDialog-3.0"):Close(APP)
+							ns.ShowReport()
 						end,
 					},
 				},

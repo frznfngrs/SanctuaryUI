@@ -990,6 +990,9 @@ function ns.ActionBar.UpdateMovers()
 	if ns.Portraits and ns.Portraits.mover then
 		ns.Portraits.mover:SetShown(unlocked and ns.DB().portraits.enabled)
 	end
+	if ns.Party and ns.Party.mover then
+		ns.Party.mover:SetShown(unlocked and ns.Party.Style() and true or false)
+	end
 	if ns.Auras and ns.Auras.mover then
 		ns.Auras.mover:SetShown(unlocked and ns.DB().auras.enabled)
 	end

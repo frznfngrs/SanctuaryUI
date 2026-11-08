@@ -51,6 +51,10 @@ noted next to each file.
   cast-fill.png  512x16    D3's orange progress fill (2DUIControls), the target cast bar
   unit-frames.png 1024x256 D3 enemy health frames (boss banner, elite gold, normal silver), red and neutral fills, party frames
   skill-timer.png 128x32   skill timer tab (steel, gold) and its amber and green fills, from 2DUIBottomBar
+  party-*.png    party frames (`build_hud_art.py party`, needs Blender): globes 512x512 (bezel, medallion,
+                 pet in iron and gold, halos), crescent (the resource groove's fill), slab 512x1024 (stone,
+                 iron and gold layers, halos), aura 128x64 (neutral debuff and gold buff frames). Places
+                 come from SanctuaryUI/PartyArt.lua; the metal is modelled in tools/blender/party_*.py
 """
 
 from __future__ import annotations
@@ -1691,10 +1695,514 @@ def globe_storm() -> None:
     save_glow(OUT / "storm-static.png", _glow_lines(n, paths) * 0.8, 98)
 
 
+# ---------------------------------------------------------------------------
+# Party frames (Party.lua). The geometry lives in SanctuaryUI/PartyArt.lua, the contract with
+# the Lua side; this reads it, renders the metal and stone in Blender (tools/blender/party_*.py)
+# and lays the renders into the atlases at the contract's rects. Needs Blender (env BLENDER,
+# default ~/opt/blender-4.5.15-linux-x64/blender).
+
+PARTY_CONTRACT = ROOT / "SanctuaryUI" / "PartyArt.lua"
+
+
+def lua_table(text: str):
+    """Parse the Lua table literal subset the contract uses: nested tables, `key = value`,
+    numbers and simple arithmetic (4 / 64). Keyed tables become dicts, plain ones lists."""
+    import re
+
+    text = re.sub(r"--[^\n]*", "", text)
+    tokens = re.findall(r"[A-Za-z_]\w*|\d+\.?\d*|[{}=,/*+\-]", text)
+    pos = 0
+
+    def expr():
+        nonlocal pos
+        value = float(tokens[pos]) if tokens[pos] != "-" else -float(tokens[pos + 1])
+        pos += 1 if tokens[pos] != "-" else 2
+        while pos < len(tokens) and tokens[pos] in "/*+":
+            op, rhs = tokens[pos], float(tokens[pos + 1])
+            pos += 2
+            value = value / rhs if op == "/" else value * rhs if op == "*" else value + rhs
+        return value
+
+    def table():
+        nonlocal pos
+        assert tokens[pos] == "{"
+        pos += 1
+        keyed, items = {}, []
+        while tokens[pos] != "}":
+            if tokens[pos + 1] == "=" and re.match(r"[A-Za-z_]", tokens[pos]):
+                key = tokens[pos]
+                pos += 2
+                keyed[key] = table() if tokens[pos] == "{" else expr()
+            else:
+                items.append(table() if tokens[pos] == "{" else expr())
+            if tokens[pos] == ",":
+                pos += 1
+        pos += 1
+        return keyed if keyed else items
+
+    return table()
+
+
+def party_contract() -> dict:
+    text = PARTY_CONTRACT.read_text()
+    start = text.index("ns.Art.PARTY = {") + len("ns.Art.PARTY = ")
+    depth = 0
+    for i in range(start, len(text)):
+        depth += {"{": 1, "}": -1}.get(text[i], 0)
+        if depth == 0:
+            return lua_table(text[start:i + 1])
+    raise ValueError("ns.Art.PARTY not closed")
+
+
+def _soft_halo(alpha: Image.Image, size: tuple, sigma: float, gain: float, hole=None) -> Image.Image:
+    """A white halo hugging a piece's outline from outside: the piece's alpha, centred in a
+    bigger canvas, blurred, brightened, and cut away where the piece itself is (and inside
+    `hole` = (cx, cy, r) px, the liquid under a bezel). For ADD and a vertex tint."""
+    from PIL import ImageFilter
+
+    canvas = Image.new("L", size, 0)
+    canvas.paste(alpha, ((size[0] - alpha.width) // 2, (size[1] - alpha.height) // 2))
+    # Grow the shape a little first so the halo starts at the edge, not half inside it.
+    grown = canvas.filter(ImageFilter.MaxFilter(3))
+    blur = grown.filter(ImageFilter.GaussianBlur(sigma))
+    halo = blur.point(lambda v: min(255, int(v * gain)))
+    halo = ImageChops.multiply(halo, ImageChops.invert(canvas.point(lambda v: 255 if v > 200 else v)))
+    if hole:
+        mask = Image.new("L", size, 255)
+        cx, cy, r = hole
+        ImageDraw.Draw(mask).ellipse([cx - r, cy - r, cx + r, cy + r], fill=0)
+        halo = ImageChops.multiply(halo, mask.filter(ImageFilter.GaussianBlur(2)))
+    out = Image.new("RGBA", size, (255, 255, 255, 0))
+    out.putalpha(halo)
+    return out
+
+
+# Painted metal, sRGB 0..1: shadow, base, light, worn edge. Iron from the console's own slate
+# (dark body, cool bright edges); gold from its brass socket rims.
+PARTY_METALS = {
+    "iron": ((0.03, 0.033, 0.04), (0.12, 0.125, 0.14), (0.25, 0.26, 0.29), (0.6, 0.64, 0.71)),
+    "gold": ((0.12, 0.065, 0.015), (0.37, 0.24, 0.075), (0.64, 0.46, 0.18), (0.96, 0.82, 0.5)),
+}
+PARTY_FLOOR = (0.035, 0.032, 0.032)
+
+
+def _party_paint(lit: Image.Image, norm: Image.Image, data: Image.Image, kind: str, grunge: Image.Image) -> Image.Image:
+    """Paint a piece from its Blender passes (party_lib.render_passes). The clay shading picks a
+    colour off the metal's ramp; D3's stone grunge breaks it up; curvature from the normals
+    lights the convex edges (where the grunge is light, so the wear is chipped, not a clean
+    line) and darkens the concave creases; occlusion darkens the crevices; groove floors go near
+    black. Then the dark contour D3 paints round its metal (2 px at 2x)."""
+    from PIL import ImageFilter
+
+    np = _np()
+    lit = lit.convert("RGBA")
+    h, w = lit.height, lit.width
+    alpha = np.asarray(lit.getchannel("A"), dtype=np.float32) / 255
+    s = np.asarray(lit.convert("L"), dtype=np.float32) / 255
+    d = np.asarray(data.convert("RGB"), dtype=np.float32) / 255
+    occl, is_metal = d[..., 0], d[..., 1]
+    n = np.asarray(norm.convert("RGB"), dtype=np.float32) / 255 * 2 - 1
+    # Curvature: the divergence of the normal's screen-plane part (image y runs down).
+    curv = np.gradient(n[..., 0], axis=1) + np.gradient(-n[..., 1], axis=0)
+    curv = curv * (alpha > 0.5)
+    convex = np.clip(curv * 2.6, 0, 1)
+    concave = np.clip(-curv * 2.2, 0, 1)
+    # Grunge tiled at 128 px per tile (64 units), stretched to 0..1.
+    tile = np.asarray(grunge.resize((128, 128), Image.LANCZOS), dtype=np.float32)
+    g = np.tile(tile, (h // 128 + 1, w // 128 + 1))[:h, :w]
+    lo, hi = np.percentile(tile, 4), np.percentile(tile, 96)
+    g = np.clip((g - lo) / max(1.0, hi - lo), 0, 1)
+
+    shadow, base, light, worn = (np.array(c, dtype=np.float32) for c in PARTY_METALS[kind])
+    lit_lo, lit_hi = np.percentile(s[alpha > 0.5], 3), np.percentile(s[alpha > 0.5], 99)
+    t = np.clip((s - lit_lo) / max(1e-3, lit_hi - lit_lo), 0, 1)[..., None]
+    col = np.where(t < 0.5, shadow + (base - shadow) * (t / 0.5), base + (light - base) * ((t - 0.5) / 0.5))
+    col = col * (0.62 + 0.76 * g[..., None])
+    wear = convex * np.clip((g + 0.5 * t[..., 0] - 0.25) / 0.5, 0, 1)
+    col = col + (worn * (0.5 + 0.6 * t) - col) * (0.9 * wear)[..., None]
+    col = col * (1 - 0.75 * concave)[..., None] * (0.3 + 0.7 * occl)[..., None]
+    floor = np.array(PARTY_FLOOR, dtype=np.float32) * (0.6 + 0.8 * g[..., None]) * (0.55 + 0.45 * t)
+    col = np.where(is_metal[..., None] > 0.5, col, floor)
+    rgb = Image.fromarray((np.clip(col, 0, 1) * 255).astype(np.uint8), "RGB")
+    piece = rgb.convert("RGBA")
+    piece.putalpha(Image.fromarray((alpha * 255).astype(np.uint8), "L"))
+    contour = piece.getchannel("A").filter(ImageFilter.MaxFilter(5)).point(lambda v: v * 9 // 10)
+    under = Image.new("RGBA", piece.size, (6, 5, 5, 0))
+    under.putalpha(contour)
+    under.alpha_composite(piece)
+    return under
+
+
+def _crescent(geo: dict) -> Image.Image:
+    """party-crescent.png: the resource groove's inside, exactly its bounding box at 2x. White,
+    a little brighter down the middle of the groove and darker at its walls, so a tinted fill
+    reads as liquid lying in a cut channel."""
+    import math
+
+    cx, cy = geo["size"][0] / 2, geo["size"][1] / 2
+    rx, ry, rw, rh = geo["resource"]
+    ro = rx + rw - cx
+    half = math.asin((rh / 2) / ro)
+    ri = (rx - cx) / math.cos(half)
+    w, h = int(round(rw * 2)), int(round(rh * 2))
+    ss = 4
+    out = Image.new("RGBA", (w, h), (255, 255, 255, 0))
+    px = out.load()
+    for j in range(h):
+        for i in range(w):
+            cover, lum = 0, 0.0
+            for sj in range(ss):
+                for si in range(ss):
+                    x = rx + (i + (si + 0.5) / ss) / 2 - cx
+                    y = cy - (ry + (j + (sj + 0.5) / ss) / 2)
+                    r, a = math.hypot(x, y), abs(math.atan2(y, x))
+                    if ri <= r <= ro and a <= half:
+                        cover += 1
+                        t = (r - ri) / (ro - ri)
+                        lum += 0.62 + 0.38 * math.sin(math.pi * min(1, max(0, t * 1.1 - 0.05)))
+            if cover:
+                v = int(255 * lum / cover)
+                px[i, j] = (v, v, v, int(255 * cover / (ss * ss)))
+    return out
+
+
+def _aura_frames(cell: int = 64) -> tuple:
+    """D3's debuff frame made neutral grey (the client tints it by dispel type) and its gold buff
+    frame, each 58 px with a 6 px border in 2DUIBuffIcons, scaled to a cell."""
+    sheet = Image.open(SRC / "2DUIBuffIcons.png").convert("RGBA")
+    red = sheet.crop((1344, 128, 1402, 186)).resize((cell, cell), Image.LANCZOS)
+    gold = sheet.crop((1402, 128, 1460, 186)).resize((cell, cell), Image.LANCZOS)
+    lum = red.convert("L")
+    lo, hi = lum.getextrema()
+    # Stretch the frame's luminance to a light grey ramp, keeping its bevel shading.
+    grey = lum.point(lambda v: int(60 + 195 * ((v - lo) / max(1, hi - lo)) ** 0.8))
+    neutral = Image.merge("RGBA", (grey, grey, grey, red.getchannel("A")))
+    return neutral, gold
+
+
+def party() -> None:
+    import json
+    import os
+    import subprocess
+    import tempfile
+
+    geo = party_contract()
+    blender = os.environ.get("BLENDER", str(Path.home() / "opt/blender-4.5.15-linux-x64/blender"))
+    work = Path(os.environ.get("PARTY_WORK") or tempfile.mkdtemp(prefix="party-art-"))
+    tex = work / "tex"
+    tex.mkdir(parents=True, exist_ok=True)
+    # Grunge: D3's skill socket stone; stone: the cracked panel of D3's inventory footer.
+    socket_png = Image.open(OUT / "socket.png").convert("RGB").crop((8, 11, 68, 71))
+    socket_png.resize((256, 256), Image.LANCZOS).save(tex / "grunge.png")
+    Image.open(OUT / "bag-frame.png").convert("RGB").crop((40, 476, 560, 616)).save(tex / "stone.png")
+    job = work / "job.json"
+    job.write_text(json.dumps({"out": str(work), "tex": str(tex), "geo": geo, "samples": int(os.environ.get("PARTY_SAMPLES", 160))}))
+    here = Path(__file__).resolve().parent / "blender"
+    for script in ("party_globes.py", "party_slab.py"):
+        subprocess.run([blender, "-b", "--factory-startup", "-P", str(here / script), "--", str(job)],
+                       check=True, stdout=subprocess.DEVNULL)
+
+    grunge = Image.open(tex / "grunge.png").convert("L")
+
+    def render(name):
+        if name.endswith("-iron.png") or name.endswith("-gold.png"):
+            prefix, kind = name[:-9], name[-8:-4]
+            return _party_paint(Image.open(work / f"{prefix}-lit.png"), Image.open(work / f"{prefix}-norm.png"),
+                                Image.open(work / f"{prefix}-data.png"), kind, grunge)
+        return Image.open(work / name).convert("RGBA")
+
+    def put(atlas, image, rect):
+        assert image.size == (int(rect[2]), int(rect[3])), (image.size, rect)
+        atlas.alpha_composite(image, (int(rect[0]), int(rect[1])))
+
+    # Globes.
+    g = geo["globes"]
+    atlas = Image.new("RGBA", tuple(int(v) for v in g["atlas"]), (0, 0, 0, 0))
+    for piece in ("bezel", "medallion", "pet"):
+        for kind in ("iron", "gold"):
+            put(atlas, render(f"globes-{piece}-{kind}.png"), g[piece][kind])
+    bezel = render("globes-bezel-iron.png").getchannel("A")
+    rect = g["glow"]["rect"]
+    put(atlas, _soft_halo(bezel, (int(rect[2]), int(rect[3])), 9, 1.7, (rect[2] / 2, rect[3] / 2, g["bezel"]["globe"][2])), rect)
+    pet = render("globes-pet-iron.png").getchannel("A")
+    rect = g["petGlow"]["rect"]
+    put(atlas, _soft_halo(pet, (int(rect[2]), int(rect[3])), 6, 1.7, (rect[2] / 2, rect[3] / 2, g["pet"]["globe"][2])), rect)
+    atlas.save(OUT / "party-globes.png")
+    _crescent(g["bezel"]).save(OUT / "party-crescent.png")
+
+    # Slab.
+    s = geo["slab"]
+    atlas = Image.new("RGBA", tuple(int(v) for v in s["atlas"]), (0, 0, 0, 0))
+    for piece in ("member", "pet"):
+        for layer in ("stone", "iron", "gold"):
+            put(atlas, render(f"slab-{piece}-{layer}.png"), s[piece][layer])
+    for piece, glow, sigma in (("member", "glow", 7), ("pet", "petGlow", 5)):
+        shape = ImageChops.lighter(render(f"slab-{piece}-stone.png").getchannel("A"), render(f"slab-{piece}-iron.png").getchannel("A"))
+        rect = s[glow]["rect"]
+        put(atlas, _soft_halo(shape, (int(rect[2]), int(rect[3])), sigma, 1.7), rect)
+    atlas.save(OUT / "party-slab.png")
+
+    # Aura frames.
+    a = geo["aura"]
+    atlas = Image.new("RGBA", tuple(int(v) for v in a["atlas"]), (0, 0, 0, 0))
+    neutral, gold = _aura_frames(int(a["debuff"][2]))
+    put(atlas, neutral, a["debuff"])
+    put(atlas, gold, a["buff"])
+    atlas.save(OUT / "party-aura.png")
+    print("party art: renders in", work)
+
+
+# Rendered liquid (Liquid.lua FLIP): a seamless volumetric loop from tools/blender/globe_liquid.py,
+# graded to two tintable luminance sheets: body (normal blend) and light (ADD). Grading is cheap
+# and the Blender renders are not, so LIQUID_WORK keeps them between runs.
+LIQUID_CELL = 256
+LIQUID_COLS = 8
+LIQUID_LOOPS = {
+    # variant: frames, seconds, sheet rows (power-of-two sheets), grade
+    "calm": (48, 5.0, 8, dict(gamma=0.48, floor=0.36, lit=0.78, thin=0.6, em=0.34, even=0.8, gain=1.34, light=2.1)),
+    "agitated": (32, 2.8, 4, dict(gamma=0.5, floor=0.4, lit=0.75, thin=0.6, em=0.32, even=0.6, gain=1.45, light=2.4)),
+}
+LIQUID_EVEN_R = 0.14  # the broad light divided out, of the render's width
+# Frames of circular smoothing per loop, (body, light). Each Cycles frame has its own noise, which
+# the grade's sharpening lifts; unsmoothed, the sheets sparkle in game, worst on the zoomed party
+# globes. A 3-frame median first takes out single-frame sparks in the light.
+LIQUID_SETTLE = {"calm": (1.0, 1.4), "agitated": (1.1, 1.5)}
+
+
+def _liquid_grade(frames: list, p: dict):
+    """Render channels (R emission, G scattered, B transmission) to display-referred body and
+    light cells. A floor keeps the deep liquid coloured; dividing away part of the broad light
+    keeps the fill even at the size the globe is drawn, while the fine strands stay."""
+    import cv2  # noqa: PLC0415
+    import numpy as np  # noqa: PLC0415
+
+    def sharpen(x, r, k):
+        return np.clip(x + k * (x - cv2.GaussianBlur(x, (0, 0), r)), 0, 1)
+
+    em = np.stack([f[..., 0] for f in frames])
+    sc = np.stack([f[..., 1] for f in frames])
+    th = np.stack([f[..., 2] for f in frames])
+    g_top = np.percentile(sc, 99.7)
+    r_top = np.percentile(em, 99.8)
+    size = (LIQUID_CELL, LIQUID_CELL)
+    body, light = [], []
+    for i in range(len(frames)):
+        g = np.clip(sc[i] / g_top, 0, 1)
+        r = np.clip(em[i] / r_top, 0, 1)
+        thick = 1 - np.clip(th[i], 0, 1)
+        b = p["floor"] + g ** p["gamma"] * (p["thin"] + (1 - p["thin"]) * thick) * p["lit"] + r ** 1.5 * p["em"]
+        wide = cv2.GaussianBlur(b, (0, 0), b.shape[0] * LIQUID_EVEN_R)
+        b = b / np.maximum(wide, 0.05) ** p["even"] * np.mean(wide) ** p["even"]
+        b = np.clip(sharpen(np.clip(b, 0, 1), 3.0, 0.5) * p["gain"], 0, 1)
+        lit = sharpen(np.clip(r, 0, 1) ** p["light"], 2.0, 0.6)
+        body.append(cv2.resize(b, size, interpolation=cv2.INTER_AREA))
+        light.append(cv2.resize(lit, size, interpolation=cv2.INTER_AREA))
+    return body, light
+
+
+def _liquid_settle(cells: list, sigma: float, despark: bool) -> list:
+    """Smooth a looping set of cells through time, wrapping so the loop stays seamless."""
+    import numpy as np  # noqa: PLC0415
+    from scipy.ndimage import gaussian_filter1d, median_filter  # noqa: PLC0415
+
+    stack = np.stack(cells)
+    if despark:
+        stack = median_filter(stack, size=(3, 1, 1), mode="wrap")
+    return list(gaussian_filter1d(stack, sigma, axis=0, mode="wrap"))
+
+
+def rendered_liquid() -> None:
+    import os  # noqa: PLC0415
+    import subprocess  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+
+    import cv2  # noqa: PLC0415
+    import numpy as np  # noqa: PLC0415
+
+    blender = os.environ.get("BLENDER", str(Path.home() / "opt/blender-4.5.15-linux-x64/blender"))
+    work = Path(os.environ.get("LIQUID_WORK") or tempfile.mkdtemp(prefix="liquid-art-"))
+    script = Path(__file__).resolve().parent / "blender" / "globe_liquid.py"
+    for variant, (count, seconds, rows, grade) in LIQUID_LOOPS.items():
+        src = work / variant
+        if not (src / f"f{count - 1:03d}.png").exists():
+            src.mkdir(parents=True, exist_ok=True)
+            subprocess.run([blender, "-b", "--factory-startup", "-P", str(script), "--", "--out", str(src),
+                            "--variant", variant, "--frames", str(count), "--seconds", str(seconds),
+                            "--size", "512", "--samples", os.environ.get("LIQUID_SAMPLES", "64")],
+                           check=True, stdout=subprocess.DEVNULL)
+        frames = []
+        for i in range(count):
+            im = cv2.imread(str(src / f"f{i:03d}.png"), cv2.IMREAD_UNCHANGED)
+            if im is None:
+                raise SystemExit(f"missing render {src / f'f{i:03d}.png'}")
+            frames.append(im[..., ::-1].astype(np.float32) / 65535)
+        body, light = _liquid_grade(frames, grade)
+        settle = LIQUID_SETTLE[variant]
+        body, light = _liquid_settle(body, settle[0], False), _liquid_settle(light, settle[1], True)
+        for name, cells in (("body", body), ("light", light)):
+            sheet = np.zeros((rows * LIQUID_CELL, LIQUID_COLS * LIQUID_CELL), np.float32)
+            for i, cell in enumerate(cells):
+                y, x = divmod(i, LIQUID_COLS)
+                sheet[y * LIQUID_CELL:(y + 1) * LIQUID_CELL, x * LIQUID_CELL:(x + 1) * LIQUID_CELL] = cell
+            path = OUT / f"liquid-{variant}-{name}.png"
+            Image.fromarray((sheet * 255 + 0.5).astype(np.uint8), "L").convert("RGBA").save(path, optimize=True)
+    print("rendered liquid: renders in", work)
+
+
+def pollution_art() -> None:
+    """Debuff pollution sheets (Pollution.lua), from tools/blender/globe_pollution_compare.py's
+    output in mockups/. Stretched from 1020 to the sheet's full 1024 so the client's flipbook,
+    which divides the texture evenly into rows and columns, lands exactly on the cells."""
+    src = Path(__file__).resolve().parent.parent / "mockups"
+    for kind, parts in (("poison", ("mix", "glow")), ("disease", ("mix",)), ("curse", ("mix", "glow")), ("magic", ("mix", "glow"))):
+        for part in parts:
+            sheet = Image.open(src / f"globe-pollution-{kind}-{part}.png").convert("RGBA").crop((0, 0, 1020, 1020))
+            sheet.resize((1024, 1024), Image.LANCZOS).save(OUT / f"pollution-{kind}-{part}.png", optimize=True)
+
+
+# The rendered shield break (GlobeAura.lua BREAK): from tools/blender/globe_fx.py, white with the
+# luminance in alpha so TINTS colours it through ADD. BREAK_WORK keeps the renders between runs:
+# the shatter's motion blur (75 sub-frames) is by far the slow part.
+BREAK_SHEETS = {
+    # name: frames, columns, cell, render size, samples, sheet size
+    "shatter": (25, 5, 409, 820, 40, (2048, 2048)),
+    "hit": (16, 4, 256, 512, 64, (1024, 1024)),
+}
+BREAK_WASH_FRAMES = 9  # the shatter's first frames hold a flash of lit faces, removed over these
+BREAK_WASH_KEEP = 0.14  # of that flash: enough to read as a flash, not enough to hide the health
+BREAK_SEAM_WIDTH = 11  # cell px: wider than a seam, narrower than a face
+BREAK_LOW_ALPHA = 0.4  # what is left of a shard low beside the globe, over the gargoyle and console
+
+
+def _break_grade(name: str, frames: list):
+    """Display luminance per cell. The shatter keeps its seams and shards but loses the flat
+    white of its first frames, and its pieces dim where they fly low over the console art."""
+    import cv2  # noqa: PLC0415
+    import numpy as np  # noqa: PLC0415
+
+    count, _cols, cell, *_rest = BREAK_SHEETS[name]
+    a = np.stack(frames)
+    if name == "hit":
+        return list(np.clip(a / np.percentile(a[1:6], 99.7), 0, 1) ** 1.15)
+    a = np.clip(a / np.percentile(a[:18], 99.4), 0, 1) ** 1.45
+    c = (np.arange(cell, dtype=np.float32) + 0.5) / cell * 2 - 1
+    x, y = np.meshgrid(c, c)
+    r = np.hypot(x, y)
+    edge = np.clip((0.98 - r) / (0.98 - 0.74), 0, 1)
+
+    def smooth(v):
+        t = np.clip(v, 0, 1)
+        return t * t * (3 - 2 * t)
+
+    low = 1 - (1 - BREAK_LOW_ALPHA) * smooth(y / 0.6) * smooth((r - 0.42) / 0.14)  # y grows downward
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (BREAK_SEAM_WIDTH, BREAK_SEAM_WIDTH))
+    out = []
+    for i in range(count):
+        f = a[i]
+        wash = 1 - i / BREAK_WASH_FRAMES
+        if wash > 0:
+            fill = cv2.morphologyEx(f, cv2.MORPH_OPEN, kernel)
+            f = f - fill * (1 - BREAK_WASH_KEEP) * min(1.0, wash * 1.6)
+        fade = 1 - max(0.0, i / (count - 1) - 0.5) / 0.5
+        out.append(np.clip(f, 0, 1) ** 1.12 * max(0.0, fade) ** 0.9 * edge * low)
+    return out
+
+
+def rendered_break() -> None:
+    import os  # noqa: PLC0415
+    import subprocess  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+
+    import cv2  # noqa: PLC0415
+    import numpy as np  # noqa: PLC0415
+
+    blender = os.environ.get("BLENDER", str(Path.home() / "opt/blender-4.5.15-linux-x64/blender"))
+    work = Path(os.environ.get("BREAK_WORK") or tempfile.mkdtemp(prefix="break-art-"))
+    script = Path(__file__).resolve().parent / "blender" / "globe_fx.py"
+    for name, (count, cols, cell, size, samples, sheet_size) in BREAK_SHEETS.items():
+        src = work / name
+        subs = 3 if name == "shatter" else 1
+        last = src / (f"f{count - 1:03d}_{subs - 1}.png" if subs > 1 else f"f{count - 1:03d}.png")
+        if not last.exists():
+            src.mkdir(parents=True, exist_ok=True)
+            subprocess.run([blender, "-b", "--factory-startup", "-P", str(script), "--", "--mode", name, "--out", str(src),
+                            "--size", str(size), "--samples", str(samples)], check=True, stdout=subprocess.DEVNULL)
+
+        def read(path: Path):
+            im = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+            if im is None:
+                raise SystemExit(f"missing render {path}")
+            return im[..., :3].mean(axis=2).astype(np.float32) / 65535
+
+        frames = []
+        for i in range(count):
+            names = [src / f"f{i:03d}_{k}.png" for k in range(subs)] if subs > 1 else [src / f"f{i:03d}.png"]
+            frames.append(cv2.resize(sum(read(n) for n in names) / subs, (cell, cell), interpolation=cv2.INTER_AREA))
+        w, h = sheet_size
+        alpha = np.zeros((h, w), np.uint8)
+        for i, f in enumerate(_break_grade(name, frames)):
+            y, x = divmod(i, cols)
+            alpha[y * cell:(y + 1) * cell, x * cell:(x + 1) * cell] = np.clip(f * 255 + 0.5, 0, 255).astype(np.uint8)
+        white = np.full((h, w), 255, np.uint8)
+        Image.merge("RGBA", [Image.fromarray(c) for c in (white, white, white, alpha)]).save(OUT / f"shell-{name}.png", optimize=True)
+    print("rendered break: renders in", work)
+
+
+# Surge styles (GlobeAura.lua SURGE_ART). Sheet name: (loop parts top to bottom, cell w, cell h, cols, sheet w, sheet h).
+SURGE_SHEETS = {
+    "inhale-rays": (("inhale", "rays"), (256, 256, 8, 2048, 1024)),
+    "pour-column": (("pour", "col", "glow"), (128, 256, 16, 2048, 1024)),
+    "pour-under": (("pour", "under"), (256, 128, 8, 2048, 512)),
+    "upwell-body": (("upwell", "body"), (256, 256, 8, 2048, 1024)),
+    "upwell-core": (("upwell", "core"), (256, 256, 8, 2048, 1024)),
+}
+
+
+def surge_art() -> None:
+    import numpy as np  # noqa: PLC0415
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "blender"))
+    import globe_surge_art as art  # noqa: PLC0415
+
+    loops = {"inhale": art.gen_inhale(), "pour": art.gen_pour(), "upwell": art.gen_upwell()}
+
+    def save(alpha, name):
+        white = np.full(alpha.shape, 255, np.uint8)
+        Image.merge("RGBA", [Image.fromarray(c) for c in (white, white, white, alpha)]).save(OUT / name, optimize=True)
+
+    for name, ((loop, *parts), (cw, ch, cols, w, h)) in SURGE_SHEETS.items():
+        alpha = np.zeros((h, w), np.uint8)
+        rows_per_part = art.FRAMES // cols + (art.FRAMES % cols > 0)
+        for p, part in enumerate(parts):
+            for i, cell in enumerate(loops[loop][part]):
+                y, x = divmod(i, cols)
+                y += p * rows_per_part
+                alpha[y * ch:(y + 1) * ch, x * cw:(x + 1) * cw] = np.clip(cell * 255 + 0.5, 0, 255).astype(np.uint8)
+        save(alpha, f"surge-{name}.png")
+    save(np.clip(art.streak() * 255 + 0.5, 0, 255).astype(np.uint8), "surge-streak.png")
+
+
+def rendered_storm() -> None:
+    """Lightning Shield's flipbooks (GlobeAura.lua STORM), drawn by tools/blender/globe_storm.py."""
+    import re  # noqa: PLC0415
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "blender"))
+    import globe_storm  # noqa: PLC0415
+
+    globe_storm.build(str(OUT / "storm-flip"))
+    births, strikes = globe_storm.timing()
+    lua = (Path(__file__).resolve().parent.parent / "SanctuaryUI" / "GlobeAura.lua").read_text()
+    for name, want in (("STORM_BIRTHS", births), ("STORM_STRIKES", strikes)):
+        found = re.search(name + r" = \{([^}]*)\}", lua)
+        have = [int(v) for v in re.findall(r"\d+", found.group(1))] if found else None
+        if have != want:
+            raise SystemExit(f"GlobeAura.lua {name} should be {want}, is {have}")
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     only = set(sys.argv[1:])
-    for step in (frame_and_glass, console_tiers, liquid, liquid_halves, animated_liquid, hotline, xp_fills, menu, glow, blade, socket_glow, bag_frame, bank_frame, bag_cells, d3_button, pips, pip_frames, shimmer, socket, skill_timer, icon, unit_frames, menu_flyout, target_rings, globe_aura, globe_shell, globe_surge, globe_storm):
+    for step in (frame_and_glass, console_tiers, liquid, liquid_halves, animated_liquid, hotline, xp_fills, menu, glow, blade, socket_glow, bag_frame, bank_frame, bag_cells, d3_button, pips, pip_frames, shimmer, socket, skill_timer, icon, unit_frames, menu_flyout, target_rings, globe_aura, globe_shell, globe_surge, globe_storm, party, rendered_liquid, pollution_art, rendered_break, surge_art, rendered_storm):
         if only and step.__name__ not in only:
             continue
         step()

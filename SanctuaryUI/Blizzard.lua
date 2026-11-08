@@ -25,9 +25,17 @@ local KEEP_PARENT = {
 }
 
 -- Hidden only while the SanctuaryUI part that replaces them is on (portraits, target plate).
+local function PartyStyled(db)
+	return db.party and (db.party.style == "globes" or db.party.style == "slab") or false
+end
+
 local REPLACED_BY = {
 	PlayerFrame = function(db) return db.portraits.enabled end,
 	TargetFrame = function(db) return db.target.enabled end,
+	-- Blizzard's party frames while a SanctuaryUI party style is on; with None they are left
+	-- alone for Blizzard or another addon. The raid-style party frames (CompactPartyFrame) are
+	-- PartyFrame's child, so they go with it. Raids keep Blizzard's raid frames either way.
+	PartyFrame = PartyStyled,
 }
 
 -- Hidden only while the "hide micro menu" option is on.
@@ -108,7 +116,9 @@ local function Restore(frame, parent)
 	end
 	frame:SetAlpha(1)
 	pcall(frame.EnableMouse, frame, true)
-	frame:Show()
+	-- The C Show, as RawHide uses the C Hide: an Edit Mode frame's Lua override would run tainted.
+	local show = rawget(frame, "ShowBase") or frame.Show
+	show(frame)
 end
 
 -- Show or hide Blizzard's micro menu. Hiding it again after a restore works through the

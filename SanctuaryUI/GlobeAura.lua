@@ -18,6 +18,9 @@ ns.GlobeAura = ns.GlobeAura or {}
 --     storm    (Lightning Shield) static crackling all round the rim, arcs flashing and
 --              crawling along it, and bolts striking out off it in a stutter of strobes with a
 --              hot spot where they leave the rim; spending the charges discharges it in a burst
+--              Rendered (the default, STORM): one looping flipbook of branching arcs just
+--              outside the console's ring and over the top of the glass, and a discharge that
+--              flings bolts off the whole rim; settled, a short run of it now and then
 --     moments  lit: a shockwave ring swells off the rim and the rays flare; recast: a smaller
 --              ring; last seconds: the glow sinks and flickers; judged away: the light bursts
 --              outward and is gone; otherwise it fades
@@ -34,7 +37,17 @@ ns.GlobeAura = ns.GlobeAura or {}
 --     a clip frame whose top rides an invisible status bar fed the hidden amount, clamped to
 --     0..1, so the shell shows exactly while any absorb holds and is gone the moment it breaks.
 --
---   surge    light pouring into the globe (Evocation, Innervate, Bloodrage, drinking)
+--   surge    power entering the globe, in one of four styles (each skill has a default in
+--            WatchEffects.lua, and the options can set any skill to any look; LookOf decides):
+--     pour     a column of light falling from the ring into the liquid, splashing on the surface
+--              and sending shafts down through it. Calms after a few seconds on long effects
+--     inhale   rays running inward behind the globe, streaks rushing in and flashing on the glass
+--     upwell   plumes rising through the liquid, the surface lit from under
+--     swirl    the rest of this list
+--     Pour and upwell ride the level: drawn inside the liquid's clip, or anchored to its fill
+--     guide, so hidden health and mana still work and no value is ever read. Rendered as
+--     flipbooks crossfaded on their colour (Liquid.lua's rule: the alpha stays the strength);
+--     what moves fast is sprites moved every frame, so it can't ghost.
 --     spiral   arms of light curling in, shrinking toward the rim in two crossfading phases
 --     ring     a ring closing in on the rim, again and again
 --     weight   the spiral, its glow and ring sit under a fixed mask, full over the top and
@@ -58,6 +71,40 @@ local STACK = 3 -- effects of one look on one globe at once
 -- How far each further effect of a look sits outward, of its size.
 local RANK_SCALE = { radiate = 0.14, shell = 0.06, surge = 0.12 }
 local HIT = 0.45 -- seconds a shield's hit ripple runs
+-- The rendered shield break: one-shot flipbooks stepped frame by frame (a blend would double up
+-- fast shards). White art, the luminance in the alpha, drawn ADD and tinted here. size: of the
+-- globe's diameter. The hit's blow is painted upper left; texcoords mirror it toward the blow.
+local BREAK = {
+	shatter = { slot = "shellShatter", frames = 25, cols = 5, cell = 409, sheet = 2048, size = 2.1 },
+	hit = { slot = "shellHit", frames = 16, cols = 4, cell = 256, sheet = 1024, size = 1.09 },
+}
+local BREAK_WARM = 2.5 -- seconds the sheets are kept drawing at login, so the first break doesn't hitch
+
+-- The surge styles' flipbooks. White art, the luminance in the alpha, ADD. row: where this
+-- layer starts on its sheet. A style's other pieces are sprites. Sized for the 180 px globe.
+local SURGE_ART = {
+	inhaleRays = { slot = "surgeInhaleRays", w = 2048, h = 1024, cw = 256, ch = 256, cols = 8, frames = 32, seconds = 3.6, row = 0 },
+	pourCol = { slot = "surgePourColumn", w = 2048, h = 1024, cw = 128, ch = 256, cols = 16, frames = 32, seconds = 3, row = 0 },
+	pourGlow = { slot = "surgePourColumn", w = 2048, h = 1024, cw = 128, ch = 256, cols = 16, frames = 32, seconds = 3, row = 2 },
+	pourUnder = { slot = "surgePourUnder", w = 2048, h = 512, cw = 256, ch = 128, cols = 8, frames = 32, seconds = 3, row = 0 },
+	upwellBody = { slot = "surgeUpwellBody", w = 2048, h = 1024, cw = 256, ch = 256, cols = 8, frames = 32, seconds = 3, row = 0 },
+	upwellCore = { slot = "surgeUpwellCore", w = 2048, h = 1024, cw = 256, ch = 256, cols = 8, frames = 32, seconds = 3, row = 0 },
+}
+local STYLE_SLOTS = {
+	inhale = { "surgeInhaleRays", "surgeStreak" },
+	pour = { "surgePourColumn", "surgePourUnder" },
+	upwell = { "surgeUpwellBody", "surgeUpwellCore" },
+}
+local RIDES_LEVEL = { pour = true, upwell = true }
+local STREAKS = 24 -- inhale: streaks rushing in
+local STREAK_CYCLE = 3 -- seconds for one
+local STREAK_SPAN = 0.78 -- of the sprite's height, the streak's length in the art
+local DROPS = 14 -- pour: droplets thrown up where it lands
+local UPWELL_MOTES = 10
+local RANK_WEIGHT = { 1, 0.6, 0.4 } -- several surges of a style on one globe: the strongest leads
+local RANK_WIDTH = { 1, 0.75, 0.55 } -- and further columns pour thinner down the same line
+local SETTLE_FROM, SETTLE_OVER = 4, 2 -- long effects: seconds until a pour starts to calm, and how long it takes
+local SETTLE_LENGTH = 15 -- of at least this many seconds
 
 -- sat: the wide layers. hot: the rim, the flashes, the sparks.
 local TINTS = {
@@ -151,6 +198,31 @@ local function Size(tex, size)
 	if tex then tex:SetSize(size, size) end
 end
 
+-- Point a flipbook sprite at its frame (0-based). A half-texel inset keeps out the next cell.
+local function BreakCell(tex, spec, i, flipU, flipV)
+	local row = math.floor(i / spec.cols)
+	local col = i - row * spec.cols
+	local inset = 0.5 / spec.sheet
+	local l, r = col * spec.cell / spec.sheet + inset, (col + 1) * spec.cell / spec.sheet - inset
+	local t, b = row * spec.cell / spec.sheet + inset, (row + 1) * spec.cell / spec.sheet - inset
+	if flipU then l, r = r, l end
+	if flipV then t, b = b, t end
+	tex:SetTexCoord(l, r, t, b)
+end
+
+-- What a skill shows: its look, and the surge style if the look is a surge. Everything that
+-- draws goes through here; what is about the game (is it a real shield) uses effect.look.
+local function LookOf(effect)
+	if effect.look == "flare" then return "flare" end
+	local looks = Opt().looks
+	local choice = looks and looks[effect.key]
+	if choice == "radiate" or choice == "shell" then return choice end
+	if choice == "swirl" or (choice and STYLE_SLOTS[choice]) then return "surge", choice end
+	if effect.look == "surge" then return "surge", effect.surge or "swirl" end
+	return effect.look
+end
+ns.GlobeAura.LookOf = LookOf
+
 local function Lerp(color, to, k)
 	for i = 1, 3 do
 		color[i] = color[i] + (to[i] - color[i]) * k
@@ -213,6 +285,26 @@ end
 
 ---------------------------------------------------------------------------
 -- Radiate.
+
+-- Rendered lightning: one flipbook of the whole picture round the globe, never turned, so an
+-- arc can sit just outside the console's ring instead of under it. A loop, then a discharge.
+-- Stepped with no blending: lightning strobes. The core takes the hot colour and the glow the
+-- saturated one, behind the globe and, under the globe's mask, again on the glass. Nothing
+-- crosses the loop's wrap, so it can be mirrored there to hide the repeat.
+-- tools/blender/globe_storm.py draws it (build step rendered_storm checks these lists).
+local STORM = {
+	core = { slot = "stormFlipCore", cols = 7, cell = 292, sheet = 2048 },
+	glow = { slot = "stormFlipGlow", cols = 7, cell = 146, sheet = 1024 },
+	span = 1.75, -- the picture's width, of the globe's diameter
+	loop = 38, fps = 18, discharge = 11, dischargeFps = 20,
+	settleEvery = 1.15, settleRun = 4, settleStrength = 0.55, -- a flicker about every 1.6 s
+	glass = { glow = 0.65, core = 0.75, dischargeGlow = 0.7, dischargeCore = 0.95 },
+}
+local STORM_BIRTHS = { 0, 1, 3, 6, 9, 10, 12, 14, 16, 17, 19, 21, 23, 24, 25, 28, 29, 31, 33, 36 } -- arcs start here
+local STORM_STRIKES = { 2, 11, 18, 25, 30 } -- a bolt strikes: the whole glow lights for a blink
+local stormStrikeAt = {}
+for _, i in ipairs(STORM_STRIKES) do stormStrikeAt[i] = true end
+local EnsureStorm -- builds an instance's flipbook; set once the frame levels are defined
 
 local function BuildRadiate(g)
 	local r = NewInstance("radiate")
@@ -285,6 +377,74 @@ local function Strobe(phase, width)
 	return 0.55 * (1 - (t - 0.42) / 0.58) ^ 2, 3
 end
 
+-- Which picture a storm shows now: its cell, whether mirrored, and how strong. Nil: none now.
+local function StormFrame(a, now, calm, releasing)
+	if releasing then
+		local i = math.floor((now - a.release) * STORM.dischargeFps)
+		if i >= STORM.discharge then return nil end
+		return STORM.loop + i, false, 1
+	end
+	-- Casting it: the same burst of bolts thrown off the rim as it lights.
+	if a.ignite then
+		local i = math.floor((now - a.ignite) * STORM.dischargeFps)
+		if i >= 0 and i < STORM.discharge then return STORM.loop + i, false, 1 end
+	end
+	local gain = 1 - calm
+	if gain > 0.02 then
+		local f = now * STORM.fps
+		local wraps = math.floor(f / STORM.loop)
+		return math.floor(f - wraps * STORM.loop), Hash(wraps * 1.7 + a.rank * 3) > 0.5, gain
+	end
+	-- Settled: most of the time nothing, and now and then a short run of the loop.
+	local t = now / STORM.settleEvery
+	local cycle = math.floor(t)
+	if Hash(cycle * 3.7 + a.rank) < 0.3 then return nil end
+	local step = math.floor((t - cycle) * STORM.settleEvery * STORM.fps)
+	if step >= STORM.settleRun then return nil end
+	local start = STORM_BIRTHS[1 + math.floor(Hash(cycle * 11.3) * #STORM_BIRTHS)]
+	return (start + step) % STORM.loop, Hash(cycle * 5.1) > 0.5, STORM.settleStrength
+end
+
+local function HideFlip(a)
+	local s = a.storm
+	if s and s.lit then
+		s.lit, s.i = false, nil
+		for _, tex in ipairs(s.all) do tex:SetAlpha(0) end
+		s.front:Hide()
+	end
+end
+
+local function AnimateStormFlip(g, a, s, now, base, releasing, sat, hot)
+	local i, mirror, strength = StormFrame(a, now, a.calm or 0, releasing)
+	if not i then
+		HideFlip(a)
+		return
+	end
+	if i ~= s.i or mirror ~= s.mirror then
+		s.i, s.mirror = i, mirror
+		BreakCell(s.glow, STORM.glow, i, mirror)
+		BreakCell(s.core, STORM.core, i, mirror)
+		BreakCell(s.frontGlow, STORM.glow, i, mirror)
+		BreakCell(s.frontCore, STORM.core, i, mirror)
+	end
+	local size = g.size * STORM.span
+	if s.size ~= size then
+		s.size = size
+		for _, tex in ipairs(s.all) do Size(tex, size) end
+	end
+	s.lit = true
+	s.front:Show()
+	-- A burst goes at full: the light has nearly faded by the end of a release, and has barely
+	-- risen at the start of a cast.
+	local charged = i >= STORM.loop
+	local k = strength * (charged and (tonumber(Opt().intensity) or 1) * Strength(a) or base)
+	Paint(s.glow, sat, k)
+	Paint(s.core, hot, k)
+	Paint(s.frontGlow, sat, (charged and STORM.glass.dischargeGlow or STORM.glass.glow) * k)
+	Paint(s.frontCore, hot, (charged and STORM.glass.dischargeCore or STORM.glass.core) * k)
+	a.strike = stormStrikeAt[i] and not charged and strength or 0
+end
+
 local function HideStorm(a)
 	for _, list in ipairs({ a.static, a.arcs, a.bolts, a.roots }) do
 		for _, tex in ipairs(list) do tex:SetAlpha(0) end
@@ -352,6 +512,7 @@ end
 local function AnimateRadiate(g, a, now, dt)
 	local releasing = a.release and now - a.release < RELEASE
 	if not a.ok or not Ease(a, now, dt, releasing) then
+		HideFlip(a)
 		a.frame:Hide()
 		a.catchFrame:Hide()
 		return false
@@ -475,10 +636,17 @@ local function AnimateRadiate(g, a, now, dt)
 			Paint(mote.tex, hot, 0)
 		end
 	end
-	if effect and effect.storm and base > 0 then
-		AnimateStorm(g, a, now, base, sat, hot)
-	else
+	local storm = effect and effect.storm and (base > 0 or releasing) and EnsureStorm(g, a)
+	if storm then
 		HideStorm(a)
+		AnimateStormFlip(g, a, storm, now, base, releasing, sat, hot)
+	else
+		HideFlip(a)
+		if effect and effect.storm and base > 0 then
+			AnimateStorm(g, a, now, base, sat, hot)
+		else
+			HideStorm(a)
+		end
 	end
 	return true
 end
@@ -591,7 +759,17 @@ local function AnimateShell(g, s, now, dt)
 	Size(s.facets, size * swell)
 	Spin(s.facets, now * 0.03 + s.rank * 0.9)
 	Paint(s.facets, hot, 0.65 * base * (0.85 + 0.15 * math.sin(now * 1.7)) * (1 + 1.5 * form + 2.5 * hit))
-	if hitT then
+	if hitT and s.fx then
+		-- Light running along the crystal's seams, mirrored toward the blow.
+		local spec = BREAK.hit
+		local i = math.min(spec.frames - 1, math.floor(hitT * spec.frames))
+		BreakCell(s.fx.hit, spec, i, math.cos(s.hitAngle) > 0, math.sin(s.hitAngle) < 0)
+		Size(s.fx.hit, g.size * spec.size * s.scale * swell)
+		Paint(s.fx.hit, hot, 1.15 * intensity)
+		Paint(s.ripple, sat, 0)
+		Paint(s.rippleHot, hot, 0)
+		Paint(s.impact, hot, 0)
+	elseif hitT then
 		local r = size / 2
 		local x, y = math.cos(s.hitAngle) * r * 0.5, math.sin(s.hitAngle) * r * 0.5
 		-- The ripple's ring sits at a quarter of its sprite: grown to 2.6x the shell it has
@@ -611,6 +789,7 @@ local function AnimateShell(g, s, now, dt)
 		Paint(s.ripple, sat, 0)
 		Paint(s.rippleHot, hot, 0)
 		Paint(s.impact, hot, 0)
+		if s.fx then Paint(s.fx.hit, hot, 0) end
 	end
 	-- The sheen sweeps from top left to bottom right every 3 s, under the globe mask.
 	if s.sheen then
@@ -629,7 +808,19 @@ local function AnimateShell(g, s, now, dt)
 	local shown = shattering and true or false
 	s.levelFrames.shatterBehind:SetShown(shown)
 	s.levelFrames.shards:SetShown(shown)
-	if shattering then
+	if shattering and s.fx then
+		-- The dome you were looking at, cracking along its seams and flying apart; a dimmer ring.
+		local t = (now - s.shatter) / SHATTER
+		local spec = BREAK.shatter
+		BreakCell(s.fx.shatter, spec, math.min(spec.frames - 1, math.floor(t * spec.frames)))
+		Size(s.fx.shatter, g.size * spec.size)
+		Paint(s.fx.shatter, s.shatterMix, intensity)
+		local ringSize = g.size * SCALE * (1 + 0.5 * Out(t))
+		Size(s.ring, ringSize)
+		Paint(s.ring, s.shatterSat, 0.7 * (1 - t) ^ 1.5 * intensity)
+		Size(s.ringHot, ringSize * 0.99)
+		Paint(s.ringHot, s.shatterHot, 0.25 * (1 - t) ^ 1.5 * intensity)
+	elseif shattering then
 		local t = (now - s.shatter) / SHATTER
 		local ringSize = g.size * SCALE * (1 + 0.5 * Out(t))
 		Size(s.ring, ringSize)
@@ -662,6 +853,410 @@ end
 
 ---------------------------------------------------------------------------
 -- Surge.
+
+local function LevelOf(kind)
+	local base = ns.Cluster:GetFrameLevel()
+	if kind == "aura" then return base + ns.LEVEL.aura end
+	if kind == "glass" then return base + ns.LEVEL.glass end
+	return base + ns.LEVEL.console + 1 -- shards fly over the console art
+end
+
+-- Where an effect's globe is: health, or the resource globe for power, and for mana while it
+-- holds mana (or the split globe's mana half; anything while testing).
+local function ClipTo(tex, target)
+	tex:ClearAllPoints()
+	tex:SetAllPoints(target)
+end
+
+local function GlobeMask(frame, globe)
+	local mask = frame:CreateMaskTexture()
+	mask:SetTexture(ns.Art.Path("globeMask"), "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	mask:SetAllPoints(globe)
+	return mask
+end
+
+-- Two textures of one flipbook layer, on one sublevel.
+local function Pair(frame, spec, sublevel)
+	return { a = Sprite(frame, spec.slot, sublevel), b = Sprite(frame, spec.slot, sublevel), spec = spec }
+end
+
+local function PairCall(p, method, ...)
+	p.a[method](p.a, ...)
+	p.b[method](p.b, ...)
+end
+
+local function Cell(tex, spec, i)
+	local row = math.floor(i / spec.cols)
+	local col = i - row * spec.cols
+	row = row + spec.row
+	local du, dv = 0.5 / spec.w, 0.5 / spec.h
+	tex:SetTexCoord(col * spec.cw / spec.w + du, (col + 1) * spec.cw / spec.w - du,
+		row * spec.ch / spec.h + dv, (row + 1) * spec.ch / spec.h - dv)
+end
+
+-- Draw a layer: the crossfade weights go in the colour (ADD, so that's the same as alpha), the
+-- strength in the alpha, set last (one value on a texture, see Liquid.lua Flipbook).
+local function DrawPair(p, clock, color, strength)
+	local spec = p.spec
+	local pos = (clock / spec.seconds) % 1 * spec.frames
+	local i = math.floor(pos)
+	local f = pos - i
+	if i ~= p.i then
+		p.i = i
+		Cell(p.a, spec, i)
+		Cell(p.b, spec, (i + 1) % spec.frames)
+	end
+	local r, g, b = color[1], color[2], color[3]
+	p.a:SetVertexColor(r * (1 - f), g * (1 - f), b * (1 - f))
+	p.b:SetVertexColor(r * f, g * f, b * f)
+	local k = math.max(0, math.min(1, strength))
+	p.a:SetAlpha(k)
+	p.b:SetAlpha(k)
+end
+
+local function Mix(sat, hot, a, b)
+	return { math.min(1, sat[1] * a + hot[1] * b), math.min(1, sat[2] * a + hot[2] * b), math.min(1, sat[3] * a + hot[3] * b) }
+end
+
+local function Stretch(tex, w, h)
+	if tex then tex:SetSize(w, h) end
+end
+
+local BUILD = {}
+
+function BUILD.inhale(g, u)
+	local s = { parts = {}, sheets = {} }
+	s.rays = Pair(u.behind, SURGE_ART.inhaleRays, 3)
+	s.sheets[1] = s.rays
+	local mask = u.weight
+	if mask then PairCall(s.rays, "AddMaskTexture", mask) end
+	s.parts[#s.parts + 1] = s.rays.a
+	s.parts[#s.parts + 1] = s.rays.b
+	s.front = GlobeMask(u.front, g.frame)
+	s.streaks, s.flashes = {}, {}
+	for k = 1, STREAKS do
+		local tex = Sprite(u.behind, "surgeStreak", 4)
+		if mask then tex:AddMaskTexture(mask) end
+		local flash = Sprite(u.front, "mote", 2)
+		flash:AddMaskTexture(s.front)
+		s.streaks[k], s.flashes[k] = tex, flash
+		s.parts[#s.parts + 1] = tex
+		s.parts[#s.parts + 1] = flash
+	end
+	s.streakSheet = s.streaks
+	return s
+end
+
+function BUILD.pour(g, u)
+	local guide, inside = g.frame.pool:Anchors()
+	local s = { parts = {}, sheets = {} }
+	-- The column stops at the level: a clip frame whose bottom is the fill guide's top. Its own
+	-- top is the globe's, under the console's ring, so it comes down from the ring.
+	local clip = Layer(g.parent)
+	if clip.SetClipsChildren then clip:SetClipsChildren(true) end
+	clip:SetPoint("TOPLEFT", g.frame, "TOPLEFT")
+	clip:SetPoint("BOTTOMRIGHT", guide, "TOPRIGHT")
+	s.glow = Pair(clip, SURGE_ART.pourGlow, 0)
+	s.col = Pair(clip, SURGE_ART.pourCol, 1)
+	for _, p in ipairs({ s.glow, s.col }) do
+		for _, tex in ipairs({ p.a, p.b }) do
+			tex:ClearAllPoints()
+			tex:SetPoint("TOP", g.frame, "TOP")
+		end
+	end
+	-- In the liquid: shafts and rings hanging from the surface, clipped with the liquid.
+	local liquid = Layer(inside)
+	liquid:SetAllPoints(g.frame)
+	local liquidMask = GlobeMask(liquid, g.frame)
+	s.under = Pair(liquid, SURGE_ART.pourUnder, 0)
+	PairCall(s.under, "AddMaskTexture", liquidMask)
+	for _, tex in ipairs({ s.under.a, s.under.b }) do
+		tex:ClearAllPoints()
+	end
+	-- Over the surface, riding it: the crown, the lit line, the droplets.
+	local over = Layer(g.parent)
+	over:SetAllPoints(g.frame)
+	local mask = GlobeMask(over, g.frame)
+	s.lit = Sprite(over, "mote", 0)
+	s.crown = Sprite(over, "mote", 1)
+	s.drops = {}
+	for k = 1, DROPS do s.drops[k] = Sprite(over, "mote", 2) end
+	for _, tex in ipairs({ s.lit, s.crown, unpack(s.drops) }) do tex:AddMaskTexture(mask) end
+	s.guide = guide
+	s.frames, s.glass, s.liquid = { clip, liquid, over }, { clip, over }, liquid
+	s.sheets = { s.col, s.glow, s.under }
+	return s
+end
+
+function BUILD.upwell(g, u)
+	local guide, inside = g.frame.pool:Anchors()
+	local s = { parts = {}, sheets = {} }
+	local liquid = Layer(inside)
+	liquid:SetAllPoints(g.frame)
+	local mask = GlobeMask(liquid, g.frame)
+	s.body = Pair(liquid, SURGE_ART.upwellBody, 0)
+	s.core = Pair(liquid, SURGE_ART.upwellCore, 1)
+	for _, p in ipairs({ s.body, s.core }) do
+		PairCall(p, "AddMaskTexture", mask)
+		ClipTo(p.a, g.frame)
+		ClipTo(p.b, g.frame)
+	end
+	s.motes = {}
+	for k = 1, UPWELL_MOTES do
+		s.motes[k] = Sprite(liquid, "mote", 2)
+		s.motes[k]:AddMaskTexture(mask)
+	end
+	local crest = Layer(g.parent)
+	crest:SetAllPoints(g.frame)
+	local crestMask = GlobeMask(crest, g.frame)
+	s.crestS = Sprite(crest, "mote", 0)
+	s.crestH = Sprite(crest, "mote", 1)
+	s.crestS:AddMaskTexture(crestMask)
+	s.crestH:AddMaskTexture(crestMask)
+	for _, tex in ipairs({ s.crestS, s.crestH }) do
+		tex:ClearAllPoints()
+		tex:SetPoint("CENTER", guide, "TOP")
+	end
+	s.guide = guide
+	s.frames, s.glass, s.liquid = { liquid, crest }, { crest }, liquid
+	s.sheets = { s.body, s.core }
+	return s
+end
+
+local styleArt = {} -- style -> whether its sheets loaded; once only
+
+local function StyleArt(name)
+	if styleArt[name] == nil then
+		local ok = true
+		for _, slot in ipairs(STYLE_SLOTS[name]) do
+			if not ns.Art.Require(slot) then ok = false end
+		end
+		if not ok and ns.Log then ns.Log("globe auras: " .. name .. " art failed to load, using swirl") end
+		styleArt[name] = ok
+	end
+	return styleArt[name]
+end
+
+-- Can this globe draw this style right now? Falling back is always to swirl. A split globe has
+-- two levels side by side, so nothing can ride "the" level.
+local function CanDraw(g, name)
+	if name == "swirl" then return true end
+	if not STYLE_SLOTS[name] or not StyleArt(name) then return false end
+	if RIDES_LEVEL[name] then
+		local pool = g.frame.pool
+		if not (pool and pool.Anchors) then return false end
+		if g.frame == ns.ResourceGlobe and ns.Globes.IsSplit and ns.Globes.IsSplit() then return false end
+	end
+	return true
+end
+
+local function ActiveStyle(g, u)
+	local effect = u.effect or u.lastEffect
+	if not effect then return u.style or "swirl" end
+	local look, style = LookOf(effect)
+	if look ~= "surge" then style = u.style or "swirl" end
+	return CanDraw(g, style) and style or "swirl"
+end
+
+local function Reattach(s)
+	for _, p in ipairs(s.sheets) do
+		local path = ns.Art.Path(p.spec.slot)
+		for _, tex in ipairs({ p.a, p.b }) do
+			tex:SetTexture(path, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+		end
+		p.i = nil
+	end
+	if s.streakSheet then
+		local path = ns.Art.Path("surgeStreak")
+		for _, tex in ipairs(s.streakSheet) do tex:SetTexture(path, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE") end
+	end
+	s.released = nil
+end
+
+local function Release(s)
+	for _, p in ipairs(s.sheets) do
+		p.a:SetTexture(nil)
+		p.b:SetTexture(nil)
+	end
+	if s.streakSheet then
+		for _, tex in ipairs(s.streakSheet) do tex:SetTexture(nil) end
+	end
+	s.released = true
+end
+
+local function StyleLevels(s)
+	for _, frame in ipairs(s.glass or {}) do frame:SetFrameLevel(LevelOf("glass")) end
+end
+
+local function EnsureStyle(g, u, name)
+	u.styles = u.styles or {}
+	local s = u.styles[name]
+	if not s then
+		s = BUILD[name](g, u)
+		u.styles[name] = s
+		StyleLevels(s)
+	elseif s.released then
+		Reattach(s)
+	end
+	return s
+end
+
+local function ShowStyle(g, u, name)
+	if u.shownStyle == name then return end
+	u.shownStyle = name
+	for key, s in pairs(u.styles or {}) do
+		local on = key == name
+		for _, frame in ipairs(s.frames or {}) do frame:SetShown(on) end
+		for _, tex in ipairs(s.parts) do tex:SetShown(on) end
+	end
+end
+
+local function HideStyles(u)
+	if not u.shownStyle then return end
+	u.shownStyle = nil
+	for _, s in pairs(u.styles or {}) do
+		for _, frame in ipairs(s.frames or {}) do frame:Hide() end
+		for _, tex in ipairs(s.parts) do tex:Hide() end
+	end
+end
+
+-- Above the liquid's own layers, inside its clip; the pool's level can change with the layout.
+local function FollowLiquid(g, s)
+	if not s.liquid then return end
+	local level = g.frame.pool.frame:GetFrameLevel() + 1
+	if s.level ~= level then
+		s.level = level
+		s.liquid:SetFrameLevel(level)
+	end
+end
+
+local DRAW = {}
+
+function DRAW.inhale(g, u, s, now, base, sat, hot, rush)
+	local size = g.size * SCALE * u.scale
+	local k = base * (RANK_WEIGHT[u.rank + 1] or 0.4)
+	local clock = now + u.rank * 1.3
+	if s.size ~= size then
+		s.size = size
+		PairCall(s.rays, "SetSize", size * 1.02, size * 1.02)
+	end
+	DrawPair(s.rays, clock, sat, 1.15 * k * (1 + 0.5 * rush))
+	-- Streaks falling in, quickening toward the glass; where each lands, a flash.
+	local r = g.size / 2
+	for i, tex in ipairs(s.streaks) do
+		local lives = 1 + (i % 2)
+		local q = (clock / STREAK_CYCLE * lives + Hash(i * 3.1)) % 1
+		local a0 = math.rad(14 + 152 * Hash(i * 7.7))
+		local curl = (Hash(i * 5.3) - 0.5) * 0.5
+		local speed = 0.8 + 0.5 * Hash(i * 2.9)
+		local travel = q / 0.88
+		local flash = s.flashes[i]
+		if travel < 1 then
+			local function At(p)
+				local d = 2.15 - 1.15 * p ^ 2.2
+				local a = a0 + curl * (d - 1) ^ 2
+				return math.cos(a) * d * r, math.sin(a) * d * r
+			end
+			local hx, hy = At(travel)
+			local tx, ty = At(math.max(0, travel - 0.2 * speed))
+			local dx, dy = tx - hx, ty - hy
+			local length = math.max(1, math.sqrt(dx * dx + dy * dy))
+			tex:ClearAllPoints()
+			tex:SetPoint("CENTER", u.behind, "CENTER", (hx + tx) / 2, (hy + ty) / 2)
+			Size(tex, length / STREAK_SPAN)
+			Spin(tex, math.atan2(dy, dx) - math.pi / 2)
+			Paint(tex, hot, math.min(1, travel / 0.25) * (0.65 + 0.35 * speed) * k * 1.2)
+			flash:SetAlpha(0)
+		else
+			tex:SetAlpha(0)
+			local x, y = math.cos(a0) * 0.97 * r, math.sin(a0) * 0.97 * r
+			flash:ClearAllPoints()
+			flash:SetPoint("CENTER", u.front, "CENTER", x, y)
+			Size(flash, r * 0.55)
+			Paint(flash, hot, math.exp(-(travel - 1) / 0.055) * 0.95 * k)
+		end
+	end
+end
+
+function DRAW.pour(g, u, s, now, base, sat, hot, rush, calm)
+	local size = g.size
+	local rank = u.rank
+	local k = base * (RANK_WEIGHT[rank + 1] or 0.4)
+	local clock = now + rank * 1.7
+	if s.size ~= size or s.rank ~= rank then
+		s.size, s.rank = size, rank
+		local w = size * 0.5 * (RANK_WIDTH[rank + 1] or 0.55)
+		PairCall(s.col, "SetSize", w, size)
+		PairCall(s.glow, "SetSize", w, size)
+		PairCall(s.under, "SetSize", size * 1.2, size * 0.6)
+		for _, tex in ipairs({ s.under.a, s.under.b }) do
+			tex:ClearAllPoints()
+			tex:SetPoint("TOP", s.guide, "TOP", 0, size * 0.05)
+		end
+		s.lit:ClearAllPoints()
+		s.lit:SetPoint("CENTER", s.guide, "TOP")
+		Stretch(s.lit, size * 0.85, size * 0.07)
+		s.crown:ClearAllPoints()
+		s.crown:SetPoint("CENTER", s.guide, "TOP", 0, size * 0.04)
+		Stretch(s.crown, size * 0.24, size * 0.2)
+	end
+	DrawPair(s.glow, clock, sat, 1.25 * k * (1 - 0.55 * calm))
+	DrawPair(s.col, clock, hot, 1.2 * k * (1 - 0.5 * calm))
+	DrawPair(s.under, clock, Mix(sat, hot, 0.8, 0.4), 1.05 * k * (1 - 0.65 * calm))
+	Paint(s.lit, hot, 0.95 * k * (1 - 0.4 * calm))
+	Paint(s.crown, hot, (0.75 + 0.25 * math.sin(clock * 6.283)) * 0.9 * k * (1 - 0.4 * calm))
+	for i, tex in ipairs(s.drops) do
+		local lives = 1 + (i % 2)
+		local q = (clock / 3 * lives + Hash(i * 4.3)) % 1
+		local vx = (Hash(i * 6.1) - 0.5) * 0.9
+		local vy = 0.32 + 0.5 * Hash(i * 2.7)
+		local x, y = vx * q * 0.75, vy * q - 0.83 * q * q
+		if y < -0.005 or calm > 0.98 then
+			tex:SetAlpha(0)
+		else
+			tex:ClearAllPoints()
+			tex:SetPoint("CENTER", s.guide, "TOP", x * size, y * size)
+			Size(tex, size * (0.035 + 0.025 * Hash(i * 9.1)))
+			Paint(tex, hot, (1 - q) ^ 0.7 * 0.95 * k * (1 + rush) * (1 - calm))
+		end
+	end
+end
+
+function DRAW.upwell(g, u, s, now, base, sat, hot, rush)
+	local size = g.size
+	local rank = u.rank
+	local k = base * (RANK_WEIGHT[rank + 1] or 0.4)
+	local clock = now + rank * 1.1
+	if s.size ~= size then
+		s.size = size
+		Stretch(s.crestS, size * 1.15, size * 0.2)
+		Stretch(s.crestH, size * 0.6, size * 0.06)
+	end
+	DrawPair(s.body, clock, Mix(sat, hot, 0.85, 0.25), 0.7 * k * (1 + 0.4 * rush))
+	DrawPair(s.core, clock, hot, 0.55 * k)
+	-- Motes rising from the bottom, thickest low, where the liquid is when you most need this.
+	for i, tex in ipairs(s.motes) do
+		local lives = 1 + (i % 3 == 0 and 1 or 0)
+		local q = (clock / 3 * lives + Hash(i * 5.7)) % 1
+		local spread = 0.14 + 0.5 * q
+		local x = (Hash(i * 3.3) - 0.5) * 2 * spread + math.sin(q * 6.3 + i) * 0.03
+		local y = 0.03 + 0.9 * q ^ 1.5
+		tex:ClearAllPoints()
+		tex:SetPoint("CENTER", g.frame, "BOTTOM", x * size * 0.5, y * size)
+		Size(tex, size * (0.03 + 0.03 * Hash(i * 2.1)))
+		Paint(tex, hot, math.min(1, q / 0.15) * (1 - Smoothstep((q - 0.7) / 0.3)) * (0.55 + 0.45 * Hash(i * 8.7)) * k)
+	end
+	local pulse = 0.78 + 0.22 * math.sin(clock * 2 * math.pi * 2 / 3)
+	Paint(s.crestS, sat, pulse * k)
+	Paint(s.crestH, hot, pulse * 1.15 * k)
+end
+
+-- What each style keeps of the swirl's shared light: corona size and strength, glass bloom.
+local STYLE_LIGHT = {
+	inhale = { corona = 0.98, glow = 0.42, top = 0.42 },
+	pour = { corona = 0.7, glow = 0.22, top = 0.22 },
+	upwell = { corona = 0.9, glow = 0.34, top = 0.4 },
+}
 
 local function BuildSurge(g)
 	local u = NewInstance("surge")
@@ -704,10 +1299,21 @@ local function BuildSurge(g)
 	return u
 end
 
+local function ClearSwirl(u)
+	if u.swirlClear then return end
+	u.swirlClear = true
+	local c = u.sat
+	Paint(u.spirals[1], c, 0)
+	Paint(u.spirals[2], c, 0)
+	Paint(u.ring, c, 0)
+	for _, tex in ipairs(u.motes) do Paint(tex, c, 0) end
+end
+
 local function AnimateSurge(g, u, now, dt)
 	if not u.ok or not Ease(u, now, dt, false) then
 		u.behind:Hide()
 		u.front:Hide()
+		HideStyles(u)
 		return false
 	end
 	u.behind:Show()
@@ -715,12 +1321,48 @@ local function AnimateSurge(g, u, now, dt)
 	local opt = Opt()
 	local e = Smoothstep(u.level)
 	local intensity = tonumber(opt.intensity) or 1
-	local base = e * intensity * Strength(u) * Gutter(u, now, dt)
+	local flicker, gutter = Gutter(u, now, dt)
+	local base = e * intensity * Strength(u) * flicker
 	local size = g.size * SCALE * u.scale
 	local sat, hot = u.sat, u.hotColor
 	local turn = u.rank % 2 == 0 and -1 or 1 -- stacked surges turn against each other
 	local rush = 0
 	if u.ignite and now - u.ignite < IGNITE then rush = 1 - (now - u.ignite) / IGNITE end
+	if u.weight then u.weight:SetSize(size * 1.35, size * 1.35) end
+	local style = ActiveStyle(g, u)
+	u.style = style
+	if style ~= "swirl" then
+		ClearSwirl(u)
+		local s = EnsureStyle(g, u, style)
+		ShowStyle(g, u, style)
+		FollowLiquid(g, s)
+		-- A long effect settles after its first seconds, and wakes for its last.
+		local calm = 0
+		local effect, st = u.effect, u.st
+		local length = st and st.length or effect and effect.length or 0
+		if effect and length >= SETTLE_LENGTH and opt.settleLong then
+			calm = Smoothstep((now - (u.litAt or now) - SETTLE_FROM) / SETTLE_OVER) * (1 - Smoothstep(gutter * 2.5))
+		end
+		u.calm = calm
+		local light = STYLE_LIGHT[style]
+		Size(u.corona, size * light.corona)
+		local breath = 0.86 + 0.14 * math.sin(now * 2 * math.pi / 2.2)
+		Paint(u.corona, sat, light.glow * breath * base)
+		if u.bloomLow then
+			u.bloomLow:SetAlpha(0)
+			u.bloomTop:SetVertexColor(hot[1], hot[2], hot[3])
+			u.bloomTop:SetAlpha(math.min(1, light.top * breath * base * (1 + rush)))
+		end
+		if RIDES_LEVEL[style] and u.ignite and u.kicked ~= u.ignite then
+			u.kicked = u.ignite
+			g.frame.pool:Kick(0.06)
+		end
+		DRAW[style](g, u, s, now, base, sat, hot, rush, calm)
+		return true
+	end
+	HideStyles(u)
+	u.swirlClear = nil
+	u.calm = 0
 	-- Two spiral phases, each shrinking toward the rim while it turns, crossfading.
 	for i, tex in ipairs(u.spirals) do
 		local p = (now / 1.6 + (i - 1) * 0.5) % 1
@@ -732,8 +1374,6 @@ local function AnimateSurge(g, u, now, dt)
 	Paint(u.corona, sat, 0.5 * base)
 	local p = (now / 1.1) % 1
 	Size(u.ring, size * (1.3 - 0.3 * p))
-	-- The mask covers everything the swirl draws behind the globe.
-	if u.weight then u.weight:SetSize(size * 1.35, size * 1.35) end
 	Paint(u.ring, hot, 0.6 * p * base)
 	local breath = 0.8 + 0.2 * math.sin(now * 2 * math.pi / 1.6)
 	if u.bloomLow then
@@ -829,15 +1469,6 @@ end
 ---------------------------------------------------------------------------
 -- Globes and their layout.
 
-local function LevelOf(kind)
-	local base = ns.Cluster:GetFrameLevel()
-	if kind == "aura" then return base + ns.LEVEL.aura end
-	if kind == "glass" then return base + ns.LEVEL.glass end
-	return base + ns.LEVEL.console + 1 -- shards fly over the console art
-end
-
--- Where an effect's globe is: health, or the resource globe for power, and for mana while it
--- holds mana (or the split globe's mana half; anything while testing).
 local function GlobeFor(kind)
 	if kind == "health" then return globes.health end
 	if kind == "power" then return globes.resource end
@@ -846,6 +1477,44 @@ local function GlobeFor(kind)
 	if powerType == MANA or (ns.Globes.IsSplit and ns.Globes.IsSplit()) then
 		return globes.resource
 	end
+end
+
+-- The rendered lightning's textures on one instance, built the first time it strikes (the
+-- sheets are already on the GPU, see PrepareStorm). Nil: use the drawn static and bolts.
+EnsureStorm = function(g, a)
+	local opt = Opt()
+	if opt.renderedStorm == false then return nil end
+	local s = a.storm
+	if s and s.loaded then return s end
+	if not (ns.Art.Require(STORM.core.slot) and ns.Art.Require(STORM.glow.slot) and ns.Art.Path("globeMask")) then
+		return nil
+	end
+	if s then
+		s.loaded = true
+		s.glow:SetTexture(ns.Art.Path(STORM.glow.slot), "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+		s.frontGlow:SetTexture(ns.Art.Path(STORM.glow.slot), "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+		s.core:SetTexture(ns.Art.Path(STORM.core.slot), "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+		s.frontCore:SetTexture(ns.Art.Path(STORM.core.slot), "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+		return s
+	end
+	local front = Layer(g.parent)
+	front:SetAllPoints(g.frame)
+	front:SetFrameLevel(LevelOf("glass"))
+	front:Hide()
+	local mask = front:CreateMaskTexture()
+	mask:SetTexture(ns.Art.Path("globeMask"), "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	mask:SetAllPoints(front)
+	s = {
+		front = front, loaded = true, lit = false,
+		glow = Sprite(a.frame, STORM.glow.slot, 4), core = Sprite(a.frame, STORM.core.slot, 5),
+		frontGlow = Sprite(front, STORM.glow.slot, 0), frontCore = Sprite(front, STORM.core.slot, 1),
+	}
+	if not (s.glow and s.core and s.frontGlow and s.frontCore) then return nil end
+	s.all = { s.glow, s.core, s.frontGlow, s.frontCore }
+	s.frontGlow:AddMaskTexture(mask)
+	s.frontCore:AddMaskTexture(mask)
+	a.storm = s
+	return s
 end
 
 local function Place(frame, g, size)
@@ -865,6 +1534,7 @@ function ns.GlobeAura.Layout()
 			r.catchFrame:ClearAllPoints()
 			r.catchFrame:SetAllPoints(g.frame)
 			r.catchFrame:SetFrameLevel(LevelOf("glass"))
+			if r.storm then r.storm.front:SetFrameLevel(LevelOf("glass")) end
 		end
 		for _, sh in ipairs(g.looks.shell) do
 			Place(sh.bar, g, big)
@@ -881,6 +1551,10 @@ function ns.GlobeAura.Layout()
 			-- Surge motes start out beyond the glass, so their layer is the big square too.
 			Place(u.front, g, big)
 			u.front:SetFrameLevel(LevelOf("glass"))
+			for _, style in pairs(u.styles or {}) do
+				StyleLevels(style)
+				style.size = nil -- sized again on its next frame
+			end
 			if u.bloomLow then
 				for _, tex in ipairs({ u.bloomLow, u.bloomTop }) do
 					tex:ClearAllPoints()
@@ -912,7 +1586,7 @@ local function Choose(g, look)
 	local knownShield = false
 	for _, effect in ipairs(ns.Watch.EFFECTS) do
 		if #list >= STACK then break end
-		if effect.look == look and Enabled(effect) and GlobeFor(effect.globe) == g then
+		if LookOf(effect) == look and Enabled(effect) and GlobeFor(effect.globe) == g then
 			local st = ns.Watch.State(effect.key)
 			-- The shield from anyone follows the same absorb as a known shield: one is enough.
 			local redundant = effect.kind == "absorb" and knownShield
@@ -934,6 +1608,12 @@ local function Shatter(inst, was, now)
 	local tint = TINTS[was.tint] or TINTS.holy
 	inst.shatter, inst.shatterSeed = now, math.floor(now * 7) % 97
 	inst.shatterSat, inst.shatterHot = tint.sat, tint.hot
+	local k = 0.65 -- the rendered shards sit between the tint's two colours
+	inst.shatterMix = {
+		tint.sat[1] + (tint.hot[1] - tint.sat[1]) * k,
+		tint.sat[2] + (tint.hot[2] - tint.sat[2]) * k,
+		tint.sat[3] + (tint.hot[3] - tint.sat[3]) * k,
+	}
 	inst.level = 0
 end
 
@@ -1122,7 +1802,7 @@ function ns.GlobeAura.Inspect()
 				if inst.effect and inst.rank == 0 then first = inst end
 			end
 			out[name][look] = { key = first and first.effect.key, level = first and first.level or 0, shatter = shatter, keys = keys,
-				calm = first and first.calm or 0 }
+				calm = first and first.calm or 0, style = first and first.style }
 		end
 		local flares = 0
 		for _, f in ipairs(g.flares) do if f.started then flares = flares + 1 end end
@@ -1158,8 +1838,207 @@ function ns.GlobeAura.Step()
 	end
 end
 
+-- Draw the sheets for a moment on a one-pixel holder, nearly invisible, so the client has them
+-- on the GPU before the first shield breaks; a break can't wait for a 2048 texture to load.
+local warm
+local function WarmBreak()
+	if not warm then
+		warm = CreateFrame("Frame", nil, UIParent)
+		warm:SetFrameStrata("BACKGROUND")
+		warm:SetSize(1, 1)
+		warm:SetPoint("CENTER")
+		warm:EnableMouse(false)
+		warm.tex = {}
+		for name in pairs(BREAK) do
+			local tex = warm:CreateTexture(nil, "BACKGROUND")
+			tex:SetBlendMode("ADD")
+			tex:SetAllPoints()
+			tex:SetAlpha(0.01)
+			warm.tex[name] = tex
+		end
+	end
+	for name, spec in pairs(BREAK) do warm.tex[name]:SetTexture(ns.Art.Path(spec.slot)) end
+	warm:Show()
+	if C_Timer and C_Timer.After then
+		C_Timer.After(BREAK_WARM, function() warm:Hide() end)
+	else
+		warm:Hide()
+	end
+end
+
+-- The rendered break: built only while its option is on, and given up (back to the drawn
+-- shards and ripple) if a sheet won't load. Nothing touches the sheets while it's off.
+local function PrepareBreak()
+	local opt = Opt()
+	local want = opt.enabled and opt.renderedBreak ~= false
+	local ready = want and ns.Art.Require(BREAK.shatter.slot) and ns.Art.Require(BREAK.hit.slot) and true or false
+	for _, g in pairs(globes) do
+		for _, s in ipairs(g.looks.shell) do
+			if ready and not s.fx then
+				local made = s.breakMade
+				if made then
+					for name, spec in pairs(BREAK) do
+						made[name]:SetTexture(ns.Art.Path(spec.slot), "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+					end
+				else
+					made = {
+						shatter = Sprite(s.levelFrames.shards, BREAK.shatter.slot, 2),
+						hit = Sprite(s.levelFrames.front, BREAK.hit.slot, 6),
+					}
+					s.breakMade = made
+				end
+				s.fx = made
+				-- Whatever the drawn shards last showed stays out of the rendered break.
+				for _, shard in ipairs(s.shards) do
+					shard.tex:SetAlpha(0)
+					shard.hot:SetAlpha(0)
+				end
+			elseif not ready and s.fx then
+				s.fx.shatter:SetTexture(nil)
+				s.fx.hit:SetTexture(nil)
+				s.fx = nil
+			end
+		end
+	end
+	if ready and not ns.GlobeAura.breakWarm then
+		ns.GlobeAura.breakWarm = true
+		WarmBreak()
+	elseif not ready and warm then
+		ns.GlobeAura.breakWarm = nil
+		for _, tex in pairs(warm.tex) do tex:SetTexture(nil) end
+		warm:Hide()
+	end
+end
+
+-- Load the sheets of every surge style a skill you can have uses (and let go of the others),
+-- and build it on its globes now, so its first use doesn't wait for a 2048 texture.
+local warmStyles
+local function WarmSheets(slots)
+	if not warmStyles then
+		warmStyles = CreateFrame("Frame", nil, UIParent)
+		warmStyles:SetFrameStrata("BACKGROUND")
+		warmStyles:SetSize(1, 1)
+		warmStyles:SetPoint("CENTER")
+		warmStyles:EnableMouse(false)
+		warmStyles.tex = {}
+		warmStyles.slotOf = {}
+	end
+	for i, slot in ipairs(slots) do
+		local tex = warmStyles.tex[i]
+		if not tex then
+			tex = warmStyles:CreateTexture(nil, "BACKGROUND")
+			tex:SetBlendMode("ADD")
+			tex:SetAllPoints()
+			tex:SetAlpha(0.01)
+			warmStyles.tex[i] = tex
+		end
+		tex:SetTexture(ns.Art.Path(slot))
+		warmStyles.slotOf[i] = slot
+	end
+	warmStyles:Show()
+	if C_Timer and C_Timer.After then
+		C_Timer.After(BREAK_WARM, function() warmStyles:Hide() end)
+	else
+		warmStyles:Hide()
+	end
+end
+
+-- Rendered lightning, for characters who can have a storm effect showing as a radiance: the
+-- sheets to warm now, if they aren't yet. Test mode loads them on first use instead. Let go of
+-- them when nothing wants them, unless a storm is on the globe right now.
+local stormWarmed
+local function PrepareStorm()
+	local _, class = UnitClass("player")
+	local wanted = Opt().renderedStorm ~= false
+	if wanted then
+		wanted = false
+		for _, effect in ipairs(ns.Watch.EFFECTS) do
+			if effect.storm and Enabled(effect) and (effect.class == class or effect.class == "ANY") and LookOf(effect) == "radiate" then
+				wanted = true
+				break
+			end
+		end
+	end
+	if wanted then
+		if not stormWarmed and ns.Art.Require(STORM.core.slot) and ns.Art.Require(STORM.glow.slot) then
+			stormWarmed = true
+			return { STORM.core.slot, STORM.glow.slot }
+		end
+		return {}
+	end
+	local showing = false
+	for _, g in pairs(globes) do
+		for _, a in ipairs(g.looks.radiate) do
+			local effect = a.effect or a.lastEffect
+			if a.level > 0 and effect and effect.storm and Opt().renderedStorm ~= false then showing = true end
+		end
+	end
+	if showing then return {} end
+	stormWarmed = nil
+	for _, g in pairs(globes) do
+		for _, a in ipairs(g.looks.radiate) do
+			if a.storm and a.storm.loaded then
+				HideFlip(a)
+				a.storm.loaded = false
+				for _, tex in ipairs(a.storm.all) do tex:SetTexture(nil) end
+			end
+		end
+	end
+	if warmStyles then
+		for i, tex in pairs(warmStyles.tex) do
+			local slot = warmStyles.slotOf[i]
+			if slot == STORM.core.slot or slot == STORM.glow.slot then
+				tex:SetTexture(nil)
+				warmStyles.slotOf[i] = nil
+			end
+		end
+	end
+	return {}
+end
+
+local warmed = {}
+local function PrepareStyles()
+	local want = {}
+	local _, class = UnitClass("player")
+	for _, effect in ipairs(ns.Watch.EFFECTS) do
+		if Enabled(effect) and (effect.class == class or effect.class == "ANY") then
+			local look, style = LookOf(effect)
+			local g = look == "surge" and style ~= "swirl" and GlobeFor(effect.globe)
+			if g and CanDraw(g, style) then
+				want[style] = want[style] or {}
+				want[style][g] = true
+			end
+		end
+	end
+	local slots = {}
+	for style, onGlobes in pairs(want) do
+		for g in pairs(onGlobes) do
+			for _, u in ipairs(g.looks.surge) do EnsureStyle(g, u, style) end
+		end
+		if not warmed[style] then
+			warmed[style] = true
+			for _, slot in ipairs(STYLE_SLOTS[style]) do slots[#slots + 1] = slot end
+		end
+	end
+	for _, slot in ipairs(PrepareStorm()) do slots[#slots + 1] = slot end
+	if #slots > 0 then WarmSheets(slots) end
+	-- What no skill uses any more is released, unless something is showing it right now.
+	for _, g in pairs(globes) do
+		for _, u in ipairs(g.looks.surge) do
+			for style, s in pairs(u.styles or {}) do
+				if not (want[style] and want[style][g]) and u.shownStyle ~= style and not s.released then
+					Release(s)
+					warmed[style] = nil
+				end
+			end
+		end
+	end
+end
+
 function ns.GlobeAura.ApplySettings()
 	if not driver then return end
+	PrepareBreak()
+	PrepareStyles()
 	Evaluate(nil)
 	Wake()
 end
@@ -1182,6 +2061,8 @@ function ns.GlobeAura.Init()
 	globes.health = BuildGlobe(ns.HealthGlobe)
 	globes.resource = BuildGlobe(ns.ResourceGlobe)
 	ns.GlobeAura.Layout()
+	PrepareBreak()
+	PrepareStyles()
 	driver = CreateFrame("Frame", nil, ns.Cluster)
 	for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "UPDATE_SHAPESHIFT_FORM" }) do
 		pcall(driver.RegisterEvent, driver, event)
@@ -1209,7 +2090,8 @@ function ns.GlobeAura.Init()
 			return
 		end
 		local g = GlobeFor(effect.globe)
-		if g and g.looks[effect.look] then Refresh(g, effect.look, reason, key) end
+		local look = LookOf(effect)
+		if g and g.looks[look] then Refresh(g, look, reason, key) end
 	end)
 	Evaluate("reading")
 end

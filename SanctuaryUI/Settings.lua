@@ -25,6 +25,8 @@ ns.DEFAULTS = {
 		numbersMax = true,
 		numberSize = 22,
 		liquidAnimate = true,
+		liquidStyle = "classic", -- classic: D3's layered tiles; rendered: the Blender flipbooks (Liquid.lua)
+		pollution = true, -- debuffs colour the health globe until they end or are cleansed (Pollution.lua)
 		liquidSpeed = 1,
 		lowHealthPulse = true,
 		lowHealthAgitate = true, -- the health globe turns faster and sloshes as health falls
@@ -40,7 +42,10 @@ ns.DEFAULTS = {
 			catch = true, -- the light wrapping onto the globe's glass
 			testLength = 30, -- seconds a test cast lasts (Watch.lua test mode)
 			settleLong = true, -- 10-minute buffs (Inner Fire, Lightning Shield) calm down after lighting
+			renderedStorm = true, -- Lightning Shield's drawn flipbook lightning (GlobeAura.lua STORM)
+			renderedBreak = true, -- shields crack and shatter with the Blender render (GlobeAura.lua BREAK)
 			effects = { ["*"] = true, innerFire = false }, -- by Watch.lua effect key
+			looks = {}, -- by effect key, what that skill shows; unset: its default (GlobeAura.lua LookOf)
 		},
 
 		-- rail
@@ -195,6 +200,27 @@ ns.DEFAULTS = {
 			scale = 1.25, -- 1 = D3's own size
 			player = false, -- your own portrait (no health bar: the globe is your health)
 			pet = true,
+			moved = false,
+			mx = 0,
+			my = 0,
+		},
+
+		-- party frames: your party members (and their pets) under your portrait
+		party = {
+			style = "globes", -- globes | slab | none (Blizzard's party frames, or another addon's)
+			scale = 1.25, -- 1 = the art's own size (the portraits above default to 1.25 too)
+			stone = 1, -- the slab's stone opacity: down to 0.55 or so for the see-through look
+			pets = true,
+			portrait3d = true, -- slab: the moving 3D bust in the socket when in view
+			healthText = "percent", -- none | percent | current | missing
+			healPrediction = true,
+			debuffs = true,
+			maxDebuffs = 4,
+			buffs = true, -- your buffs on them (HoTs, shields)
+			maxBuffs = 3,
+			dispelGlow = true, -- halo while a member has a debuff you can dispel
+			threat = true,
+			rangeFade = true,
 			moved = false,
 			mx = 0,
 			my = 0,
@@ -386,6 +412,8 @@ function ns.Refresh()
 	Run("auras", ns.Auras and ns.Auras.ApplySettings)
 	Run("target", ns.TargetPlate and ns.TargetPlate.ApplySettings)
 	Run("portraits", ns.Portraits and ns.Portraits.ApplySettings)
+	Run("party", ns.Party and ns.Party.ApplySettings)
+	Run("pollution", ns.Pollution and ns.Pollution.ApplySettings)
 	Run("menu", ns.Menu and ns.Menu.ApplySettings)
 	Run("bags", ns.Bags and ns.Bags.ApplySettings)
 	Run("bank", ns.Bank and ns.Bank.ApplySettings)

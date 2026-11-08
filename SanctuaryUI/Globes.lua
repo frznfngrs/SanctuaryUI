@@ -3,6 +3,7 @@ local ns = SanctuaryUI
 ns.Globes = ns.Globes or {}
 
 local GLOBE = 136
+local WELL_PAD = 5 / 160 -- the well's reach past the liquid, of the globe's diameter
 local PIP_MAX = 6
 local HOTLINE_H = 0.16
 
@@ -29,6 +30,10 @@ local SECONDARY = {
 	EVOKER = { "Essence" },
 	DEATHKNIGHT = { "Runes" },
 }
+
+-- Shared with the party globes, so a member's liquid is yours.
+ns.Globes.HEALTH_COLOR = HEALTH_COLOR
+ns.Globes.POWER_COLORS = POWER_COLORS
 
 local function Secret(value)
 	return issecretvalue and issecretvalue(value)
@@ -831,6 +836,13 @@ function ns.Globes.Layout()
 		globe:ClearAllPoints()
 		globe:SetPoint("CENTER", pods[side], "BOTTOM", spot.x, base + spot.y)
 		globe:SetFrameLevel(level + ns.LEVEL.globe)
+		-- The dark well reaches 5 px (of the 160 px globe) past the liquid, under the console's
+		-- ring: the ring's soft inner edge sits outside the globe along the bottom, and without
+		-- this the game world shows through it. Any further would poke past the ring.
+		local pad = spot.size * WELL_PAD
+		globe.Well:ClearAllPoints()
+		globe.Well:SetPoint("TOPLEFT", globe, "TOPLEFT", -pad, pad)
+		globe.Well:SetPoint("BOTTOMRIGHT", globe, "BOTTOMRIGHT", pad, -pad)
 		globe.Liquid:SetFrameLevel(level + ns.LEVEL.liquid)
 		globe.Chrome:SetFrameLevel(level + ns.LEVEL.chrome)
 		if globe.pool then

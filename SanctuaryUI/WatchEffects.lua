@@ -28,6 +28,11 @@ local ns = SanctuaryUI
 --   long              a buff kept up for minutes (Inner Fire, Lightning Shield): after lighting
 --                     it settles to a quiet glow, so it doesn't burn all session
 --   storm             radiance only: lightning too (static and arcs on the rim, bolts striking out)
+--   surge             with look = "surge", how the power enters by default: "pour" (a column of
+--                     light falling into the liquid, for filling up over time), "inhale" (streaks
+--                     rushing in to the glass, for a short violent surge), "upwell" (plumes rising
+--                     through the liquid, for quiet healing), or "swirl". Players can change any
+--                     skill in the options (GlobeAura.lua LookOf)
 --   flare             a burst played at the cast (and, for look = "flare", all it does):
 --                     a list of { globe, tint, dir = "out" | "in" }
 --
@@ -93,28 +98,28 @@ ns.WatchData.EFFECTS = {
 		label = "Lightning Shield", desc = "crackling blue light radiates from behind the health globe until its charges are spent" },
 
 	-- Surges.
-	{ key = "evocation", class = "MAGE", spells = { 12051 }, names = { "Evocation" }, look = "surge", globe = "mana", tint = "arcane", length = 8, kind = "channel",
-		label = "Evocation", desc = "arcane light pours into the mana globe while you channel" },
-	{ key = "innervate", class = "DRUID", spells = { 29166 }, names = { "Innervate" }, look = "surge", globe = "mana", tint = "innervate", length = 20, target = "any",
-		label = "Innervate", desc = "green-blue light pours into the mana globe, when it is on you" },
-	{ key = "manaTide", class = "SHAMAN", spells = { 16190 }, names = { "Mana Tide Totem" }, look = "surge", globe = "mana", tint = "water", length = 12,
-		label = "Mana Tide Totem", desc = "water-blue light pours into the mana globe" },
-	{ key = "bloodrage", class = "WARRIOR", spells = { 2687 }, names = { "Bloodrage" }, look = "surge", globe = "health", tint = "blood", length = 10, strength = 1.2,
+	{ key = "evocation", class = "MAGE", spells = { 12051 }, names = { "Evocation" }, look = "surge", surge = "pour", globe = "mana", tint = "arcane", length = 8, kind = "channel",
+		label = "Evocation", desc = "a column of light pouring from the ring into the mana globe while you channel" },
+	{ key = "innervate", class = "DRUID", spells = { 29166 }, names = { "Innervate" }, look = "surge", surge = "inhale", globe = "mana", tint = "innervate", length = 20, target = "any",
+		label = "Innervate", desc = "streaks of light rushing in to the mana globe, when it is on you" },
+	{ key = "manaTide", class = "SHAMAN", spells = { 16190 }, names = { "Mana Tide Totem" }, look = "surge", surge = "pour", globe = "mana", tint = "water", length = 12,
+		label = "Mana Tide Totem", desc = "a column of light pouring from the ring into the mana globe" },
+	{ key = "bloodrage", class = "WARRIOR", spells = { 2687 }, names = { "Bloodrage" }, look = "surge", surge = "inhale", globe = "health", tint = "blood", length = 10, strength = 1.2,
 		flare = { { globe = "power", tint = "rage", dir = "in" } },
-		label = "Bloodrage", desc = "blood swirls round the health globe it costs, and the rage globe draws the rage in" },
-	{ key = "frenziedRegeneration", class = "DRUID", spells = { 22842 }, names = { "Frenzied Regeneration" }, look = "surge", globe = "health", tint = "nature", length = 10,
-		label = "Frenzied Regeneration", desc = "green light pours into the health globe" },
-	{ key = "renew", class = "PRIEST", spells = { 139 }, names = { "Renew" }, look = "surge", globe = "health", tint = "holy", length = 15, target = "any",
-		label = "Renew", desc = "gold light pours into the health globe, when it is on you" },
-	{ key = "rejuvenation", class = "DRUID", spells = { 774 }, names = { "Rejuvenation" }, look = "surge", globe = "health", tint = "nature", length = 12, target = "any",
-		label = "Rejuvenation", desc = "green light pours into the health globe, when it is on you" },
-	{ key = "regrowth", class = "DRUID", spells = { 8936 }, names = { "Regrowth" }, look = "surge", globe = "health", tint = "nature", length = 21, target = "any",
+		label = "Bloodrage", desc = "streaks of blood rushing in to the health globe it costs, and the rage globe draws the rage in" },
+	{ key = "frenziedRegeneration", class = "DRUID", spells = { 22842 }, names = { "Frenzied Regeneration" }, look = "surge", surge = "upwell", globe = "health", tint = "nature", length = 10,
+		label = "Frenzied Regeneration", desc = "green light welling up through the health globe" },
+	{ key = "renew", class = "PRIEST", spells = { 139 }, names = { "Renew" }, look = "surge", surge = "upwell", globe = "health", tint = "holy", length = 15, target = "any",
+		label = "Renew", desc = "gold light welling up through the health globe, when it is on you" },
+	{ key = "rejuvenation", class = "DRUID", spells = { 774 }, names = { "Rejuvenation" }, look = "surge", surge = "upwell", globe = "health", tint = "nature", length = 12, target = "any",
+		label = "Rejuvenation", desc = "green light welling up through the health globe, when it is on you" },
+	{ key = "regrowth", class = "DRUID", spells = { 8936 }, names = { "Regrowth" }, look = "surge", surge = "upwell", globe = "health", tint = "nature", length = 21, target = "any",
 		flare = { { globe = "health", tint = "nature", dir = "in" } },
-		label = "Regrowth", desc = "green light pours into the health globe, when it is on you" },
-	{ key = "food", class = "ANY", names = { "Food", "Food & Drink", "Refreshment" }, spells = {}, look = "surge", globe = "health", tint = "hearth", length = 30, kind = "reading",
-		label = "Eating", desc = "warm light pours into the health globe while you eat" },
-	{ key = "drink", class = "ANY", names = { "Drink", "Food & Drink", "Refreshment" }, spells = {}, look = "surge", globe = "mana", tint = "water", length = 30, kind = "reading",
-		label = "Drinking", desc = "water-blue light pours into the mana globe while you drink" },
+		label = "Regrowth", desc = "green light welling up through the health globe, when it is on you" },
+	{ key = "food", class = "ANY", names = { "Food", "Food & Drink", "Refreshment" }, spells = {}, look = "surge", surge = "pour", globe = "health", tint = "hearth", length = 30, kind = "reading",
+		label = "Eating", desc = "a column of warm light pouring into the health globe while you eat" },
+	{ key = "drink", class = "ANY", names = { "Drink", "Food & Drink", "Refreshment" }, spells = {}, look = "surge", surge = "pour", globe = "mana", tint = "water", length = 30, kind = "reading",
+		label = "Drinking", desc = "a column of light pouring into the mana globe while you drink" },
 
 	-- Flares: instant, nothing to keep up.
 	{ key = "lifeTap", class = "WARLOCK", spells = { 1454 }, names = { "Life Tap" }, look = "flare",

@@ -34,6 +34,12 @@ ns.Liquid = ns.Liquid or {}
 --     sloshes it
 -- The same pool drives the big globes, the split halves and the small secondary globes;
 -- the small ones zoom into the tiles (opts.zoom) so the pattern keeps its size on screen.
+--
+-- The rendered style (options: Liquid style) replaces base, swirl, churn, wisps and streaks
+-- with a looping Blender render stepped as a flipbook: body sheets tinted and added onto solid
+-- black, light sheets added on top, each drawn twice and crossfaded so it runs smoothly between
+-- frames. A second, boiling loop fades in at low health on the same curve as the churn. Level,
+-- mask, shade, rim, motes, surface, bands, ghost and physics are the same in both styles.
 
 local SURFACE_H = 0.16 -- surface strip height, of the globe
 local SURFACE_PAD = 0.06 -- room above the line in each slice for the wave, of the globe
@@ -73,6 +79,18 @@ local WISPS = { span = 1.15, period = 6.5, travel = 0.16, spin = 0.05, alpha = 0
 local SHIMMER_DU, GLOW_DU = 0.07, -0.025
 local MOTE = { size = 0.035, rise = 0.075, wobble = 0.018, alpha = 0.55 }
 
+-- The rendered style. Sheets from tools/build_hud_art.py rendered_liquid: cols x rows cells,
+-- the loop reads left to right from the top. FLIP_EDGE keeps bilinear off the next cell.
+local FLIP = {
+	calm = { body = "liquidCalmBody", light = "liquidCalmLight", frames = 48, cols = 8, rows = 8, seconds = 5 },
+	agitated = { body = "liquidAgitatedBody", light = "liquidAgitatedLight", frames = 32, cols = 8, rows = 4, seconds = 2.8 },
+}
+local FLIP_EDGE = 0.5 / 256 -- of a cell
+local FLIP_MIN_ZOOM = 0.7 -- small globes crop into a cell no further than this: more would magnify the motion
+local FLIP_LIGHT, FLIP_HOT = 0.7, 0.55 -- the light layer's strength and how far its colour heats
+local FLIP_AGIT_TINT = { 1, 0.7, 0.6 } -- of the liquid colour: the boil stays red, a little deeper
+local FLIP_AGIT_LIGHT, FLIP_AGIT_HOT = 0.55, 0.4
+
 local pools = {}
 local byBar = {}
 
@@ -103,7 +121,8 @@ function ns.Liquid.Status()
 	end
 	local base = pools[1] and pools[1].base
 	local u = base and select(1, base:GetTexCoord()) or 0
-	return ("liquid animated: %d pools, %d visible, driver %s, %d ticks, base u %.2f"):format(
+	return ("liquid animated (%s): %d pools, %d visible, driver %s, %d ticks, base u %.2f"):format(
+		pools[1] and pools[1].flipOn and "rendered" or "classic",
 		#pools, visible, ns.Liquid.driver and "on" or "off", ns.Liquid.ticks or 0, u)
 end
 
@@ -489,40 +508,45 @@ function Pool:Animate(t, realTime, dt)
 	local zoom = self.zoom
 	local phase = self.phase
 
+	local flip = self.flipOn
 	local m = LAYERS.base
 	local breathe = 1 + m.breathe * math.sin(t * m.breatheRate + phase * 7)
-	Affine(self.base, phase + t * m.du * zoom, phase * 0.7 + t * m.dv * zoom, m.span * zoom * 0.5 * breathe, t * m.spin + phase * 6)
+	if not flip then
+		Affine(self.base, phase + t * m.du * zoom, phase * 0.7 + t * m.dv * zoom, m.span * zoom * 0.5 * breathe, t * m.spin + phase * 6)
+	end
 	if self.bands then
 		self:BandAnimate(realTime, phase + t * m.du * zoom, phase * 0.7 + t * m.dv * zoom, m.span * zoom * 0.5 * breathe, t * m.spin + phase * 6)
 	end
 	if self.ghostTex and self.ghost then
 		Affine(self.ghostTex, phase + t * m.du * zoom, phase * 0.7 + t * m.dv * zoom, m.span * zoom * 0.5 * breathe, t * m.spin + phase * 6)
 	end
-	m = LAYERS.swirl
-	breathe = 1 + m.breathe * math.sin(t * m.breatheRate + phase * 3)
-	Affine(self.swirl, phase + 0.37 + t * m.du * zoom, 0.5 + t * m.dv * zoom, m.span * zoom * 0.5 * breathe, t * m.spin + phase * 2)
-	if self.churn then self:Churn(t) end
-	if self.streaks then
-		m = LAYERS.streaks
-		local u = phase + 0.71 + t * m.du * zoom
-		local v = phase + math.sin(t * m.swayRate + phase * 40) * m.sway
-		Affine(self.streaks, u, v, m.span * zoom * 0.5, 0)
-	end
+	if not flip then
+		m = LAYERS.swirl
+		breathe = 1 + m.breathe * math.sin(t * m.breatheRate + phase * 3)
+		Affine(self.swirl, phase + 0.37 + t * m.du * zoom, 0.5 + t * m.dv * zoom, m.span * zoom * 0.5 * breathe, t * m.spin + phase * 2)
+		if self.churn then self:Churn(t) end
+		if self.streaks then
+			m = LAYERS.streaks
+			local u = phase + 0.71 + t * m.du * zoom
+			local v = phase + math.sin(t * m.swayRate + phase * 40) * m.sway
+			Affine(self.streaks, u, v, m.span * zoom * 0.5, 0)
+		end
 
-	-- Wisps: two copies half a cycle apart. Each fades in, drifts and turns, fades out, and is
-	-- reseeded somewhere new while invisible, so the pattern never visibly repeats or slides.
-	local wr, wg, wb = self:Light(self.color[1], self.color[2], self.color[3], 0.35)
-	for k, w in ipairs(self.wisps) do
-		local cyc = t / WISPS.period + phase + (k - 1) * 0.5
-		local n = math.floor(cyc)
-		local p = cyc - n
-		local seed = n * 2 + k + phase * 13
-		local dir = Hash(seed + 0.5) * math.pi * 2
-		local travel = (p - 0.5) * WISPS.travel * zoom
-		local a = math.sin(p * math.pi)
-		w:SetVertexColor(wr, wg, wb, a * a * WISPS.alpha)
-		Affine(w, Hash(seed) + math.cos(dir) * travel, Hash(seed + 1.7) + math.sin(dir) * travel,
-			WISPS.span * zoom * 0.5, Hash(seed + 3.1) * 6.283 + (p - 0.5) * WISPS.spin * WISPS.period)
+		-- Wisps: two copies half a cycle apart. Each fades in, drifts and turns, fades out, and is
+		-- reseeded somewhere new while invisible, so the pattern never visibly repeats or slides.
+		local wr, wg, wb = self:Light(self.color[1], self.color[2], self.color[3], 0.35)
+		for k, w in ipairs(self.wisps) do
+			local cyc = t / WISPS.period + phase + (k - 1) * 0.5
+			local n = math.floor(cyc)
+			local p = cyc - n
+			local seed = n * 2 + k + phase * 13
+			local dir = Hash(seed + 0.5) * math.pi * 2
+			local travel = (p - 0.5) * WISPS.travel * zoom
+			local a = math.sin(p * math.pi)
+			w:SetVertexColor(wr, wg, wb, a * a * WISPS.alpha)
+			Affine(w, Hash(seed) + math.cos(dir) * travel, Hash(seed + 1.7) + math.sin(dir) * travel,
+				WISPS.span * zoom * 0.5, Hash(seed + 3.1) * 6.283 + (p - 0.5) * WISPS.spin * WISPS.period)
+		end
 	end
 
 	-- Heartbeat and flare light the rim and swirl.
@@ -532,7 +556,11 @@ function Pool:Animate(t, realTime, dt)
 		local r, g, b = self:Light(self.color[1], self.color[2], self.color[3], 0.3)
 		self.rim:SetVertexColor(r, g, b, Clamp(0.42 + 0.55 * beat + 0.35 * flare, 0, 1))
 	end
-	self.swirl:SetVertexColor(self.color[1], self.color[2], self.color[3], Clamp(LAYERS.swirl.alpha + 0.3 * beat, 0, 1))
+	if flip then
+		self:Flipbook(t, dt, beat, flare)
+	else
+		self.swirl:SetVertexColor(self.color[1], self.color[2], self.color[3], Clamp(LAYERS.swirl.alpha + 0.3 * beat, 0, 1))
+	end
 	if self.surfaceShown ~= false then
 		local c = self.surfaceColor
 		local glow = Clamp(0.85 + 0.15 * beat + 0.4 * flare, 0, 1)
@@ -551,22 +579,23 @@ end
 -- turning fast against the swirl, faded in as health falls: low health roils and darkens.
 -- With readable health its alpha is the urgency; with hidden health the client puts the
 -- health fraction through a curve and straight into the alpha, so we never read it.
-local churnCurve
-local function ChurnCurve()
-	if churnCurve == nil then
-		churnCurve = false
+local churnCurves = {}
+local function ChurnCurve(strength)
+	strength = strength or 1
+	if churnCurves[strength] == nil then
+		churnCurves[strength] = false
 		if C_CurveUtil and C_CurveUtil.CreateCurve then
 			local ok, curve = pcall(C_CurveUtil.CreateCurve)
 			if ok and curve then
-				-- Health fraction -> alpha: none above half, full at 10% and below.
+				-- Health fraction -> alpha: none above half, `strength` at 10% and below.
 				for _, p in ipairs({ { 0, 1 }, { URGE_FULL, 1 }, { 0.3, 0.5 }, { URGE_FROM, 0 }, { 1, 0 } }) do
-					pcall(curve.AddPoint, curve, p[1], p[2])
+					pcall(curve.AddPoint, curve, p[1], p[2] * strength)
 				end
-				churnCurve = curve
+				churnCurves[strength] = curve
 			end
 		end
 	end
-	return churnCurve or nil
+	return churnCurves[strength] or nil
 end
 
 function Pool:Churn(t)
@@ -578,13 +607,178 @@ function Pool:Churn(t)
 	elseif self.fill then
 		churn:SetAlpha(m.alpha * (self.urge or 0))
 	else
-		local curve = UnitHealthPercent and ChurnCurve()
+		-- The curve carries the churn's strength: a vertex alpha here would overwrite the
+		-- hidden value, since a texture's vertex alpha and SetAlpha are one value in this client.
+		local curve = UnitHealthPercent and ChurnCurve(m.alpha)
 		local ok, alpha = false, nil
 		if curve then ok, alpha = pcall(UnitHealthPercent, "player", true, curve) end
 		if not (ok and alpha ~= nil and pcall(churn.SetAlpha, churn, alpha)) then churn:SetAlpha(0) end
-		-- The layer's own vertex alpha scales the curve's 0..1 down to the churn's strength.
-		local c = self.color
-		churn:SetVertexColor(c[1] * 0.3, c[2] * 0.2, c[3] * 0.2, m.alpha)
+	end
+end
+
+-- Whether the rendered style's art loaded. The sheets are only ever looked at from here.
+local function FlipReady()
+	if ns.Liquid.flipReady == nil then
+		local ready = true
+		for _, spec in pairs(FLIP) do
+			if not (ns.Art.Require(spec.body) and ns.Art.Require(spec.light)) then ready = false end
+		end
+		ns.Liquid.flipReady = ready
+	end
+	return ns.Liquid.flipReady
+end
+
+local function FlipTexture(frame, globe, mask, slot, sublevel, blend, made)
+	local tex = frame:CreateTexture(nil, "ARTWORK", nil, sublevel)
+	made[#made + 1] = tex
+	if not tex:SetTexture(ns.Art.Path(slot), "CLAMP", "CLAMP") then return nil end
+	tex:SetAllPoints(globe)
+	if blend then tex:SetBlendMode(blend) end
+	tex:AddMaskTexture(mask)
+	Smooth(tex)
+	return tex
+end
+
+-- The solid black the bodies add onto. The bodies are ADD so that their weights always sum to 1;
+-- this is what makes them cover whatever is behind, at any alpha. Two "over" layers would not:
+-- under a parent alpha (the party's range fade) their combined coverage rises with the blend
+-- and drops back at every frame step, which flashes about ten times a second.
+local function FlipBacking(pool, sublevel, made)
+	local tex = pool.frame:CreateTexture(nil, "ARTWORK", nil, sublevel)
+	made[#made + 1] = tex
+	tex:SetColorTexture(0, 0, 0, 1)
+	tex:SetAllPoints(pool.globe)
+	tex:AddMaskTexture(pool.mask)
+	return tex
+end
+
+-- One loop on consecutive sublevels from `sub`: the backing, two bodies, two lights.
+local function FlipSet(pool, spec, sub, made)
+	local function Tex(slot, level, blend)
+		return FlipTexture(pool.frame, pool.globe, pool.mask, slot, level, blend, made)
+	end
+	local set = {
+		spec = spec,
+		backing = FlipBacking(pool, sub, made),
+		bodyA = Tex(spec.body, sub + 1, "ADD"), bodyB = Tex(spec.body, sub + 1, "ADD"),
+		lightA = Tex(spec.light, sub + 2, "ADD"), lightB = Tex(spec.light, sub + 2, "ADD"),
+	}
+	if set.bodyA and set.bodyB and set.lightA and set.lightB then return set end
+end
+
+-- Builds the textures the first time this pool needs them; false means stay classic.
+function Pool:BuildFlip()
+	if self.flip then return true end
+	if self.flipFailed or not FlipReady() then return false end
+	local made = {}
+	local ok, calm, agit = pcall(function()
+		-- Under the classic layers' sublevels; the motes and rim stay above both styles.
+		return FlipSet(self, FLIP.calm, -8, made), self.churn and FlipSet(self, FLIP.agitated, -5, made) or nil
+	end)
+	if not ok or not calm or (self.churn and not agit) then
+		self.flipFailed = true
+		for _, tex in ipairs(made) do tex:Hide() end
+		if ns.Log then ns.Log("liquid: rendered style failed to load, using classic") end
+		return false
+	end
+	self.flip = { calm = calm, agit = agit, made = made }
+	return true
+end
+
+-- Switch this pool to the chosen style.
+function Pool:ApplyStyle()
+	local on = ns.DB().liquidStyle == "rendered" and self:BuildFlip() or false
+	if on == (self.flipOn or false) then return end
+	self.flipOn = on
+	for _, key in ipairs({ "base", "swirl", "churn", "streaks" }) do
+		if self[key] then self[key]:SetShown(not on) end
+	end
+	for _, w in ipairs(self.wisps) do w:SetShown(not on) end
+	if self.flip then
+		for _, tex in ipairs(self.flip.made) do tex:SetShown(on) end
+		self.flip.calm.i = nil
+		if self.flip.agit then self.flip.agit.i = nil end
+	end
+end
+
+local function FlipHot(r, g, b, k)
+	if r > b then return Hotter(r, g, b, k) end
+	return Lighter(r, g, b, k)
+end
+
+local function FlipCell(tex, spec, i, inset)
+	local row = math.floor(i / spec.cols)
+	local col = i - row * spec.cols
+	tex:SetTexCoord((col + inset) / spec.cols, (col + 1 - inset) / spec.cols, (row + inset) / spec.rows, (row + 1 - inset) / spec.rows)
+end
+
+-- Point a loop's textures at its current pair of frames; returns how far between them it is.
+local function FlipStep(set, clock, inset)
+	local spec = set.spec
+	local pos = (clock / spec.seconds) % 1 * spec.frames
+	local i = math.floor(pos)
+	if i ~= set.i then
+		set.i = i
+		local j = (i + 1) % spec.frames
+		FlipCell(set.bodyA, spec, i, inset)
+		FlipCell(set.bodyB, spec, j, inset)
+		FlipCell(set.lightA, spec, i, inset)
+		FlipCell(set.lightB, spec, j, inset)
+	end
+	return pos - i
+end
+
+-- How much of the low-health loop shows: readable urgency when health can be read, else the
+-- client's curve applied to the hidden health. May be a secret; never compare it.
+function Pool:UrgeAlpha()
+	if ns.DB().lowHealthAgitate == false then return 0 end
+	if self.fill then return self.urge or 0 end
+	local curve = UnitHealthPercent and ChurnCurve()
+	if curve then
+		local ok, alpha = pcall(UnitHealthPercent, "player", true, curve)
+		if ok and alpha ~= nil then return alpha end
+	end
+	return 0
+end
+
+-- The calm loop's textures crossfade with vertex alpha; a small pool zooms into each cell, up
+-- to FLIP_MIN_ZOOM, so the pattern keeps some size on screen. Readable or hidden, the boil
+-- fades on the region alpha alone, the way the churn does, so the same maths runs in and out
+-- of combat.
+function Pool:Flipbook(t, dt, beat, flare)
+	local flip, c = self.flip, self.color
+	local r, g, b = c[1], c[2], c[3]
+	local inset = math.max(FLIP_EDGE, (1 - math.max(self.zoom, FLIP_MIN_ZOOM)) * 0.5)
+	local calm = flip.calm
+	local f = FlipStep(calm, t + self.phase * calm.spec.seconds, inset)
+	calm.bodyA:SetVertexColor(r, g, b, 1 - f)
+	calm.bodyB:SetVertexColor(r, g, b, f)
+	local hr, hg, hb = FlipHot(r, g, b, FLIP_HOT)
+	local light = Clamp(FLIP_LIGHT + 0.3 * beat + 0.35 * flare, 0, 1)
+	calm.lightA:SetVertexColor(hr, hg, hb, (1 - f) * light)
+	calm.lightB:SetVertexColor(hr, hg, hb, f * light)
+
+	local agit = flip.agit
+	if not agit then return end
+	local db = ns.DB()
+	-- On its own clock: the boil is already fast, so low health must not speed it up as well.
+	self.agitClock = (self.agitClock or 0) + (db.liquidAnimate and dt * (tonumber(db.liquidSpeed) or 1) or 0)
+	f = FlipStep(agit, self.agitClock + self.phase * agit.spec.seconds, inset)
+	-- The crossfade weights go in the colour, never in the alpha: the alpha is the boil's own
+	-- strength, set last, and the game can treat a texture's vertex alpha and SetAlpha as one
+	-- value. Passing weights as alpha would overwrite the strength and show the boil at full
+	-- health. These layers are ADD, so scaling their colour is the same as scaling their alpha.
+	local tr, tg, tb = r * FLIP_AGIT_TINT[1], g * FLIP_AGIT_TINT[2], b * FLIP_AGIT_TINT[3]
+	agit.bodyA:SetVertexColor(tr * (1 - f), tg * (1 - f), tb * (1 - f))
+	agit.bodyB:SetVertexColor(tr * f, tg * f, tb * f)
+	local ar, ag, ab = FlipHot(r, g, b, FLIP_AGIT_HOT)
+	ar, ag, ab = ar * FLIP_AGIT_LIGHT, ag * FLIP_AGIT_LIGHT, ab * FLIP_AGIT_LIGHT
+	agit.lightA:SetVertexColor(ar * (1 - f), ag * (1 - f), ab * (1 - f))
+	agit.lightB:SetVertexColor(ar * f, ag * f, ab * f)
+	local alpha = self:UrgeAlpha()
+	agit.all = agit.all or { agit.backing, agit.bodyA, agit.bodyB, agit.lightA, agit.lightB }
+	for _, tex in ipairs(agit.all) do
+		if not pcall(tex.SetAlpha, tex, alpha) then tex:SetAlpha(0) end
 	end
 end
 
@@ -742,6 +936,7 @@ function ns.Liquid.Attach(globe, bar, opts)
 	pool.surface = surface
 
 	pool:SetColor(1, 1, 1)
+	pool:ApplyStyle()
 	pool:Size()
 	globe:HookScript("OnSizeChanged", function() pool:Size() end)
 	bar:HookScript("OnSizeChanged", function() pool:Size() end)
@@ -958,6 +1153,10 @@ function Pool:SetShield(clamped)
 	if Secret(clamped) then
 		self.shieldSecret = true
 		for _, layer in ipairs(self.shieldLayers) do
+			-- Colour first, alpha last, and no colour calls until the next flag: a texture's
+			-- vertex alpha and SetAlpha are one value, so a later colour would undo this.
+			local c, k = SHIELD_COLOR, layer.spec.alpha
+			layer.tex:SetVertexColor(c[1] * k, c[2] * k, c[3] * k)
 			if not (layer.tex.SetAlphaFromBoolean and pcall(layer.tex.SetAlphaFromBoolean, layer.tex, clamped, 1, 0)) then
 				layer.tex:SetAlpha(0)
 			end
@@ -990,10 +1189,20 @@ function Pool:ShieldAnimate(realTime, dt)
 	local breathe = 0.85 + 0.15 * math.sin(realTime * 1.6 + self.phase * 3)
 	for _, layer in ipairs(self.shieldLayers) do
 		local tex, spec = layer.tex, layer.spec
-		if not self.shieldSecret then tex:SetAlpha(alpha * alpha * (3 - 2 * alpha)) end
-		tex:SetVertexColor(c[1], c[2], c[3], spec.alpha * breathe)
+		if not self.shieldSecret then
+			-- ADD layers: strength goes in the colour so the alpha is left to the fade.
+			local k = spec.alpha * breathe
+			tex:SetVertexColor(c[1] * k, c[2] * k, c[3] * k)
+			tex:SetAlpha(alpha * alpha * (3 - 2 * alpha))
+		end
 		if spec.sweep then tex:SetRotation(realTime * SHIELD_SWEEP + self.phase * 6) end
 	end
+end
+
+-- For effects drawn against the level (GlobeAura.lua): the fill guide, whose top is the level
+-- (anchor to it, never read it: it can be secret), and the frame inside the clip at that level.
+function Pool:Anchors()
+	return self.guide, self.frame
 end
 
 -- Set a bar's value through its pool (glide) if it has one.
@@ -1029,6 +1238,7 @@ function Pool:SetLevels(base, offset)
 	if self.shield then
 		self.shield:SetFrameLevel(base + ns.LEVEL.surface + offset)
 	end
+	if ns.Pollution and ns.HealthGlobe and self == ns.HealthGlobe.pool then ns.Pollution.ApplyLevels() end
 end
 
 -- Fixed sphere shading over the liquid, so the volume stays put while the liquid moves.
@@ -1044,7 +1254,10 @@ function ns.Liquid.Shade(globe)
 end
 
 function ns.Liquid.ApplySettings()
-	-- The driver reads the settings every frame; nothing to rebuild.
+	-- The driver reads the settings every frame; only the style has textures to swap.
+	for i = 1, #pools do
+		pools[i]:ApplyStyle()
+	end
 end
 
 -- Every frame: smooth motion needs it. Physics runs on real time, so the level, ghost and
