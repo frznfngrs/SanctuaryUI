@@ -889,6 +889,7 @@ function P.Layout()
 
 	local G, L = ns.Art.PARTY.globes, ns.Art.PARTY.slab
 	local previewing = P.Previewing()
+	local gap = GAP[style] + (tonumber(opt.spacing) or 0)
 	local y, width = 0, 0
 	for i, b in ipairs(P.members) do
 		local v = b.v
@@ -905,7 +906,7 @@ function P.Layout()
 			pet:SetPoint("TOPLEFT", b, "BOTTOMLEFT", L.pet.indent, -L.pet.gap)
 			below = L.pet.gap + L.pet.size[2]
 		end
-		y = y + v.size[2] + (opt.pets and below or 0) + GAP[style]
+		y = y + v.size[2] + (opt.pets and below or 0) + gap
 		width = math.max(width, v.size[1] + 120)
 
 		if previewing then
@@ -925,7 +926,7 @@ function P.Layout()
 		end
 		ConfigureAuras(b)
 	end
-	anchor:SetSize(width, math.max(1, y - GAP[style]))
+	anchor:SetSize(width, math.max(1, y - gap))
 	Place()
 	if previewing then
 		UnregisterStateDriver(anchor, "visibility")

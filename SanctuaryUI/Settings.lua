@@ -209,6 +209,7 @@ ns.DEFAULTS = {
 		party = {
 			style = "globes", -- globes | slab | none (Blizzard's party frames, or another addon's)
 			scale = 1.25, -- 1 = the art's own size (the portraits above default to 1.25 too)
+			spacing = 0, -- added to the gap between members; negative squeezes them together
 			stone = 1, -- the slab's stone opacity: down to 0.55 or so for the see-through look
 			pets = true,
 			portrait3d = true, -- slab: the moving 3D bust in the socket when in view

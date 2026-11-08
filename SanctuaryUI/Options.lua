@@ -956,6 +956,7 @@ local function Build()
 						width = "full",
 					},
 					scale = Range(3, "Scale", "100% is the art's own size.", "party", "scale", 0.5, 2, 0.05, true),
+					spacing = Range(3.5, "Spacing", "The space between party members. Lower squeezes them closer together; far enough in, they overlap.", "party", "spacing", -30, 20, 1),
 					stone = {
 						type = "range",
 						order = 3.5,
