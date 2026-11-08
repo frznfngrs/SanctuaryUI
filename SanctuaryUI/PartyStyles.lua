@@ -12,13 +12,18 @@ local S = ns.PartyStyles
 --   view.heal/.absorb    prediction StatusBars riding the fill (slab; globes use pool bands)
 --   view.overShield      a glow for "more shield than room"
 --   view.power           the resource StatusBar, or nil (pets)
---   view.name, .pct, .level, .status   font strings (some nil)
+--   view.name, .pct, .status   font strings (some nil)
+--   view.level, .levelBox  the level number and the badge it sits in (members only)
+--   view.cast            { bar, icon, spellName }, a frame shown while the member casts (members only)
 --   view.face            the 2D portrait texture; view.model the 3D one (slab), or nil
 --   view.leader, .role, .mark, .ready  icon textures
 --   view.glow            the threat halo (ADD, tinted by Party.lua)
 --   view.glowBox         a frame where the dispel halo goes (Party.lua's aura slot fills it)
 --   view.glowRect        that halo's atlas rect and file slot, for the slot's texture
---   view.metal           { { tex, iron, gold } } textures that turn gold on your target
+--   view.select          a gold halo while this is your target
+--   view.metal           { { tex, iron, gold, tint } } the frame's metal: gold on your target, else
+--                        the member's class colour (tint is a copy added on top: iron is dark,
+--                        so multiplying alone would barely show)
 --   view.stone           the slab's stone (its alpha is the opacity setting)
 --   view.debuffAt/buffAt { point, x, y } where the aura containers start, from the button
 --   view.size            { w, h } the button's size in this style
@@ -81,12 +86,86 @@ local function Halos(view, root, style, spec, around)
 	glow:SetBlendMode("ADD")
 	glow:SetAlpha(0)
 	view.glow = glow
+	local chosen = Piece(root, "BACKGROUND", "party" .. (style == "globes" and "Globes" or "Slab"), style, spec.rect, -7)
+	chosen:SetSize(spec.size[1] * 1.06, spec.size[2] * 1.06)
+	chosen:SetPoint("CENTER", around, "CENTER")
+	chosen:SetBlendMode("ADD")
+	chosen:SetVertexColor(1, 0.74, 0.22)
+	chosen:SetAlpha(0)
+	view.select = chosen
 	local box = CreateFrame("Frame", nil, root)
 	box:SetSize(spec.size[1], spec.size[2])
 	box:SetPoint("CENTER", around, "CENTER")
 	box:EnableMouse(false)
 	view.glowBox = box
 	view.glowRect = { slot = style == "globes" and "partyGlobes" or "partySlab", style = style, rect = spec.rect }
+end
+
+-- A piece of the frame's metal: the iron, and an added copy of it for the class colour.
+local function Metal(view, parent, slot, style, cell, sublevel)
+	local tex = Piece(parent, "ARTWORK", slot, style, cell.iron, sublevel or 0)
+	tex:SetAllPoints()
+	local tint = Piece(parent, "ARTWORK", slot, style, cell.iron, (sublevel or 0) + 1)
+	tint:SetAllPoints()
+	tint:SetBlendMode("ADD")
+	tint:Hide()
+	view.metal[#view.metal + 1] = { tex = tex, iron = cell.iron, gold = cell.gold, tint = tint }
+end
+
+-- The level, in a small round badge. `size` is the badge's diameter.
+local function LevelBadge(view, parent, size)
+	local box = CreateFrame("Frame", nil, parent)
+	box:SetSize(size, size)
+	box:EnableMouse(false)
+	local rim = Tex(box, "BACKGROUND")
+	rim:SetAllPoints()
+	rim:SetColorTexture(0.42, 0.34, 0.2, 1)
+	ns.Art.MaskCircle(rim, box)
+	local holder = CreateFrame("Frame", nil, box)
+	holder:SetSize(size - 2, size - 2)
+	holder:SetPoint("CENTER")
+	local back = Tex(holder, "BACKGROUND")
+	back:SetAllPoints()
+	back:SetColorTexture(0.04, 0.03, 0.025, 1)
+	ns.Art.MaskCircle(back, holder)
+	local text = Font(holder, 9, false)
+	text:SetPoint("CENTER", holder, "CENTER", 0, 0)
+	text:SetTextColor(0.95, 0.88, 0.7)
+	view.level, view.levelBox = text, box
+	box:Hide()
+	return box
+end
+
+-- The cast bar: D3's orange fill over a dark groove, the spell's name across it.
+local function CastBar(root, width, height, iconSize)
+	local cast = CreateFrame("Frame", nil, root)
+	cast:SetSize(width, height)
+	cast:EnableMouse(false)
+	cast.bar = CreateFrame("StatusBar", nil, cast)
+	cast.bar:SetAllPoints()
+	cast.bar:SetStatusBarTexture(ns.Art.Path("castFill") or FILL)
+	if not ns.Art.Path("castFill") then cast.bar:SetStatusBarColor(1, 0.45, 0.1, 1) end
+	cast.bar:SetMinMaxValues(0, 1)
+	cast.bar:SetValue(0)
+	local back = Tex(cast.bar, "BACKGROUND")
+	back:SetAllPoints()
+	back:SetColorTexture(0.02, 0.015, 0.01, 0.95)
+	-- Its own frame, so the name can sit above the slab's metal.
+	cast.over = CreateFrame("Frame", nil, cast)
+	cast.over:SetAllPoints()
+	cast.over:EnableMouse(false)
+	cast.spellName = Font(cast.over, 8, false)
+	cast.spellName:SetPoint("CENTER", cast.over, "CENTER", 0, 0)
+	cast.spellName:SetWidth(width - 4)
+	cast.spellName:SetTextColor(1, 0.9, 0.72)
+	if iconSize then
+		cast.icon = Tex(cast.over, "OVERLAY")
+		cast.icon:SetSize(iconSize, iconSize)
+		cast.icon:SetPoint("RIGHT", cast, "LEFT", -2, 0)
+		cast.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	end
+	cast:Hide()
+	return cast
 end
 
 ---------------------------------------------------------------------------
@@ -138,6 +217,12 @@ local function GlobeLevels(view, base)
 	if view.power then view.power:SetFrameLevel(base + ns.LEVEL.surface + 2) end
 	if view.medal then view.medal:SetFrameLevel(base + ns.LEVEL.surface + 3) end
 	view.top:SetFrameLevel(base + ns.LEVEL.surface + 5)
+	if view.levelBox then view.levelBox:SetFrameLevel(base + ns.LEVEL.surface + 6) end
+	if view.cast then
+		view.cast:SetFrameLevel(base + ns.LEVEL.surface + 5)
+		view.cast.bar:SetFrameLevel(base + ns.LEVEL.surface + 5)
+		view.cast.over:SetFrameLevel(base + ns.LEVEL.surface + 6)
+	end
 end
 
 function S.BuildGlobes(button, isPet)
@@ -167,9 +252,7 @@ function S.BuildGlobes(button, isPet)
 	local globe = MiniGlobe(view, root, g[3], isPet and 0.3 or 0.45)
 	globe:SetPoint("CENTER", art, "TOPLEFT", g[1], -g[2])
 
-	local bezel = Piece(art, "ARTWORK", "partyGlobes", "globes", cell.iron)
-	bezel:SetAllPoints()
-	view.metal[#view.metal + 1] = { tex = bezel, iron = cell.iron, gold = cell.gold }
+	Metal(view, art, "partyGlobes", "globes", cell)
 
 	-- Texts and icons above everything.
 	local top = CreateFrame("Frame", nil, root)
@@ -212,9 +295,7 @@ function S.BuildGlobes(button, isPet)
 		face:SetAllPoints()
 		ns.Art.MaskCircle(face, holder)
 		view.face = face
-		local ring = Piece(medal, "ARTWORK", "partyGlobes", "globes", m.iron, 1)
-		ring:SetAllPoints()
-		view.metal[#view.metal + 1] = { tex = ring, iron = m.iron, gold = m.gold }
+		Metal(view, medal, "partyGlobes", "globes", m, 1)
 
 		-- Health text in the globe, the name and the level to the right of the bezel.
 		view.pct = Font(top, 12, false)
@@ -236,6 +317,12 @@ function S.BuildGlobes(button, isPet)
 		view.mark:SetPoint("BOTTOM", art, "TOP", 6, -6)
 		view.ready:SetSize(22, 22)
 		view.ready:SetPoint("CENTER", face, "CENTER")
+		-- Under the medallion, left of the globe's text (health, Dead, Offline) and above the pet.
+		LevelBadge(view, top, 16):SetPoint("CENTER", medal, "BOTTOM", -1, -1)
+
+		-- The cast bar, between the name and the debuffs.
+		view.cast = CastBar(root, 92, 7, 11)
+		view.cast:SetPoint("TOPLEFT", art, "TOPRIGHT", 15, -22)
 
 		-- Auras: debuffs under the name, your buffs under them, clear of the pet if it hangs right.
 		local clear = G.pet.at[1] > 0 and math.max(0, G.pet.at[1] + G.pet.size[1] / 2 - cell.size[1] / 2) + 4 or 4
@@ -392,9 +479,7 @@ function S.BuildSlab(button, isPet)
 	art:SetAllPoints()
 	art:EnableMouse(false)
 	view.art = art
-	local metal = Piece(art, "ARTWORK", "partySlab", "slab", cell.iron)
-	metal:SetAllPoints()
-	view.metal[1] = { tex = metal, iron = cell.iron, gold = cell.gold }
+	Metal(view, art, "partySlab", "slab", cell)
 
 	local top = CreateFrame("Frame", nil, root)
 	top:SetAllPoints()
@@ -408,9 +493,6 @@ function S.BuildSlab(button, isPet)
 	view.status = Font(top, isPet and 8 or 10, true)
 	view.status:SetPoint("RIGHT", health, "RIGHT", -4, 0.5)
 	if not isPet then
-		view.level = Font(top, 10, false)
-		view.level:SetPoint("LEFT", view.name, "RIGHT", 3, 0)
-		view.level:SetTextColor(0.85, 0.8, 0.7)
 		view.pct = Font(top, 12, false)
 		view.pct:SetPoint("RIGHT", health, "RIGHT", -4, 0)
 
@@ -421,9 +503,15 @@ function S.BuildSlab(button, isPet)
 		view.role:SetSize(icon, icon)
 		view.role:SetPoint("BOTTOMRIGHT", socket, "BOTTOMRIGHT", 4, -4)
 		view.mark:SetSize(icon + 2, icon + 2)
-		view.mark:SetPoint("LEFT", view.level, "RIGHT", 3, 0)
+		view.mark:SetPoint("TOPRIGHT", socket, "TOPRIGHT", 6, 7)
 		view.ready:SetSize(24, 24)
 		view.ready:SetPoint("CENTER", socket, "CENTER")
+		LevelBadge(view, top, 16):SetPoint("CENTER", socket, "BOTTOMLEFT", 1, 1)
+
+		-- The cast bar lies over the resource groove while a member casts.
+		local g = cell.power
+		view.cast = CastBar(root, g[3], g[4])
+		view.cast:SetPoint("TOPLEFT", root, "TOPLEFT", g[1], -g[2])
 
 		-- Auras outside the slab, to its right: debuffs, then your buffs under them.
 		view.debuffAt = { "TOPLEFT", cell.size[1] + 4, -1 }
@@ -443,15 +531,27 @@ function S.BuildSlab(button, isPet)
 		if view.power then view.power:SetFrameLevel(base + 1) end
 		art:SetFrameLevel(base + 5)
 		top:SetFrameLevel(base + 6)
+		if view.levelBox then view.levelBox:SetFrameLevel(base + 7) end
+		if view.cast then
+			view.cast:SetFrameLevel(base + 3)
+			view.cast.bar:SetFrameLevel(base + 3)
+			view.cast.over:SetFrameLevel(base + 6) -- the name runs past the groove, over the metal
+		end
 	end
 	return view
 end
 
-function S.SetGold(view, gold)
+-- The frame's metal: gold on your target; else iron in the class colour (c), or plain iron when
+-- there's none (pets). c's numbers may be secret, so a client that refuses them gets plain iron.
+function S.SetMetal(view, gold, c)
+	local hasArt = ns.Art.Path(view.style == "globes" and "partyGlobes" or "partySlab")
 	for _, m in ipairs(view.metal) do
-		if ns.Art.Path(view.style == "globes" and "partyGlobes" or "partySlab") then
-			m.tex:SetTexCoord(Coord(view.style, gold and m.gold or m.iron))
-		end
+		if hasArt then m.tex:SetTexCoord(Coord(view.style, gold and m.gold or m.iron)) end
+		local tinted = hasArt and not gold and c
+			and pcall(m.tex.SetVertexColor, m.tex, c.r, c.g, c.b)
+			and pcall(m.tint.SetVertexColor, m.tint, c.r, c.g, c.b)
+		if not tinted then m.tex:SetVertexColor(1, 1, 1) end
+		m.tint:SetShown(tinted and true or false)
 	end
 end
 

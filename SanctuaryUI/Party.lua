@@ -56,10 +56,12 @@ end
 -- from you, each showing different states, so the look can be judged and placed out of a group.
 
 local PREVIEW = {
-	{ name = "Thrall", class = "SHAMAN", health = 0.92, power = 0.7, powerToken = "MANA", leader = true, role = "TANK", threat = 3, ready = "ready" },
-	{ name = "Jaina", class = "MAGE", health = 0.48, heal = 0.18, absorb = 0.1, power = 0.42, powerToken = "MANA", role = "HEALER", mark = 1, dispel = true, target = true },
-	{ name = "Grom", class = "WARRIOR", health = 0, power = 0, powerToken = "RAGE", state = "dead", role = "DAMAGER" },
-	{ name = "Sylvanas", class = "HUNTER", health = 0.76, power = 0.9, powerToken = "MANA", far = true, ready = "waiting", role = "DAMAGER" },
+	{ name = "Thrall", class = "SHAMAN", level = 60, health = 0.92, power = 0.7, powerToken = "MANA", leader = true, role = "TANK", threat = 3, ready = "ready",
+		cast = { name = "Chain Heal", icon = "Interface\\Icons\\Spell_Nature_HealingWaveGreater", seconds = 2.5 } },
+	{ name = "Jaina", class = "MAGE", level = 58, health = 0.48, heal = 0.18, absorb = 0.1, power = 0.42, powerToken = "MANA", role = "HEALER", mark = 1, dispel = true, target = true,
+		cast = { name = "Blizzard", icon = "Interface\\Icons\\Spell_Frost_IceStorm", seconds = 4, channel = true } },
+	{ name = "Grom", class = "WARRIOR", level = 60, health = 0, power = 0, powerToken = "RAGE", state = "dead", role = "DAMAGER" },
+	{ name = "Sylvanas", class = "HUNTER", level = 42, health = 0.76, power = 0.9, powerToken = "MANA", far = true, ready = "waiting", role = "DAMAGER" },
 }
 local PREVIEW_PET = { name = "Wolf", health = 0.8 }
 
@@ -390,6 +392,24 @@ end
 
 local CREAM = { 0.95, 0.9, 0.8 }
 
+-- A member's class colour ({ r, g, b }, the numbers possibly secret), or nil for a pet.
+local function ClassColor(b)
+	if b.isPet then return nil end
+	local pv, class = PV(b), nil
+	if pv then
+		class = pv.class
+	else
+		if not UnitExists(b.unit) then return nil end
+		_, class = UnitClass(b.unit)
+	end
+	if Readable(class) then return RAID_CLASS_COLORS and RAID_CLASS_COLORS[class] end
+	if Secret(class) and C_ClassColor and C_ClassColor.GetClassColor then
+		local ok, color = pcall(C_ClassColor.GetClassColor, class)
+		if ok then return color end
+	end
+	return nil
+end
+
 local function UpdateName(b)
 	local v = b.v
 	if not v or not v.name then return end
@@ -397,25 +417,27 @@ local function UpdateName(b)
 	if not pv and not UnitExists(unit) then return end
 	local name = pv and pv.name or UnitName(unit)
 	if not pcall(v.name.SetText, v.name, name or "") then v.name:SetText("") end
-	local c
-	if not b.isPet then
-		local class = pv and pv.class
-		if not pv then _, class = UnitClass(unit) end
-		if Readable(class) then
-			c = RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
-		elseif Secret(class) and C_ClassColor and C_ClassColor.GetClassColor then
-			local ok, color = pcall(C_ClassColor.GetClassColor, class)
-			if ok then c = color end
-		end
-	end
+	local c = ClassColor(b)
 	if c then
 		if not pcall(v.name.SetTextColor, v.name, c.r, c.g, c.b) then v.name:SetTextColor(CREAM[1], CREAM[2], CREAM[3]) end
 	else
 		v.name:SetTextColor(CREAM[1], CREAM[2], CREAM[3])
 	end
-	if v.level then
-		local level = UnitLevel(pv and "player" or unit)
-		v.level:SetText((Readable(level) and level > 0) and level or "")
+end
+
+-- The level badge. A hidden level still goes to the badge; level 0 or less means unknown.
+local function UpdateLevel(b)
+	local v = b.v
+	if not v or not v.level then return end
+	local pv = PV(b)
+	local level = pv and pv.level or UnitLevel(b.unit)
+	if Secret(level) then
+		v.levelBox:SetShown(pcall(v.level.SetFormattedText, v.level, "%d", level))
+	elseif level and level > 0 then
+		v.level:SetText(level)
+		v.levelBox:Show()
+	else
+		v.levelBox:Hide()
 	end
 end
 
@@ -487,14 +509,125 @@ local function UpdateIcons(b)
 	UpdateReady(b)
 end
 
--- Gold metal on your target, as D3 marks the selected party member.
+-- The frame's colour: gold metal and a gold halo on your target, as D3 marks the selected party
+-- member; everyone else's metal in their class colour.
 local function UpdateTarget(b)
 	local v = b.v
 	if not v then return end
 	local pv = PV(b)
 	local gold
 	if pv then gold = pv.target else gold = Bool(UnitIsUnit("target", b.unit)) end
-	ns.PartyStyles.SetGold(v, gold and true or false)
+	ns.PartyStyles.SetMetal(v, gold and true or false, ClassColor(b))
+	if v.select then v.select:SetAlpha(gold and 1 or 0) end
+end
+
+---------------------------------------------------------------------------
+-- Cast bars. As on the target plate: times can be secret for other units, so the client runs
+-- the bar from a duration object where it has one, and a stop event ends it.
+
+local function ReadCast(unit, channel)
+	local name, _, texture, startMS, endMS, _, _, _, empowered
+	if channel then
+		name, _, texture, startMS, endMS, _, _, _, empowered = UnitChannelInfo(unit)
+	else
+		name, _, texture, startMS, endMS = UnitCastingInfo(unit)
+	end
+	return name, texture, startMS, endMS, empowered
+end
+
+local function StopCast(cast)
+	cast:Hide()
+	cast.startMS, cast.endMS, cast.timer, cast.demo = nil, nil, nil, nil
+end
+
+-- Runs the bar for what has no duration object, and the preview's stand-in.
+local function CastOnUpdate(cast)
+	if cast.demo then
+		local t = (GetTime() / cast.demo.seconds) % 1
+		cast.bar:SetValue(cast.demo.channel and 1 - t or t)
+		return
+	end
+	if cast.timer then
+		local d = cast.bar.GetTimerDuration and cast.bar:GetTimerDuration()
+		local left = d and d.GetRemainingDuration and d:GetRemainingDuration()
+		if left and not Secret(left) and left <= 0 then StopCast(cast) end
+		return
+	end
+	if not cast.startMS or not cast.endMS then return end
+	local now = GetTime() * 1000
+	cast.bar:SetValue(cast.channel and (cast.endMS - (now - cast.startMS)) or now)
+	if now >= cast.endMS then StopCast(cast) end
+end
+
+-- channel nil: whatever the member is doing, a cast or a channel.
+local function StartCast(b, channel)
+	local v = b.v
+	local cast = v and v.cast
+	if not cast then return end
+	if not cast.hooked then
+		cast.hooked = true
+		cast:SetScript("OnUpdate", CastOnUpdate)
+	end
+	local pv = PV(b)
+	if pv then
+		StopCast(cast)
+		if pv.cast then
+			cast.demo = pv.cast
+			cast.spellName:SetText(pv.cast.name)
+			if cast.icon then cast.icon:SetTexture(pv.cast.icon) end
+			cast.bar:SetMinMaxValues(0, 1)
+			cast:Show()
+		end
+		return
+	end
+	local unit = b.unit
+	cast.demo = nil
+	if not UnitCastingInfo or not UnitExists(unit) then
+		StopCast(cast)
+		return
+	end
+	local isChannel = channel and true or false
+	local name, texture, startMS, endMS, empowered = ReadCast(unit, isChannel)
+	-- A secret name is still a cast (secrets are never nil).
+	if not Secret(name) and not name and channel == nil then
+		isChannel = true
+		name, texture, startMS, endMS, empowered = ReadCast(unit, true)
+	end
+	if not Secret(name) and not name then
+		StopCast(cast)
+		return
+	end
+	cast.channel = isChannel
+	if not pcall(cast.spellName.SetText, cast.spellName, name) then cast.spellName:SetText("") end
+	if cast.icon then cast.icon:SetTexture(ns.Or(texture, 136243)) end -- a cog for a spell with no icon
+
+	local bar, duration = cast.bar, nil
+	if isChannel then
+		if empowered and not Secret(empowered) and UnitEmpoweredChannelDuration then
+			duration = UnitEmpoweredChannelDuration(unit)
+		else
+			duration = UnitChannelDuration and UnitChannelDuration(unit)
+		end
+	else
+		duration = UnitCastingDuration and UnitCastingDuration(unit)
+	end
+	if duration ~= nil and bar.SetTimerDuration then
+		local directions = Enum and Enum.StatusBarTimerDirection
+		local direction = directions and (isChannel and directions.RemainingTime or directions.ElapsedTime)
+		local smoothing = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.Immediate
+		bar:SetTimerDuration(duration, smoothing, direction)
+		cast.timer, cast.startMS, cast.endMS = true, nil, nil
+	elseif Readable(startMS) and Readable(endMS) then
+		cast.timer, cast.startMS, cast.endMS = nil, startMS, endMS
+		bar:SetMinMaxValues(startMS, endMS)
+		bar:SetValue(isChannel and (endMS - (GetTime() * 1000 - startMS)) or GetTime() * 1000)
+	else
+		-- Nothing to time it by: full until the stop event.
+		cast.timer, cast.startMS, cast.endMS = nil, nil, nil
+		bar:SetMinMaxValues(0, 1)
+		bar:SetValue(1)
+	end
+	cast:Show()
 end
 
 -- The halo: red when the member has aggro (orange as they near it). In preview, the member with
@@ -556,12 +689,14 @@ function P.UpdateButton(b)
 	if not pv and not UnitExists(b.unit) then return end
 	UpdateHealth(b) -- first: it works out dead / offline for the rest
 	UpdateName(b)
+	UpdateLevel(b)
 	UpdatePortrait(b)
 	UpdatePower(b)
 	UpdateIcons(b)
 	UpdateTarget(b)
 	UpdateThreat(b)
 	UpdateRange(b)
+	StartCast(b)
 end
 
 function P.UpdateAll()
@@ -967,6 +1102,12 @@ local UNIT_EVENTS = {
 	UNIT_POWER_UPDATE = "power", UNIT_MAXPOWER = "power", UNIT_DISPLAYPOWER = "power",
 	UNIT_THREAT_SITUATION_UPDATE = "threat", UNIT_THREAT_LIST_UPDATE = "threat",
 	UNIT_PORTRAIT_UPDATE = "portrait", UNIT_MODEL_CHANGED = "portrait",
+	UNIT_SPELLCAST_START = "cast", UNIT_SPELLCAST_DELAYED = "cast",
+	UNIT_SPELLCAST_CHANNEL_START = "channel", UNIT_SPELLCAST_CHANNEL_UPDATE = "channel",
+	UNIT_SPELLCAST_EMPOWER_START = "channel", UNIT_SPELLCAST_EMPOWER_UPDATE = "channel",
+	UNIT_SPELLCAST_STOP = "caststop", UNIT_SPELLCAST_CHANNEL_STOP = "caststop",
+	UNIT_SPELLCAST_EMPOWER_STOP = "caststop", UNIT_SPELLCAST_INTERRUPTED = "caststop",
+	UNIT_SPELLCAST_FAILED = "castcheck", -- a failed attempt can leave another cast running
 }
 
 local GROUP_EVENTS = {
@@ -985,6 +1126,14 @@ local function OnUnitEvent(kind, b)
 		UpdateThreat(b)
 	elseif kind == "portrait" then
 		UpdatePortrait(b)
+	elseif kind == "cast" then
+		StartCast(b, false)
+	elseif kind == "channel" then
+		StartCast(b, true)
+	elseif kind == "castcheck" then
+		StartCast(b)
+	elseif kind == "caststop" then
+		if b.v and b.v.cast then StopCast(b.v.cast) end
 	else
 		P.UpdateButton(b)
 	end
