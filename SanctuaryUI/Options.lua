@@ -689,6 +689,7 @@ local function Build()
 					end)(),
 					keyDown = CVarToggle(15, "Cast on key down", "Blizzard's ActionButtonUseKeyDown.", "ActionButtonUseKeyDown"),
 					lock = Toggle(16, "Lock buttons", "Locked buttons only pick up actions while holding Shift. Unlocked buttons drag freely.", "buttons", "lock"),
+					procGlow = Toggle(16.95, "Proc highlight", "When a skill that needs a condition becomes available (Overpower, Revenge, Execute, Riposte, Hammer of Wrath), its socket flashes and sparks chase around it until it is used or lapses. /sanctuary proc shows it.", "buttons", "procGlow"),
 					active = Header(16.9, "Active skills"),
 					activeGlow = Toggle(17, "Active skill glow", "While a skill's buff, channel or totem is up, its socket burns like D3's.", "buttons", "activeGlow"),
 					activeTimer = Toggle(18, "Active skill timer", "A tab in the socket with a yellow bar that drains until the effect ends.", "buttons", "activeTimer"),

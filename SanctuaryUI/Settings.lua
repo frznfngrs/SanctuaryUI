@@ -64,6 +64,7 @@ ns.DEFAULTS = {
 			cooldownNumbers = "show", -- cvar | show | hide
 			cooldownTenths = 60, -- seconds; below this cooldown numbers count tenths (0: never)
 			lock = false, -- locked buttons still pick up with the pickup modifier (Shift)
+			procGlow = true, -- reveal and chasing sparks when a conditional skill becomes usable
 			activeGlow = true, -- D3 burning frame while a skill's effect is up
 			activeTimer = true, -- D3 tab in the socket with a bar draining to the end
 			activeTimerPos = "top", -- top | bottom edge of the socket
@@ -406,6 +407,7 @@ function ns.Refresh()
 	Run("blizzard", ns.Blizzard and ns.Blizzard.Hide)
 	Run("buttons", ns.ActionBar and ns.ActionBar.ApplySettings)
 	Run("active skills", ns.ActiveSkill and ns.ActiveSkill.ApplySettings)
+	Run("proc highlight", ns.ProcGlow and ns.ProcGlow.ApplySettings)
 	Run("layout", ns.Layout)
 	Run("globes", ns.Globes and ns.Globes.ApplySettings)
 	Run("globe auras", ns.GlobeAura and ns.GlobeAura.ApplySettings)
