@@ -53,7 +53,7 @@ end
 local function DropOn(button)
 	if button.bag == 0 then
 		PutItemInBackpack()
-	else
+	elseif button.inv then
 		PutItemInBag(button.inv)
 	end
 end
@@ -61,27 +61,30 @@ end
 local function SlotRow(win)
 	local list = {}
 	for _, bag in ipairs(BAGS) do
-		local button = ns.Bags.SlotButton(win.frame, "SanctuaryUIBagSlot" .. bag)
-		button.bag, button.sanctuaryBag = bag, bag
-		button.inv = bag > 0 and InvSlot(bag) or nil
-		button:SetScript("OnClick", function(self)
-			if GetCursorInfo() then DropOn(self) end
-		end)
-		button:SetScript("OnReceiveDrag", DropOn)
-		button:SetScript("OnDragStart", function(self)
-			if self.inv then PickupBagFromSlot(self.inv) end
-		end)
-		button:SetScript("OnEnter", function(self)
-			if GameTooltip:IsForbidden() then return end
-			GameTooltip:SetOwner(self, "ANCHOR_TOP")
-			if self.bag == 0 then
-				GameTooltip:SetText(BACKPACK_TOOLTIP or "Backpack")
-			elseif not GameTooltip:SetInventoryItem("player", self.inv) then
-				GameTooltip:SetText(EQUIP_CONTAINER or "Equip Container", 1, 1, 1)
-			end
-			GameTooltip:Show()
-		end)
-		list[#list + 1] = button
+		-- The keyring's items are in the grid, but it has no slot to equip a bag in.
+		if bag ~= W.keyring then
+			local button = ns.Bags.SlotButton(win.frame, "SanctuaryUIBagSlot" .. bag)
+			button.bag, button.sanctuaryBag = bag, bag
+			button.inv = bag > 0 and InvSlot(bag) or nil
+			button:SetScript("OnClick", function(self)
+				if GetCursorInfo() then DropOn(self) end
+			end)
+			button:SetScript("OnReceiveDrag", DropOn)
+			button:SetScript("OnDragStart", function(self)
+				if self.inv then PickupBagFromSlot(self.inv) end
+			end)
+			button:SetScript("OnEnter", function(self)
+				if GameTooltip:IsForbidden() then return end
+				GameTooltip:SetOwner(self, "ANCHOR_TOP")
+				if self.bag == 0 then
+					GameTooltip:SetText(BACKPACK_TOOLTIP or "Backpack")
+				elseif not self.inv or not GameTooltip:SetInventoryItem("player", self.inv) then
+					GameTooltip:SetText(EQUIP_CONTAINER or "Equip Container", 1, 1, 1)
+				end
+				GameTooltip:Show()
+			end)
+			list[#list + 1] = button
+		end
 	end
 	return list
 end
