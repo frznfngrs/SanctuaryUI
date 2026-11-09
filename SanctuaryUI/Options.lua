@@ -63,6 +63,69 @@ local function TargetText(key, option)
 	return option
 end
 
+-- The target frame's looks (ns.Art.TARGET_STYLES, and D3's bar).
+local TARGET_STYLES = {
+	d3 = "Monster bar (Diablo III)",
+	lintel = "Lintel",
+	slim = "Slim Lintel",
+	bracket = "Forged Bracket",
+	tablet = "Tablet",
+}
+local TARGET_STYLE_ORDER = { "d3", "lintel", "slim", "bracket", "tablet" }
+
+local function StyledTarget()
+	return (ns.DB().target.style or "d3") ~= "d3"
+end
+
+-- One-click arrangements of the debuffs and buffs; the settings under them fine-tune any of it.
+local AURA_LAYOUTS = {
+	rows = { auraPos = "below", auraAlign = "left", auraGrow = "right", auraPerLine = 8, buffPos = "below", buffAlign = "left", buffGrow = "right", buffPerLine = 8 },
+	split = { auraPos = "below", auraAlign = "left", auraGrow = "right", auraPerLine = 6, buffPos = "below", buffAlign = "right", buffGrow = "left", buffPerLine = 4 },
+	over = { auraPos = "below", auraAlign = "left", auraGrow = "right", auraPerLine = 8, buffPos = "above", buffAlign = "left", buffGrow = "right", buffPerLine = 8 },
+	side = { auraPos = "right", auraAlign = "left", auraGrow = "right", auraPerLine = 8, buffPos = "right", buffAlign = "left", buffGrow = "right", buffPerLine = 8 },
+}
+local AURA_LAYOUT_NAMES = {
+	rows = "Rows under the frame",
+	split = "Split: debuffs left, buffs right",
+	over = "Buffs over, debuffs under",
+	side = "Columns beside the frame",
+	custom = "Custom",
+}
+local AURA_LAYOUT_ORDER = { "rows", "split", "over", "side", "custom" }
+
+local function AuraLayoutKey()
+	local t = ns.DB().target
+	for key, layout in pairs(AURA_LAYOUTS) do
+		local match = true
+		for field, value in pairs(layout) do
+			if t[field] ~= value then
+				match = false
+				break
+			end
+		end
+		if match then return key end
+	end
+	return "custom"
+end
+
+local AURA_POSITIONS = { below = "Below the frame", above = "Above the frame", right = "Right of the frame", left = "Left of the frame" }
+local AURA_POSITION_ORDER = { "below", "above", "right", "left" }
+
+-- Beside the frame, "Align to" means top, middle or bottom, and icons run in columns.
+local function AuraSide(posKey)
+	local pos = ns.DB().target[posKey]
+	return pos == "left" or pos == "right"
+end
+
+local function AuraAlignValues(posKey)
+	return function()
+		if AuraSide(posKey) then
+			return { left = "Top", center = "Middle", right = "Bottom" }
+		end
+		return { left = "Left", center = "Centre", right = "Right" }
+	end
+end
+
 local HEALTH_TEXTS = {
 	none = "Nothing",
 	percent = "Percent (62%)",
@@ -826,28 +889,44 @@ local function Build()
 				order = 6.12,
 				name = "Target",
 				args = {
-					intro = Note(1, "D3's monster bar at the top of the screen: a silver frame for ordinary monsters, gold for elites and rares, the gold banner for bosses, and every debuff on the target underneath (yours bright, the rest dimmed). Left-click targets, right-click opens the unit menu. Turning it off brings back Blizzard's target frame."),
+					intro = Note(1, "Your target's frame, at the top of the screen unless you move it: D3's monster bar or one of the rendered styles, with the metal changing by rank, and every debuff on the target (yours bright, the rest dimmed). Left-click targets, right-click opens the unit menu. Turning it off brings back Blizzard's target frame."),
 					enabled = Toggle(2, "Enabled", nil, "target", "enabled"),
 					preview = {
 						type = "toggle",
 						order = 3,
 						name = "Preview",
-						desc = "With no target, show a stand-in monster that cycles the normal, elite and boss frames while its health drops, to judge the look in game.",
+						desc = "With no target, show a stand-in monster that cycles the normal, elite, rare and boss frames while its health drops, to judge the look in game.",
 						get = function() return ns.TargetPlate.preview end,
 						set = function(_, value) ns.TargetPlate.SetPreview(value) end,
 						width = "full",
 					},
 					lookHeader = Header(5, "Look"),
+					style = Select(5.5, "Style", "The look of the frame. Monster bar is D3's own enemy bar. The others are rendered for SanctuaryUI: a portrait socket, one health bar and a resource bar.", "target", "style", TARGET_STYLES, TARGET_STYLE_ORDER),
 					scale = Range(6, "Scale", "100% is D3's own size: the art one-to-one at 1080p, the same share of the screen at any resolution.", "target", "scale", 0.5, 2, 0.05, true),
-					width = Range(7, "Width", "Stretches the frame and bar between their ornaments.", "target", "width", 0.6, 2.5, 0.05, true),
-					portrait = Toggle(8, "Target portrait", "The target's moving WoW portrait in a D3 hero portrait frame, left of the bar: silver for ordinary monsters, gold for elites and rares, the winged demon for bosses.", "target", "portrait"),
+					width = (function()
+						local option = Range(7, "Width", "Stretches the frame and bar between their ornaments. Monster bar style only.", "target", "width", 0.6, 2.5, 0.05, true)
+						option.disabled = StyledTarget
+						return option
+					end)(),
+					portrait = (function()
+						local option = Toggle(8, "Target portrait", "The target's moving WoW portrait in a D3 hero portrait frame, left of the bar: silver for ordinary monsters, gold for elites and rares, the winged demon for bosses. The rendered styles always show it, in their own socket.", "target", "portrait")
+						option.disabled = StyledTarget
+						return option
+					end)(),
 					tot = Toggle(9.2, "Target of target", "Who your target is attacking: a small monster bar with its portrait, right of the target's frame. Its name turns red when it's you. Left-click targets it, right-click opens its menu.", "target", "tot"),
 					totPortrait = (function()
 						local option = Toggle(9.3, "Target of target portrait", "The target of target's portrait in its silver ring, left of its bar. Off, the bar alone sits beside the target's frame.", "target", "totPortrait")
-						option.disabled = function() return DB().target.tot == false end
+						option.disabled = function() return DB().target.tot == false or StyledTarget() end
 						return option
 					end)(),
 					cast = Toggle(9.5, "Cast bar", nil, "target", "cast"),
+					power = (function()
+						return Toggle(9.6, "Resource bar", "The target's mana, rage or energy. In the Monster bar it runs along the bottom of the health bar; the other styles have a groove for it.", "target", "power")
+					end)(),
+					classColor = Toggle(9.62, "Class colour on player names", "A player's name in their class colour, instead of cream.", "target", "classColor"),
+					classIcon = Toggle(9.63, "Class icon on players", "The class crest at the portrait's corner. With no portrait, in a row left of the frame.", "target", "classIcon"),
+					factionIcon = Toggle(9.64, "Faction emblem on players", "Alliance or Horde, whether or not they are flagged for PvP.", "target", "factionIcon"),
+					raidIcon = Toggle(9.65, "Raid marker", "The skull, cross or other marker on the target, for anyone in your group who set one.", "target", "raidIcon"),
 					liquid = Toggle(9.7, "Liquid in the bar", "The globes' liquid drifting through the health bar.", "target", "liquid"),
 					edgeGlow = Toggle(9.8, "Edge glow", "An ember burning at the health bar's leading edge.", "target", "edgeGlow"),
 					healPrediction = Toggle(9.9, "Heal prediction", "Heals on their way to your target show in green past the end of its health, damage shields in silver after them, and a silver glow lights the bar's end when the shield is bigger than the health missing.", "target", "healPrediction"),
@@ -875,12 +954,32 @@ local function Build()
 					levelSize = TargetText("levelShow", Range(13.6, "Size", nil, "target", "levelSize", 6, 24, 1)),
 					levelX = TargetText("levelShow", Range(13.7, "Nudge left / right", nil, "target", "levelX", -200, 200, 1)),
 					levelY = TargetText("levelShow", Range(13.8, "Nudge up / down", nil, "target", "levelY", -60, 60, 1)),
+					auraLayoutHeader = Header(13.9, "Aura layout"),
+					auraLayout = {
+						type = "select", order = 13.95, name = "Arrange debuffs and buffs",
+						desc = "A starting point, for any style. It sets the position, alignment and icons per line below, and clears their nudges; change those for anything else. Turn on Buffs below to see them.",
+						values = AURA_LAYOUT_NAMES, sorting = AURA_LAYOUT_ORDER,
+						get = AuraLayoutKey,
+						set = function(_, value)
+							local layout = AURA_LAYOUTS[value]
+							if not layout then return end
+							local t = DB().target
+							for field, v in pairs(layout) do t[field] = v end
+							t.auraX, t.auraY, t.buffX, t.buffY = 0, 0, 0, 0
+							Changed()
+						end,
+					},
 					debuffHeader = Header(14, "Debuffs"),
 					debuffs = Toggle(14.1, "Debuffs", "Every debuff on the target: yours first and bright, the rest greyed.", "target", "debuffs"),
 					maxDebuffs = TargetAura("debuffs", Range(14.2, "How many debuffs", nil, "target", "maxDebuffs", 1, 24, 1)),
-					auraPos = TargetAura("debuffs", Select(14.3, "Position", nil, "target", "auraPos", { below = "Below the bar", above = "Above the bar" })),
-					auraAlign = TargetAura("debuffs", Select(14.4, "Align to", "Where each line starts: the bar's left end, centre or right end.", "target", "auraAlign", { left = "Left", center = "Centre", right = "Right" })),
-					auraGrow = TargetAura("debuffs", Select(14.5, "Grow", "From a left or right end, which way the icons run. Centred lines grow both ways.", "target", "auraGrow", { right = "To the right", left = "To the left" })),
+					auraPos = TargetAura("debuffs", Select(14.3, "Position", "Beside the frame, icons run down in columns (Icons per line sets how many in each).", "target", "auraPos", AURA_POSITIONS, AURA_POSITION_ORDER)),
+					auraAlign = TargetAura("debuffs", Select(14.4, "Align to", "Where each line starts: the bar's left end, centre or right end. Beside the frame: its top, middle or bottom.", "target", "auraAlign", AuraAlignValues("auraPos"))),
+					auraGrow = (function()
+						local option = TargetAura("debuffs", Select(14.5, "Grow", "From a left or right end, which way the icons run. Centred lines grow both ways.", "target", "auraGrow", { right = "To the right", left = "To the left" }))
+						local off = option.disabled
+						option.disabled = function() return off() or AuraSide("auraPos") end
+						return option
+					end)(),
 					debuffSize = TargetAura("debuffs", Range(14.6, "Icon size", nil, "target", "debuffSize", 14, 48, 1)),
 					auraPerLine = TargetAura("debuffs", Range(14.7, "Icons per line", nil, "target", "auraPerLine", 1, 24, 1)),
 					auraSpacing = TargetAura("debuffs", Range(14.8, "Spacing", nil, "target", "auraSpacing", 0, 16, 1)),
@@ -889,14 +988,19 @@ local function Build()
 					buffHeader = Header(20, "Buffs"),
 					buffs = Toggle(20.1, "Buffs", "The target's buffs, laid out on their own.", "target", "buffs"),
 					maxBuffs = TargetAura("buffs", Range(20.2, "How many buffs", nil, "target", "maxBuffs", 1, 24, 1)),
-					buffPos = TargetAura("buffs", Select(20.3, "Position", "On the same side as the debuffs, the buffs start on the line after them.", "target", "buffPos", { below = "Below the bar", above = "Above the bar" })),
-					buffAlign = TargetAura("buffs", Select(20.4, "Align to", "Where each line starts: the bar's left end, centre or right end.", "target", "buffAlign", { left = "Left", center = "Centre", right = "Right" })),
-					buffGrow = TargetAura("buffs", Select(20.5, "Grow", "From a left or right end, which way the icons run. Centred lines grow both ways.", "target", "buffGrow", { right = "To the right", left = "To the left" })),
+					buffPos = TargetAura("buffs", Select(20.3, "Position", "Laid out the same as the debuffs, the buffs start on the line (or column) after them.", "target", "buffPos", AURA_POSITIONS, AURA_POSITION_ORDER)),
+					buffAlign = TargetAura("buffs", Select(20.4, "Align to", "Where each line starts: the bar's left end, centre or right end. Beside the frame: its top, middle or bottom.", "target", "buffAlign", AuraAlignValues("buffPos"))),
+					buffGrow = (function()
+						local option = TargetAura("buffs", Select(20.5, "Grow", "From a left or right end, which way the icons run. Centred lines grow both ways.", "target", "buffGrow", { right = "To the right", left = "To the left" }))
+						local off = option.disabled
+						option.disabled = function() return off() or AuraSide("buffPos") end
+						return option
+					end)(),
 					buffSize = TargetAura("buffs", Range(20.6, "Icon size", nil, "target", "buffSize", 14, 48, 1)),
 					buffPerLine = TargetAura("buffs", Range(20.7, "Icons per line", nil, "target", "buffPerLine", 1, 24, 1)),
 					buffSpacing = TargetAura("buffs", Range(20.8, "Spacing", nil, "target", "buffSpacing", 0, 16, 1)),
 					buffX = TargetAura("buffs", Range(20.9, "Nudge left / right", nil, "target", "buffX", -300, 300, 1)),
-					buffY = TargetAura("buffs", Range(20.95, "Nudge up / down", "Sharing the debuffs' side, this is from the end of the debuffs.", "target", "buffY", -200, 200, 1)),
+					buffY = TargetAura("buffs", Range(20.95, "Nudge up / down", "Laid out the same as the debuffs, this is from the end of the debuffs.", "target", "buffY", -200, 200, 1)),
 					place = Header(30, "Position"),
 					placeNote = Note(31, "Top centre by default. Turn off General > Lock frames and drag its mover to place it anywhere."),
 					reset = {
@@ -991,7 +1095,7 @@ local function Build()
 					maxDebuffs = Range(22, "Most debuffs", nil, "party", "maxDebuffs", 1, 8, 1),
 					buffs = Toggle(23, "Your buffs on them", "Your heals over time, shields and buffs on each member, in D3's gold frame.", "party", "buffs"),
 					maxBuffs = Range(24, "Most buffs", nil, "party", "maxBuffs", 1, 6, 1),
-					dispelGlow = Toggle(25, "Dispel halo", "A halo in the debuff's colour while a member has one you can remove.", "party", "dispelGlow"),
+					dispelGlow = Toggle(25, "Dispel halo", "A pulsing halo in the debuff's colour while a member has one you can remove.", "party", "dispelGlow"),
 					place = Header(30, "Position"),
 					placeNote = Note(31, "Under your portrait by default. Turn off General > Lock frames (stand-ins show while unlocked) and drag its mover to place it anywhere. Changes wait for the end of combat."),
 					reset = {

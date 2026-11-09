@@ -135,8 +135,14 @@ ns.DEFAULTS = {
 		-- target plate, top of the screen
 		target = {
 			enabled = true,
+			style = "d3", -- d3 (D3's monster bar) | lintel | slim | bracket | tablet
 			scale = 1, -- 1 = D3's own size (one art pixel per pixel at 1080p)
-			width = 1, -- frame and bar width, stretched between the ornaments
+			width = 1, -- frame and bar width, stretched between the ornaments (d3 style)
+			power = true, -- the target's resource: a strip in D3's bar, a groove in the other styles
+			classColor = true, -- a player's name in their class colour
+			classIcon = true, -- a player's class icon on the portrait
+			factionIcon = true, -- a player's Alliance or Horde emblem
+			raidIcon = true, -- the raid marker (skull, cross...) on any target
 			portrait = false, -- 3D portrait of the target in a skill socket, left of the bar
 			edgeGlow = true, -- ember at the health bar's leading edge
 			healPrediction = true, -- incoming heals and shields on the health bar, for healers
@@ -173,7 +179,7 @@ ns.DEFAULTS = {
 			buffs = false,
 			maxBuffs = 8,
 			debuffSize = 26, -- debuff icon size (the aura* keys below are the debuffs' layout)
-			auraPos = "below", -- below | above the bar
+			auraPos = "below", -- below | above the bar | left | right of the frame (columns)
 			auraAlign = "center", -- left | center | right edge of the bar
 			auraGrow = "right", -- right | left, from a left or right edge
 			auraPerLine = 12,

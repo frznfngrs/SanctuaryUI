@@ -28,6 +28,12 @@ ns.Art.slots = {
 	pips = { file = "pips.png" },
 	pipHorn = { file = "pip-horn.png" },
 	targetRings = { file = "target-rings.png" },
+	-- The rendered target styles (ns.Art.TARGET_STYLES): lazy, only the style in use loads.
+	targetStyleLintel = { file = "target-style-lintel.png", lazy = true },
+	targetStyleSlim = { file = "target-style-slim.png", lazy = true },
+	targetStyleBracket = { file = "target-style-bracket.png", lazy = true },
+	targetStyleTablet = { file = "target-style-tablet.png", lazy = true },
+	targetStyleParts = { file = "target-style-parts.png", lazy = true },
 	pipSockets = { file = "pip-sockets.png" },
 	liquidShimmer = { file = "liquid-shimmer.png" },
 	bagCells = { file = "bag-cells.png" },
@@ -159,6 +165,65 @@ ns.Art.TARGET_RING_CELL, ns.Art.TARGET_RING_HOLE = 128, 39
 function ns.Art.TargetRingTexCoord(rank)
 	local cell = (ns.Art.TARGET_RING[rank] or ns.Art.TARGET_RING.normal).cell
 	return cell * 128 / 512, (cell + 1) * 128 / 512, 0, 1
+end
+
+-- Our own target frames (Options > Target > Style), rendered by tools/blender/target_styles.py
+-- and packed by tools/build_target_styles.py: an atlas per style with a row per rank, 2 art px per
+-- UI unit. Rects are x0, y0, x1, y1 from the frame's top left; art is the render's x, y, w, h.
+-- A style has a portrait socket (a rect, or round with a model square its ring hides), health and
+-- power grooves and either a cast groove or a cast rail above the frame (castBottom: the rail's
+-- bottom edge). belowY / aboveY: where aura lines start under and over the frame. marks: centres
+-- of the class icon, faction emblem and raid marker, around the portrait socket.
+ns.Art.TARGET_STYLE_RANK = { normal = 0, rare = 1, elite = 2, boss = 3 }
+ns.Art.TARGET_STYLES = {
+	lintel = {
+		slot = "targetStyleLintel", size = { 340, 72 }, art = { -34, -34, 408, 116 },
+		portrait = { 8, 8, 64, 64 }, badge = { 8, 62 }, bar = { 76, 10, 330, 36 }, power = { 76, 41, 330, 47 },
+		castGroove = { 76, 51, 330, 65 }, tot = { 346, 18 }, belowY = 77, aboveY = -6,
+		marks = { class = { 10, 10 }, faction = { 62, 10 }, raid = { 36, 6 } },
+	},
+	slim = {
+		slot = "targetStyleSlim", size = { 300, 54 }, art = { -34, -34, 368, 98 },
+		portrait = { 6, 6, 48, 48 }, badge = { 7, 46 }, bar = { 56, 7, 292, 33 }, power = { 56, 38, 292, 45 },
+		castBottom = -6, tot = { 306, 12 }, belowY = 60, aboveY = -2,
+		marks = { class = { 8, 8 }, faction = { 46, 8 }, raid = { 27, 5 } },
+	},
+	bracket = {
+		slot = "targetStyleBracket", size = { 334, 68 }, art = { -34, -34, 402, 112 },
+		portrait = { round = true, cx = 34, cy = 34, hole = 26.5, model = 50 }, badge = { 34, 63 },
+		bar = { 74, 21, 310, 45 }, power = { 74, 48, 296, 53 },
+		castBottom = 10, tot = { 344, 20 }, belowY = 64, aboveY = 12,
+		marks = { class = { 12, 12 }, faction = { 56, 12 }, raid = { 34, 2 } },
+	},
+	tablet = {
+		slot = "targetStyleTablet", size = { 330, 66 }, art = { -34, -34, 398, 122 },
+		portrait = { 10, 8, 62, 60 }, badge = { 11, 58 }, bar = { 76, 20, 322, 46 }, power = { 76, 50, 322, 56 },
+		nameAt = { 164, 9 }, castBottom = -6, tot = { 342, 24 }, belowY = 70, aboveY = 0,
+		marks = { class = { 12, 10 }, faction = { 60, 10 }, raid = { 36, 6 } },
+	},
+}
+
+function ns.Art.TargetStyleTexCoord(style, rank)
+	local row = ns.Art.TARGET_STYLE_RANK[rank] or 0
+	local w, h = style.art[3] * 2, style.art[4] * 2
+	return 0, w / 1024, row * h / 1024, (row + 1) * h / 1024
+end
+
+-- target-style-parts.png (1024x1024): the Bracket's ring, the cast rail, the level stud and the
+-- target of target's frame. Returns left, right, top, bottom.
+function ns.Art.TargetPartTexCoord(part, rank)
+	local i = ns.Art.TARGET_STYLE_RANK[rank] or 0
+	local x, y, w, h
+	if part == "ring" then
+		x, y, w, h = i % 3 * 280, math.floor(i / 3) * 280, 280, 280
+	elseif part == "rail" then
+		x, y, w, h = 0, 560 + i * 52, 512, 52
+	elseif part == "badge" then
+		x, y, w, h = i * 48, 768, 48, 48
+	else
+		x, y, w, h = 560, 560, 240, 76 -- the target of target's frame
+	end
+	return x / 1024, (x + w) / 1024, y / 1024, (y + h) / 1024
 end
 
 -- D3's level plaque, the small plate under a hero's portrait, in four metals.

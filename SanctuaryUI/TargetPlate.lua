@@ -15,6 +15,10 @@ ns.TargetPlate = ns.TargetPlate or {}
 -- The plate is a secure unit button: left-click targets, right-click opens the unit menu.
 -- RegisterUnitWatch shows and hides it, also in combat; its size and place change only out of
 -- combat (Layout runs from Refresh). Everything drawn on it is plain and updates freely.
+--
+-- Options > Target > Style swaps D3's bar for one of our own rendered frames (ns.Art.TARGET_STYLES):
+-- a portrait socket, a health bar and a resource bar. SetStylePiece and ApplyStyle do that part; the
+-- health, text and aura code below is shared. Those frames draw under the bars, D3's over them.
 
 local MAX_AURAS = 24 -- of each kind
 -- Every rank's bar is centred on the same line (the boss banner's), and the lines under it sit
@@ -23,6 +27,7 @@ local MAX_AURAS = 24 -- of each kind
 local BAR_Y = 34.5 -- bar centre, below the plate's top
 local SUB_Y = BAR_Y + 22 -- level / rank line (just under the normal and elite frames)
 local PLATE_H = 88
+local POWER_STRIP = 4 -- the resource's height along the bottom of D3's health bar
 local RING_OVERLAP = 6 -- how far the portrait's frame tucks under the bar frame's left end
 -- Target of target: a small copy of the ordinary monster bar with its portrait ring, right of
 -- the target's frame.
@@ -56,12 +61,17 @@ local function Opt()
 	return ns.DB().target
 end
 
+-- The rendered style in use, or nil for D3's monster bar.
+local function Style()
+	return ns.Art.TARGET_STYLES[Opt().style or "d3"]
+end
+
 -- Test mode (Options > Target > Preview): with no target, the plate shows a stand-in monster
--- drawn from your own unit, cycling normal, elite and boss frames with its health dropping, so
--- the look can be judged in game.
-local PREVIEW_RANKS = { "normal", "elite", "boss" }
-local PREVIEW_NAMES = { normal = "Risen Ghoul", elite = "Bonecrusher the Vile", boss = "The Butcher" }
-local PREVIEW_CLASS = { normal = "normal", elite = "rareelite", boss = "worldboss" }
+-- drawn from your own unit, cycling the normal, elite, rare and boss frames with its health
+-- dropping, so the look can be judged in game.
+local PREVIEW_RANKS = { "normal", "elite", "rare", "boss" }
+local PREVIEW_NAMES = { normal = "Risen Ghoul", elite = "Bonecrusher the Vile", rare = "Ashmaw the Hungry", boss = "The Butcher" }
+local PREVIEW_CLASS = { normal = "normal", elite = "elite", rare = "rareelite", boss = "worldboss" }
 local preview = { rank = 1, clock = 0, health = 1 }
 
 local function Previewing()
@@ -75,6 +85,14 @@ end
 
 local function Secret(value)
 	return issecretvalue and issecretvalue(value)
+end
+
+-- Is the target a player? Unreadable counts as no. In the preview, the normal rank stands in for
+-- one (drawn from you), so class colours and emblems can be judged.
+local function IsPlayerTarget()
+	if Previewing() then return PREVIEW_RANKS[preview.rank] == "normal" end
+	local isPlayer = UnitIsPlayer(U())
+	return not Secret(isPlayer) and isPlayer or false
 end
 
 ---------------------------------------------------------------------------
@@ -178,7 +196,8 @@ end
 local function Rank()
 	if Previewing() then
 		local rank = PREVIEW_RANKS[preview.rank]
-		return rank, rank == "elite" and "rare" or rank, PREVIEW_CLASS[rank]
+		if rank == "rare" then return "elite", "rare", PREVIEW_CLASS.rare end
+		return rank, rank, PREVIEW_CLASS[rank]
 	end
 	local c = UnitClassification(U())
 	if Secret(c) then c = "normal" end
@@ -197,8 +216,104 @@ end
 
 local LayoutTexts -- the bar's texts follow the frame (below)
 
+-- Class icon, faction emblem and raid marker: around a portrait, or (D3's bar with its portrait
+-- off) in a row left of the frame on the bar's line.
+local MARK_SIZE = { class = 20, faction = 24, raid = 20 }
+local D3_MARKS = { class = { -28, 24 }, faction = { 28, 24 }, raid = { 0, 36 } }
+local MARK_ROW = { class = 0, faction = 1, raid = 2 }
+
+local function LayoutMarks(plate)
+	local style, showPortrait = Style(), Opt().portrait
+	for key, size in pairs(MARK_SIZE) do
+		local mark = plate.Marks[key]
+		mark:ClearAllPoints()
+		mark:SetSize(size, size)
+		if style then
+			mark:SetPoint("CENTER", plate, "TOPLEFT", style.marks[key][1], -style.marks[key][2])
+		elseif showPortrait then
+			mark:SetPoint("CENTER", plate.Portrait, "CENTER", D3_MARKS[key][1], D3_MARKS[key][2])
+		else
+			mark:SetPoint("RIGHT", plate.FrameBox, "TOPLEFT", -4 - MARK_ROW[key] * 24, -(BAR_Y - (plate.frameTop or 0)))
+		end
+	end
+end
+
+-- What rides on the health bar, sized to it.
+local function FitBars(plate, w, h)
+	plate.barW, plate.barH = w, h
+	if plate.HealBand then
+		plate.HealBand:SetWidth(w)
+		plate.AbsorbBand:SetWidth(w)
+	end
+	if plate.edgeGlow then
+		plate.edgeGlow.bloom:SetHeight(h)
+		plate.edgeGlow.core:SetHeight(h)
+	end
+	if plate.liquid then
+		for _, layer in ipairs(plate.liquid.layers) do
+			layer:SetSize(w, h)
+		end
+		plate.spark:SetHeight(h * 1.8)
+	end
+end
+
+-- A rendered frame: one piece of art per rank at fixed places, so a rank change only swaps art.
+local function SetStylePiece(plate, rank, colorKey, style)
+	local art = colorKey == "rare" and "rare" or rank
+	local key = style.slot .. art
+	if plate.rank == key then return end
+	plate.rank = key
+	local tex = plate.StyleArt.tex
+	local atlas = ns.Art.Require(style.slot)
+	tex:SetShown(atlas and true or false)
+	if atlas then
+		tex:SetTexture(atlas)
+		tex:SetTexCoord(ns.Art.TargetStyleTexCoord(style, art))
+		tex:ClearAllPoints()
+		tex:SetPoint("TOPLEFT", plate, "TOPLEFT", style.art[1], -style.art[2])
+		tex:SetSize(style.art[3], style.art[4])
+	end
+	local parts = ns.Art.Require("targetStyleParts")
+	if parts then
+		plate.StyleBadge.tex:SetTexture(parts)
+		plate.StyleBadge.tex:SetTexCoord(ns.Art.TargetPartTexCoord("badge", art))
+		plate.Cast.rail:SetTexture(parts)
+		plate.Cast.rail:SetTexCoord(ns.Art.TargetPartTexCoord("rail", art))
+		if style.portrait.round then
+			plate.Portrait.ring:SetTexture(parts)
+			plate.Portrait.ring:SetTexCoord(ns.Art.TargetPartTexCoord("ring", art))
+		end
+	end
+	-- FrameBox is invisible here; texts and side columns measure from it.
+	local box = plate.FrameBox
+	box:ClearAllPoints()
+	box:SetPoint("TOPLEFT", plate, "TOPLEFT", 0, 0)
+	box:SetSize(style.size[1], style.size[2])
+	plate.frameTop = 0
+	local bar, w, h = style.bar, style.bar[3] - style.bar[1], style.bar[4] - style.bar[2]
+	for _, b in ipairs({ plate.Health, plate.Trail }) do
+		b:ClearAllPoints()
+		b:SetPoint("TOPLEFT", plate, "TOPLEFT", bar[1], -bar[2])
+		b:SetSize(w, h)
+	end
+	local power = style.power
+	plate.Power:ClearAllPoints()
+	plate.Power:SetPoint("TOPLEFT", plate, "TOPLEFT", power[1], -power[2])
+	plate.Power:SetSize(power[3] - power[1], power[4] - power[2])
+	FitBars(plate, w, h)
+	LayoutTexts(plate)
+	plate.ToTArt:ClearAllPoints()
+	plate.ToTArt:SetPoint("TOPLEFT", plate, "TOPLEFT", style.tot[1], -style.tot[2])
+	LayoutMarks(plate)
+end
+
 -- Draw the rank's frame at the chosen width and fit the health bar (and its trail) to the slot.
-local function SetPiece(plate, rank)
+local function SetPiece(plate, rank, colorKey)
+	local style = Style()
+	if style then
+		SetStylePiece(plate, rank, colorKey, style)
+		return
+	end
 	if plate.rank == rank then return end
 	plate.rank = rank
 	local piece = ns.Art.UNIT[rank]
@@ -207,12 +322,17 @@ local function SetPiece(plate, rank)
 	local bar = piece.bar
 	plate.FrameBox:ClearAllPoints()
 	plate.FrameBox:SetPoint("TOP", plate, "TOP", 0, -(BAR_Y - (bar[2] + bar[4] / 2)))
+	plate.frameTop = BAR_Y - (bar[2] + bar[4] / 2)
 	for _, b in ipairs({ plate.Health, plate.Trail }) do
 		b:ClearAllPoints()
 		b:SetPoint("TOPLEFT", plate.FrameBox, "TOPLEFT", bar[1], -bar[2])
 		b:SetSize(bar[3] + extra, bar[4])
 	end
-	plate.barW, plate.barH = bar[3] + extra, bar[4]
+	FitBars(plate, bar[3] + extra, bar[4])
+	-- D3's frames have no groove for a resource: it runs along the bottom of the health bar.
+	plate.Power:ClearAllPoints()
+	plate.Power:SetPoint("BOTTOMLEFT", plate.Health, "BOTTOMLEFT", 0, 0)
+	plate.Power:SetSize(bar[3] + extra, POWER_STRIP)
 	-- Clicks only on the frame drawn for this rank (and its rank line), not the room the boss
 	-- banner needs: the plate sits above the console, and its empty margins would block the
 	-- console's buttons. A secure button: out of combat only; in combat it keeps the last size.
@@ -224,24 +344,10 @@ local function SetPiece(plate, rank)
 	else
 		plate.hitStale = true
 	end
-	if plate.HealBand then
-		plate.HealBand:SetWidth(plate.barW)
-		plate.AbsorbBand:SetWidth(plate.barW)
-	end
-	if plate.edgeGlow then
-		plate.edgeGlow.bloom:SetHeight(bar[4])
-		plate.edgeGlow.core:SetHeight(bar[4])
-	end
 	LayoutTexts(plate)
 	-- The target of target follows this frame's right end, on the bar's line.
 	plate.ToTArt:ClearAllPoints()
 	plate.ToTArt:SetPoint("LEFT", plate.Health, "RIGHT", (piece[3] - bar[1] - bar[3]) + TOT_GAP, 0)
-	if plate.liquid then
-		for _, layer in ipairs(plate.liquid.layers) do
-			layer:SetSize(plate.barW, plate.barH)
-		end
-		plate.spark:SetHeight(plate.barH * 1.8)
-	end
 	-- The portrait's D3 frame follows the rank too; its hole sits on the bar's line.
 	local ring = ns.Art.TARGET_RING[rank] or ns.Art.TARGET_RING.normal
 	plate.Portrait:ClearAllPoints()
@@ -253,6 +359,7 @@ local function SetPiece(plate, rank)
 	badge:ClearAllPoints()
 	badge:SetPoint("CENTER", plate.Portrait, "CENTER", 0, -(ring.badge or 50))
 	badge:SetKind(ring.plate or "silver")
+	LayoutMarks(plate)
 end
 
 -- A StatusBar owns its fill's texcoords, so each fill is a whole file: red, or white to tint.
@@ -439,6 +546,14 @@ local function PlaceText(plate, fs, prefix, isName, pos)
 	local bar, w = plate.Health, plate.barW or 250
 	if isName then y = y + 1 end -- Exocet sits a hair low
 	fs:ClearAllPoints()
+	local style = Style()
+	if isName and pos == "center" and style and style.nameAt then
+		-- A style with a name tab: "centre" means on the tab, leaving the bar to the health.
+		fs:SetPoint("CENTER", plate, "TOPLEFT", style.nameAt[1] + x, -style.nameAt[2] + y)
+		fs:SetJustifyH("CENTER")
+		fs:SetWidth(150)
+		return
+	end
 	if pos == "left" then
 		fs:SetPoint("LEFT", bar, "LEFT", 5 + x, y)
 		fs:SetJustifyH("LEFT")
@@ -466,6 +581,30 @@ function LayoutTexts(plate)
 	PlaceText(plate, plate.Name, "name", true)
 	PlaceText(plate, plate.Percent, "health")
 	plate.Name:SetShown(opt.nameShow ~= false)
+	local style = Style()
+	local stud = plate.StyleBadge
+	stud:SetShown(false)
+	if style then
+		-- The level on the frame's own stud, or (asked) as text on the bar.
+		plate.Portrait.badge:Hide()
+		local onStud = (opt.levelPos or "badge") == "badge"
+		plate.levelOnBadge = onStud and true or nil
+		if onStud then
+			local font = TEXT_FONTS[opt.levelFont] or STANDARD_TEXT_FONT
+			stud.text:SetFont(font, opt.levelSize or 10, "OUTLINE")
+			if not stud.text:GetFont() then stud.text:SetFont(STANDARD_TEXT_FONT, opt.levelSize or 10, "OUTLINE") end
+			stud.text:ClearAllPoints()
+			stud.text:SetPoint("CENTER", stud, "CENTER", opt.levelX or 0, opt.levelY or 0)
+			stud:ClearAllPoints()
+			stud:SetPoint("CENTER", plate, "TOPLEFT", style.badge[1], -style.badge[2])
+			stud:SetShown(opt.levelShow ~= false)
+			plate.Level:Hide()
+		else
+			PlaceText(plate, plate.Level, "level")
+			plate.Level:SetShown(opt.levelShow ~= false)
+		end
+		return
+	end
 	-- The level: on the portrait's plaque, or (no portrait, or asked) as text on the bar.
 	local badge = plate.Portrait.badge
 	local onBadge = (opt.levelPos or "badge") == "badge" and opt.portrait and plate.Portrait.ringArt
@@ -873,22 +1012,77 @@ local function AuraSpec(opt, kind)
 	}
 end
 
+local function IsSide(spec)
+	return spec.pos == "left" or spec.pos == "right"
+end
+
 -- Where the rank line ends: the first place below the bar that's free.
 local function BelowBase(plate)
 	return SUB_Y + ((plate.Sub:GetText() or "") ~= "" and 14 or 0) + 2
 end
 
+-- Columns beside the frame start from its top, middle or bottom (align left / centre / right).
+local function PlaceSideRef(plate, ref, spec, away)
+	local style = Style()
+	local opt = Opt()
+	local box = plate.FrameBox
+	local top, mid, bottom
+	if style then
+		top, mid, bottom = 0, style.size[2] / 2, style.size[2]
+	else
+		top, mid, bottom = BAR_Y - 22, BAR_Y, BAR_Y + 22
+	end
+	-- From the top on the right, start under the target of target, which sits there.
+	if spec.pos == "right" and spec.align == "left" and opt.tot ~= false then
+		top = style and style.tot[2] + 34 or (BAR_Y + plate.ToTArt.height / 2 + 2)
+	end
+	local y = top
+	if spec.align == "center" then
+		y = mid
+	elseif spec.align == "right" then
+		y = bottom
+	end
+	y = y + away
+	local gap = 6
+	if spec.pos == "right" then
+		ref:SetPoint("TOPLEFT", box, "TOPRIGHT", gap, -(y - (plate.frameTop or 0)))
+	else
+		-- Left of the frame, or left of D3's portrait ring where that's shown.
+		if not style and opt.portrait then
+			gap = gap + 2 * ns.Art.TARGET_RING.normal.reach - RING_OVERLAP
+		elseif not style and (opt.classIcon ~= false or opt.factionIcon ~= false or opt.raidIcon ~= false) then
+			gap = gap + 76 -- clear of the marks' row
+		end
+		ref:SetPoint("TOPRIGHT", box, "TOPLEFT", -gap, -(y - (plate.frameTop or 0)))
+	end
+end
+
 -- Place a block's start line: under the rank line (below) or on the frame's top (above),
--- `away` pixels further from the bar. A line as wide as the bar, centred like it (every frame
--- is centred on the plate), so left / right alignment follows the bar's ends.
-local function PlaceRef(plate, ref, pos, away)
+-- `away` pixels further from the bar. A line as wide as the bar, so left / right alignment
+-- follows the bar's ends. Columns beside the frame get a point instead.
+local function PlaceRef(plate, ref, spec, away)
 	ref:ClearAllPoints()
+	if IsSide(spec) then
+		ref:SetSize(1, 1)
+		PlaceSideRef(plate, ref, spec, away)
+		return
+	end
 	ref:SetSize(plate.barW or 252, 1)
-	if pos == "above" then
+	local style = Style()
+	if style and spec.pos == "above" then
+		ref:SetPoint("BOTTOMLEFT", plate, "TOPLEFT", style.bar[1], -style.aboveY + away)
+	elseif style then
+		ref:SetPoint("TOPLEFT", plate, "TOPLEFT", style.bar[1], -(style.belowY + away))
+	elseif spec.pos == "above" then
 		ref:SetPoint("BOTTOM", plate.FrameBox, "TOP", 0, 3 + away)
 	else
 		ref:SetPoint("TOP", plate, "TOP", 0, -(BelowBase(plate) + away))
 	end
+end
+
+-- Debuffs and buffs share one flow only when they are laid out alike.
+local function SameFlow(d, b)
+	return b.pos == d.pos and b.align == d.align and b.grow == d.grow
 end
 
 -- Lay out the shown icons line by line; returns the height they take.
@@ -903,7 +1097,11 @@ local function PlaceAuras(buttons, count, spec, ref)
 		button:ClearAllPoints()
 		local line, col = math.floor((i - 1) / cols), (i - 1) % cols
 		local y = line * pitch * (above and 1 or -1)
-		if spec.align == "center" then
+		if IsSide(spec) then
+			local point = spec.pos == "right" and "TOPLEFT" or "TOPRIGHT"
+			local dir = spec.pos == "right" and 1 or -1
+			button:SetPoint(point, ref, point, spec.x + dir * line * pitch, -col * (size + gap))
+		elseif spec.align == "center" then
 			local inLine = math.min(cols, count - line * cols)
 			local x = (col - (inLine - 1) / 2) * (size + gap)
 			button:SetPoint(vpoint, ref, vpoint, spec.x + x, y)
@@ -915,6 +1113,19 @@ local function PlaceAuras(buttons, count, spec, ref)
 		end
 	end
 	return count > 0 and math.ceil(count / cols) * pitch or 0
+end
+
+-- A rendered style's cast bar: in its groove, else on a rail above the frame, riding over any
+-- aura lines that are up there. `over` is the aura container above the frame, if there is one.
+local function PlaceStyleCast(plate, style, over)
+	local cast = plate.Cast
+	cast:ClearAllPoints()
+	if style.castGroove then
+		cast:SetPoint("TOPLEFT", plate, "TOPLEFT", style.castGroove[1], -style.castGroove[2])
+	elseif not (over and plate.castAnchorable and pcall(cast.SetPoint, cast, "BOTTOM", over, "TOP", 0, 4)) then
+		cast:ClearAllPoints()
+		cast:SetPoint("BOTTOMLEFT", plate, "TOPLEFT", style.bar[1], -style.castBottom)
+	end
 end
 
 local function UpdateAuraIcons(plate)
@@ -929,19 +1140,24 @@ local function UpdateAuraIcons(plate)
 	-- Nudge up is positive; `away` counts from the bar outwards.
 	local d, b = AuraSpec(opt, "debuff"), AuraSpec(opt, "buff")
 	local dAway = d.pos == "above" and d.y or -d.y
-	PlaceRef(plate, plate.auraRef, d.pos, dAway)
+	PlaceRef(plate, plate.auraRef, d, dAway)
 	local dH = PlaceAuras(plate.debuffs, #debuffs, d, plate.auraRef)
-	-- On the same side as the debuffs, buffs start on the line after them.
+	-- Laid out like the debuffs, buffs start on the line after them.
 	local bAway = b.pos == "above" and b.y or -b.y
-	if b.pos == d.pos then bAway = bAway + dAway + dH end
-	PlaceRef(plate, plate.buffRef, b.pos, bAway)
+	if SameFlow(d, b) and not IsSide(b) then bAway = bAway + dAway + dH end
+	PlaceRef(plate, plate.buffRef, b, bAway)
 	local bH = PlaceAuras(plate.buffs, #buffs, b, plate.buffRef)
+	local style = Style()
+	if style then
+		PlaceStyleCast(plate, style, nil)
+		return
+	end
 	-- The cast bar goes under whatever aura lines are below, else under the rank line.
 	local castY = SUB_Y + ((plate.Sub:GetText() or "") ~= "" and 16 or 2)
-	if d.pos ~= "above" and dH > 0 then
+	if d.pos == "below" and dH > 0 then
 		castY = math.max(castY, BelowBase(plate) + dAway + dH + 2)
 	end
-	if b.pos ~= "above" and bH > 0 then
+	if b.pos == "below" and bH > 0 then
 		castY = math.max(castY, BelowBase(plate) + bAway + bH + 2)
 	end
 	plate.Cast:ClearAllPoints()
@@ -1097,8 +1313,20 @@ end
 local function FlowBox(box, spec, cols)
 	local above = spec.pos == "above"
 	local dirs = AnchorUtil and AnchorUtil.FlowDirection or { Left = -1, Right = 1, Up = 1, Down = -1 }
-	box:SetFlowLayoutAnchorPoint((above and "BOTTOM" or "TOP") .. (spec.grow == "left" and "RIGHT" or "LEFT"))
-	box:SetFlowLayoutGrowthDirection(spec.grow == "left" and dirs.Left or dirs.Right, above and dirs.Up or dirs.Down)
+	local axes = AnchorUtil and AnchorUtil.FlowLayoutAxis or { Horizontal = 0, Vertical = 1 }
+	local side = IsSide(spec)
+	if box.SetFlowLayoutAxis then
+		box:SetFlowLayoutAxis(side and axes.Vertical or axes.Horizontal)
+	end
+	if side then
+		-- Columns: running down (or up from the bottom), new ones away from the frame.
+		local up = spec.align == "right"
+		box:SetFlowLayoutAnchorPoint((up and "BOTTOM" or "TOP") .. (spec.pos == "right" and "LEFT" or "RIGHT"))
+		box:SetFlowLayoutGrowthDirection(spec.pos == "right" and dirs.Right or dirs.Left, up and dirs.Up or dirs.Down)
+	else
+		box:SetFlowLayoutAnchorPoint((above and "BOTTOM" or "TOP") .. (spec.grow == "left" and "RIGHT" or "LEFT"))
+		box:SetFlowLayoutGrowthDirection(spec.grow == "left" and dirs.Left or dirs.Right, above and dirs.Up or dirs.Down)
+	end
 	box:SetFlowLayoutMaximumLineSize(cols * spec.size + (cols - 1) * spec.gap)
 end
 
@@ -1148,8 +1376,15 @@ end
 -- from the band's edge. Either way its centre is known (the client keeps its size secret), so
 -- this returns that centre's offset from the plate's, for the cast bar to hang under it.
 local function AnchorBox(box, spec, ref, width)
-	local vpoint = spec.pos == "above" and "BOTTOM" or "TOP"
 	box:ClearAllPoints()
+	if IsSide(spec) then
+		-- Pinned by its top, middle or bottom edge on the frame's side; the client sizes it.
+		local v = spec.align == "right" and "BOTTOM" or (spec.align == "center" and "" or "TOP")
+		local h = spec.pos == "right" and "LEFT" or "RIGHT"
+		box:SetPoint(v .. h, ref, v .. h, spec.x, 0)
+		return 0
+	end
+	local vpoint = spec.pos == "above" and "BOTTOM" or "TOP"
 	if spec.align == "center" then
 		box:SetPoint(vpoint, ref, vpoint, spec.x, 0)
 		return spec.x
@@ -1164,15 +1399,15 @@ end
 local function UpdateBoxes(plate)
 	local opt = Opt()
 	local d, b = AuraSpec(opt, "debuff"), AuraSpec(opt, "buff")
-	local same = (opt.debuffs and opt.buffs and b.pos == d.pos) and true or false
+	local same = (opt.debuffs and opt.buffs and SameFlow(d, b)) and true or false
 	ConfigureBoxes(plate, opt, d, b, same)
 
 	local width = plate.barW or 252
 	local dAway = d.pos == "above" and d.y or -d.y
-	PlaceRef(plate, plate.auraRef, d.pos, dAway)
+	PlaceRef(plate, plate.auraRef, d, dAway)
 	local dMid = AnchorBox(plate.debuffBox, d, plate.auraRef, width)
 	local bAway = b.pos == "above" and b.y or -b.y
-	PlaceRef(plate, plate.buffRef, b.pos, bAway)
+	PlaceRef(plate, plate.buffRef, b, bAway)
 	local bMid = AnchorBox(plate.buffBox, b, plate.buffRef, width)
 	plate.debuffBox:SetShown(opt.debuffs or same)
 	plate.buffBox:SetShown(opt.buffs and not same)
@@ -1180,12 +1415,25 @@ local function UpdateBoxes(plate)
 	plate.debuffBox:UpdateAllAuras()
 	plate.buffBox:UpdateAllAuras()
 
+	local style = Style()
+	if style then
+		-- A rail rides over whichever aura lines are above the frame.
+		local over
+		if (opt.debuffs or same) and d.pos == "above" then
+			over = plate.debuffBox
+		elseif opt.buffs and not same and b.pos == "above" then
+			over = plate.buffBox
+		end
+		PlaceStyleCast(plate, style, over)
+		return
+	end
+
 	-- The cast bar hangs under whichever container is below the bar (it may anchor to one:
 	-- it was made without layout scripts), else under the rank line.
 	local under, mid
-	if (opt.debuffs or same) and d.pos ~= "above" then
+	if (opt.debuffs or same) and d.pos == "below" then
 		under, mid = plate.debuffBox, dMid
-	elseif opt.buffs and not same and b.pos ~= "above" then
+	elseif opt.buffs and not same and b.pos == "below" then
 		under, mid = plate.buffBox, bMid
 	end
 	plate.Cast:ClearAllPoints()
@@ -1224,7 +1472,7 @@ end
 
 local function UpdatePortrait(plate)
 	local portrait = plate.Portrait
-	if not Opt().portrait or not UnitExists(U()) then
+	if not (Opt().portrait or Style()) or not UnitExists(U()) then
 		portrait:Hide()
 		return
 	end
@@ -1296,9 +1544,100 @@ local function UpdateToT(plate, full)
 	pcall(art.Health.SetValue, art.Health, ns.Or(health, 0))
 	local guid = UnitGUID(unit)
 	if Secret(guid) then guid = nil end
-	if art.portraitShown and (full or (guid and guid ~= plate.totGUID)) then
+	if (art.portraitShown or art.styled) and (full or (guid and guid ~= plate.totGUID)) then
 		plate.totGUID = guid
 		ShowPortrait(art.Portrait, unit)
+	end
+end
+
+-- The dark track behind D3's resource strip shows only while there is power, so a monster with
+-- no resource keeps a clean health bar. Power can be secret: then the client answers via a curve.
+local TRACK_POINTS = { { 0, 0 }, { 0.001, 1 }, { 1, 1 } }
+
+local function SetPowerTrack(track, unit, power)
+	if not Secret(power) then
+		track:SetAlpha((power or 0) > 0 and 1 or 0)
+		return
+	end
+	local curve = UnitPowerPercent and Curve("powerTrack", TRACK_POINTS)
+	if curve then
+		local ok, alpha = pcall(UnitPowerPercent, unit, nil, true, curve)
+		if ok and type(alpha) ~= "nil" and pcall(track.SetAlpha, track, alpha) then return end
+	end
+	track:SetAlpha(0)
+end
+
+-- The target's resource: a groove in the rendered styles, a strip in D3's bar. The bar takes
+-- secret values as is.
+local function UpdatePower(plate)
+	local bar = plate.Power
+	if not bar:IsShown() then return end
+	local unit = U()
+	local powerType, token = UnitPowerType(unit)
+	local colors = ns.Globes and ns.Globes.POWER_COLORS
+	local c = not Secret(token) and token and colors and colors[token]
+	local r, g, b = 0.18, 0.36, 1.0
+	if c then
+		r, g, b = c[1], c[2], c[3]
+	elseif PowerBarColor then
+		local info = (not Secret(token) and PowerBarColor[token]) or (not Secret(powerType) and PowerBarColor[powerType])
+		if info and info.r then r, g, b = info.r, info.g, info.b end
+	end
+	bar:SetStatusBarColor(r, g, b, 1)
+	pcall(bar.SetMinMaxValues, bar, 0, ns.Or(UnitPowerMax(unit), 1))
+	local power = UnitPower(unit)
+	if not pcall(bar.SetValue, bar, ns.Or(power, 0)) then bar:SetValue(0) end
+	SetPowerTrack(bar.track, unit, power)
+end
+
+-- A player's class colour, or nil when it's off or can't be read.
+local function ClassNameColor()
+	if Opt().classColor == false or not IsPlayerTarget() then return nil end
+	local _, class = UnitClass(U())
+	if not Secret(class) then
+		return RAID_CLASS_COLORS and class and RAID_CLASS_COLORS[class]
+	end
+	if C_ClassColor and C_ClassColor.GetClassColor then
+		local ok, color = pcall(C_ClassColor.GetClassColor, class)
+		if ok then return color end
+	end
+end
+
+-- The class icon, faction emblem and raid marker. Each hides when off or unreadable.
+local function UpdateMarks(plate)
+	local opt, unit, marks = Opt(), U(), plate.Marks
+	local player = IsPlayerTarget()
+	local coords
+	if player and opt.classIcon ~= false and CLASS_ICON_TCOORDS then
+		local _, class = UnitClass(unit)
+		if not Secret(class) and class then coords = CLASS_ICON_TCOORDS[class] end
+	end
+	if coords then marks.class:SetTexCoord(unpack(coords)) end
+	marks.class:SetShown(coords and true or false)
+	local faction
+	if player and opt.factionIcon ~= false then
+		local group = UnitFactionGroup(unit)
+		if not Secret(group) and (group == "Alliance" or group == "Horde") then faction = group end
+	end
+	if faction then
+		marks.faction:SetTexture("Interface\\TargetingFrame\\UI-PVP-" .. faction)
+		marks.faction:SetTexCoord(0, 0.65625, 0, 0.65625)
+	end
+	marks.faction:SetShown(faction and true or false)
+	local index
+	if opt.raidIcon ~= false then
+		if Previewing() then
+			index = PREVIEW_RANKS[preview.rank] == "normal" and 8 or nil
+		elseif GetRaidTargetIndex then
+			index = GetRaidTargetIndex(unit)
+			if Secret(index) then index = nil end
+		end
+	end
+	if index and SetRaidTargetIconTexture then
+		SetRaidTargetIconTexture(marks.raid, index)
+		marks.raid:Show()
+	else
+		marks.raid:Hide()
 	end
 end
 
@@ -1308,7 +1647,7 @@ function ns.TargetPlate.Update(snap)
 	if not plate or not Opt().enabled or not UnitExists(U()) then return end
 
 	local rank, colorKey, classification = Rank()
-	SetPiece(plate, rank)
+	SetPiece(plate, rank, colorKey)
 
 	local friendly = UnitIsFriend("player", U())
 	if Secret(friendly) then friendly = false end
@@ -1331,8 +1670,10 @@ function ns.TargetPlate.Update(snap)
 		nameColor = NAME_COLORS[colorKey]
 		SetFillColor(plate, true)
 	end
+	local classColor = ClassNameColor()
+	if classColor then nameColor = { classColor.r, classColor.g, classColor.b } end
 	if Previewing() then
-		plate.Name:SetText(PREVIEW_NAMES[rank] or "")
+		plate.Name:SetText(PREVIEW_NAMES[PREVIEW_RANKS[preview.rank]] or "")
 	elseif not pcall(plate.Name.SetText, plate.Name, ns.Or(UnitName(U()), "")) then
 		plate.Name:SetText("")
 	end
@@ -1359,13 +1700,113 @@ function ns.TargetPlate.Update(snap)
 	local badge = plate.Portrait.badge
 	badge.text:SetText(plate.Level:GetText() or "")
 	badge.text:SetTextColor(lr, lg, lb)
+	plate.StyleBadge.text:SetText(plate.Level:GetText() or "")
+	plate.StyleBadge.text:SetTextColor(lr, lg, lb)
 	plate.Sub:SetText(RANK_LABEL[classification] or "")
 
 	SetHealth(plate, snap)
+	UpdatePower(plate)
 	UpdateToT(plate, true)
 	UpdatePortrait(plate)
+	UpdateMarks(plate)
 	UpdateAuras(plate)
 	StartCast(plate.Cast, false)
+end
+
+-- Sizes a portrait and what's in it; D3's sizes are kept on the portrait by MakeRing.
+local function SizePortrait(portrait, frame, model, disc)
+	portrait:SetSize(frame, frame)
+	portrait.back:SetSize(model, model)
+	portrait.model:SetSize(model, model)
+	portrait.disc:SetSize(disc, disc)
+end
+
+-- The cast bar's look: the rendered rail or groove (spell inside the bar), or D3's thin bar.
+local function StyleCast(cast, style)
+	for _, slice in ipairs(cast.art.slices or {}) do
+		slice:SetShown(not style)
+	end
+	cast.rail:SetShown(style and not style.castGroove and true or false)
+	local name, icon, lock, bar = cast.spellName, cast.icon, cast.lock, cast.bar
+	icon:ClearAllPoints()
+	bar:ClearAllPoints()
+	name:ClearAllPoints()
+	if not style then
+		local piece = ns.Art.UNIT.cast
+		ns.Art.DrawSliced(cast.art, "cast", piece[3], 1)
+		cast:SetSize(piece[3], piece[4])
+		bar:SetPoint("TOPLEFT", piece.bar[1], -piece.bar[2])
+		bar:SetSize(piece.bar[3], piece.bar[4])
+		icon:SetSize(20, 20)
+		icon:SetPoint("RIGHT", cast, "LEFT", -4, -4)
+		lock:SetSize(14, 16)
+		name:SetPoint("TOP", cast, "BOTTOM", 0, -1)
+		name:SetWidth(piece[3])
+		name:SetJustifyH("CENTER")
+		return
+	end
+	local x0, y0, x1, y1
+	local groove = style.castGroove
+	if groove then
+		x0, y0, x1, y1 = 0, 0, groove[3] - groove[1], groove[4] - groove[2]
+		cast:SetSize(x1, y1)
+	else
+		x0, y0, x1, y1 = 4, 3.5, 232, 14.5
+		cast:SetSize(236, 18)
+	end
+	local h = y1 - y0
+	icon:SetSize(h, h)
+	icon:SetPoint("TOPLEFT", cast, "TOPLEFT", x0, -y0)
+	bar:SetPoint("TOPLEFT", cast, "TOPLEFT", x0 + h, -y0)
+	bar:SetSize(x1 - x0 - h, h)
+	lock:SetSize(h, h + 2)
+	name:SetPoint("LEFT", bar, "LEFT", 3, 0)
+	name:SetWidth(x1 - x0 - h - 6)
+	name:SetJustifyH("LEFT")
+end
+
+-- Switch between D3's frame and a rendered one: what's shown and the portrait's and cast's shape.
+local function ApplyStyle(plate)
+	local style = Style()
+	local key = style and style.slot or "d3"
+	plate.Power:SetShown(Opt().power ~= false)
+	plate.Power.track:SetShown(not style)
+	if plate.styleKey == key then return end
+	plate.styleKey = key
+	plate.rank = nil
+	for _, slice in ipairs(plate.FrameBox.slices or {}) do
+		slice:SetShown(not style)
+	end
+	plate.StyleArt:SetShown(style and true or false)
+	plate.Well:SetShown(not style)
+	plate.Sub:SetShown(not style)
+	StyleCast(plate.Cast, style)
+	local portrait = plate.Portrait
+	local d3 = portrait.d3
+	local ring = portrait.ring
+	if not style then
+		SizePortrait(portrait, d3.frame, d3.model, d3.disc)
+		ring:ClearAllPoints()
+		ring:SetAllPoints()
+		ring:Show()
+		if portrait.ringArt then ns.Art.Apply(ring, "targetRings") end
+		return
+	end
+	local p = style.portrait
+	local cx, cy, size
+	if p.round then
+		cx, cy, size = p.cx, p.cy, p.model
+		SizePortrait(portrait, size, size, p.hole * 2 + 2)
+	else
+		cx, cy, size = (p[1] + p[3]) / 2, (p[2] + p[4]) / 2, p[3] - p[1]
+		SizePortrait(portrait, size, size, size)
+	end
+	portrait:ClearAllPoints()
+	portrait:SetPoint("CENTER", plate, "TOPLEFT", cx, -cy)
+	ring:SetShown(p.round and true or false)
+	ring:ClearAllPoints()
+	ring:SetPoint("CENTER", portrait.over, "CENTER", 0, 0)
+	ring:SetSize(140, 140)
 end
 
 function ns.TargetPlate.Layout()
@@ -1378,30 +1819,46 @@ function ns.TargetPlate.Layout()
 	ns.TargetPlate.pending = nil
 	local opt = Opt()
 	plate:SetScale(ns.Art.D3Scale(opt.scale))
-	-- Wide enough for the widest frame (the boss banner) at this width, plus the portrait.
-	local width = ns.Art.UNIT.boss[3] * (opt.width or 1)
-	plate:SetSize(width, PLATE_H)
+	local style = Style()
+	ApplyStyle(plate)
+	-- Room for a cast rail above the frame, so its default place doesn't run off the screen.
+	local room = 0
+	if style then
+		plate:SetSize(style.size[1], style.size[2])
+		plate:SetHitRectInsets(0, 0, 0, 0)
+		plate.hitStale = nil
+		if style.castBottom then room = math.max(0, 18 - style.castBottom) end
+	else
+		-- Wide enough for the widest frame (the boss banner) at this width, plus the portrait.
+		plate:SetSize(ns.Art.UNIT.boss[3] * (opt.width or 1), PLATE_H)
+	end
 	plate:ClearAllPoints()
 	if opt.moved then
 		plate:SetPoint("CENTER", UIParent, "BOTTOMLEFT", opt.mx, opt.my)
 	else
-		plate:SetPoint("TOP", UIParent, "TOP", 0, -12)
+		plate:SetPoint("TOP", UIParent, "TOP", 0, -12 - room)
 	end
 	plate.rank = nil -- redraw the frame at the new width
 	-- Target of target click area: from the narrowest frame's right end (normal) to the end of
 	-- the ToT bar hung off the widest's (the boss banner), on the bar's line.
 	local w = opt.width or 1
 	local art = plate.ToTArt
+	art.SetStyled(style and true or false)
 	local showPortrait = opt.totPortrait ~= false
 	if art.portraitShown ~= showPortrait then
 		art.SetPortraitShown(showPortrait)
 		plate.totGUID = nil -- back on: draw the current unit's portrait
 	end
-	local from = ns.Art.UNIT.normal[3] * w / 2
-	local to = ns.Art.UNIT.boss[3] * w / 2 + TOT_GAP + art.width
 	plate.ToT:ClearAllPoints()
-	plate.ToT:SetPoint("LEFT", plate, "TOP", from, -BAR_Y)
-	plate.ToT:SetSize(to - from, art.height)
+	if style then
+		plate.ToT:SetPoint("TOPLEFT", plate, "TOPLEFT", style.tot[1], -style.tot[2])
+		plate.ToT:SetSize(art.width, art.height)
+	else
+		local from = ns.Art.UNIT.normal[3] * w / 2
+		local to = ns.Art.UNIT.boss[3] * w / 2 + TOT_GAP + art.width
+		plate.ToT:SetPoint("LEFT", plate, "TOP", from, -BAR_Y)
+		plate.ToT:SetSize(to - from, art.height)
+	end
 	local font = TEXT_FONTS[opt.nameFont] or ns.FONT or STANDARD_TEXT_FONT
 	local size = math.max(8, math.floor((opt.nameSize or 13) * 0.8 + 0.5))
 	art.Name:SetFont(font, size, "OUTLINE")
@@ -1480,6 +1937,8 @@ local function MakeRing(parent, k)
 	local disc = CreateFrame("Frame", nil, portrait)
 	disc:SetSize(hole + 2 * k, hole + 2 * k)
 	disc:SetPoint("CENTER")
+	portrait.disc = disc
+	portrait.d3 = { frame = cell, model = MODEL, disc = hole + 2 * k }
 	-- A dark disc behind, so a portrait still loading never shows the plate through the hole.
 	portrait.back = portrait:CreateTexture(nil, "BACKGROUND")
 	portrait.back:SetSize(MODEL, MODEL)
@@ -1516,6 +1975,13 @@ local function MakeRing(parent, k)
 	return portrait
 end
 
+local function SizePortraitSmall(portrait, frame, model, disc)
+	portrait:SetSize(frame, frame)
+	portrait.back:SetSize(model, model)
+	portrait.model:SetSize(model, model)
+	portrait.disc:SetSize(disc, disc)
+end
+
 -- The target of target, drawn: the ordinary monster bar (silver frame, health, name inside)
 -- at TOT_K with the portrait ring at its left end, as the target bar wears it. Its left edge
 -- is the ring's; SetPiece hangs it off the target frame's right end.
@@ -1535,6 +2001,8 @@ local function MakeToTArt(plate, parent)
 	-- follows it; without, the frame starts where the ring did and the art is just the bar.
 	function art.SetPortraitShown(show)
 		show = show and true or false
+		art.portraitShown = show
+		if art.styled then return end -- the rendered frame has its own socket
 		local frameLeft = show and (2 * reach - RING_OVERLAP) * k or 0
 		art.width = frameLeft + piece[3] * k
 		art.height = show and 2 * reach * k or piece[4] * k
@@ -1542,7 +2010,6 @@ local function MakeToTArt(plate, parent)
 		box:ClearAllPoints()
 		box:SetPoint("TOPLEFT", art, "LEFT", frameLeft, (bar[2] + bar[4] / 2) * k)
 		if art.Portrait then art.Portrait:SetShown(show) end
-		art.portraitShown = show
 	end
 	art.SetPortraitShown(true)
 	ns.Art.DrawSliced(box, "normal", piece[3] * k, k)
@@ -1581,6 +2048,52 @@ local function MakeToTArt(plate, parent)
 	art.Portrait = MakeRing(art, k)
 	art.Portrait:SetPoint("CENTER", art, "LEFT", reach * k, 0)
 	art.Portrait:SetShown(art.portraitShown)
+	-- The rendered styles' small frame: a socket with its own bar, in place of D3's.
+	local styleTex = art:CreateTexture(nil, "ARTWORK")
+	styleTex:SetPoint("TOPLEFT", art, "TOPLEFT", -4, 4)
+	styleTex:SetSize(120, 38)
+	styleTex:Hide()
+	function art.SetStyled(on)
+		if art.styled == on then return end
+		art.styled = on
+		box:SetShown(not on)
+		well:SetShown(not on)
+		styleTex:SetShown(on)
+		health:ClearAllPoints()
+		art.Name:ClearAllPoints()
+		local portrait = art.Portrait
+		portrait:ClearAllPoints()
+		if on then
+			local parts = ns.Art.Require("targetStyleParts")
+			if parts then
+				styleTex:SetTexture(parts)
+				styleTex:SetTexCoord(ns.Art.TargetPartTexCoord("tot"))
+			end
+			art.width, art.height = 112, 30
+			art:SetSize(art.width, art.height)
+			health:SetPoint("TOPLEFT", art, "TOPLEFT", 32, -11)
+			health:SetSize(70, 8)
+			art.Name:SetPoint("BOTTOMLEFT", health, "TOPLEFT", 1, 0)
+			art.Name:SetWidth(70)
+			art.Name:SetJustifyH("LEFT")
+			portrait.ring:Hide()
+			SizePortraitSmall(portrait, 30, 22, 23)
+			portrait:SetPoint("CENTER", art, "TOPLEFT", 15, -15)
+			portrait:Show()
+		else
+			health:SetPoint("TOPLEFT", box, "TOPLEFT", bar[1] * k, -bar[2] * k)
+			health:SetSize(bar[3] * k, bar[4] * k)
+			art.Name:SetPoint("CENTER", health, "CENTER", 0, 0)
+			art.Name:SetWidth(bar[3] * k - 6)
+			art.Name:SetJustifyH("CENTER")
+			portrait.ring:Show()
+			local d3 = portrait.d3
+			SizePortraitSmall(portrait, d3.frame, d3.model, d3.disc)
+			portrait:SetPoint("CENTER", art, "LEFT", reach * k, 0)
+			art.SetPortraitShown(art.portraitShown)
+		end
+	end
+	art.styled = false
 	return art
 end
 
@@ -1778,7 +2291,47 @@ function ns.TargetPlate.Init()
 	portrait:Hide()
 	plate.Portrait = portrait
 
-	SetPiece(plate, "normal")
+	-- A rendered style's frame: under the bars, so it's the groove they sit in.
+	local styleArt = CreateFrame("Frame", nil, plate)
+	styleArt:SetFrameLevel(plate:GetFrameLevel())
+	styleArt:SetAllPoints()
+	styleArt.tex = styleArt:CreateTexture(nil, "ARTWORK")
+	styleArt:Hide()
+	plate.StyleArt = styleArt
+	-- Class icon, faction emblem and raid marker, above the portrait's frame.
+	local marks = CreateFrame("Frame", nil, plate)
+	marks:SetAllPoints()
+	marks:SetFrameLevel(plate:GetFrameLevel() + 9)
+	marks.class = marks:CreateTexture(nil, "OVERLAY")
+	marks.class:SetTexture("Interface\\TargetingFrame\\UI-Classes-Circles")
+	marks.faction = marks:CreateTexture(nil, "OVERLAY")
+	marks.raid = marks:CreateTexture(nil, "OVERLAY", nil, 1)
+	marks.raid:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+	marks.class:Hide()
+	marks.faction:Hide()
+	marks.raid:Hide()
+	plate.Marks = marks
+	-- Its resource bar, and the stud the level sits on.
+	local power = CreateFrame("StatusBar", nil, plate)
+	power:SetFrameLevel(plate:GetFrameLevel() + 3) -- over the health fill, for D3's strip
+	power:SetStatusBarTexture(ns.Art.Path("unitFillWhite") or "Interface\\Buttons\\WHITE8X8")
+	power:SetMinMaxValues(0, 1)
+	-- D3's strip: a dark track, a pixel taller so it parts the strip from the health above.
+	power.track = power:CreateTexture(nil, "BACKGROUND")
+	power.track:SetPoint("TOPLEFT", power, "TOPLEFT", 0, 1)
+	power.track:SetPoint("BOTTOMRIGHT", power, "BOTTOMRIGHT", 0, 0)
+	power.track:SetColorTexture(0.02, 0.02, 0.03, 1)
+	power:Hide()
+	plate.Power = power
+	local stud = CreateFrame("Frame", nil, plate)
+	stud:SetFrameLevel(plate:GetFrameLevel() + 8)
+	stud:SetSize(24, 24)
+	stud.tex = stud:CreateTexture(nil, "ARTWORK")
+	stud.tex:SetAllPoints()
+	stud.text = stud:CreateFontString(nil, "OVERLAY")
+	stud.text:SetFont(STANDARD_TEXT_FONT, 10, "OUTLINE")
+	stud:Hide()
+	plate.StyleBadge = stud
 
 	-- Cast bar: D3's thin progress bar (its orange glow fill), the spell's icon at its left
 	-- and the spell name under it; a lock and grey wash when it can't be interrupted.
@@ -1815,6 +2368,12 @@ function ns.TargetPlate.Init()
 	cast.lock:SetPoint("CENTER", cast.icon, "BOTTOMRIGHT", -1, 2)
 	cast.lock:SetTexture("Interface\\PetBattles\\PetBattle-LockIcon")
 	cast.lock:SetAlpha(0)
+	cast.art = castArt
+	-- The rendered styles' rail, under the bar (the bar is a child frame).
+	cast.rail = cast:CreateTexture(nil, "ARTWORK")
+	cast.rail:SetPoint("TOPLEFT", cast, "TOPLEFT", -10, 4)
+	cast.rail:SetSize(256, 26)
+	cast.rail:Hide()
 	cast.spellName = castArt:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	cast.spellName:SetPoint("TOP", cast, "BOTTOM", 0, -1)
 	cast.spellName:SetWidth(piece[3])
@@ -1843,6 +2402,7 @@ function ns.TargetPlate.Init()
 		end
 	end)
 	plate.Cast = cast
+	SetPiece(plate, "normal", "normal")
 
 	-- Aura rows hang off thin lines placed by PlaceRef; the cast bar goes under them.
 	plate.auraRef = CreateFrame("Frame", nil, plate)
@@ -1882,10 +2442,14 @@ function ns.TargetPlate.Init()
 	events:RegisterEvent("PLAYER_TARGET_CHANGED")
 	events:RegisterEvent("PLAYER_ENTERING_WORLD")
 	events:RegisterEvent("PLAYER_REGEN_ENABLED")
+	events:RegisterEvent("RAID_TARGET_UPDATE")
 	events:RegisterEvent("UI_SCALE_CHANGED")
 	events:RegisterEvent("DISPLAY_SIZE_CHANGED")
 	events:RegisterUnitEvent("UNIT_HEALTH", "target")
 	events:RegisterUnitEvent("UNIT_MAXHEALTH", "target")
+	events:RegisterUnitEvent("UNIT_POWER_UPDATE", "target")
+	events:RegisterUnitEvent("UNIT_MAXPOWER", "target")
+	events:RegisterUnitEvent("UNIT_DISPLAYPOWER", "target")
 	events:RegisterUnitEvent("UNIT_HEAL_PREDICTION", "target")
 	events:RegisterUnitEvent("UNIT_ABSORB_AMOUNT_CHANGED", "target")
 	events:RegisterUnitEvent("UNIT_AURA", "target")
@@ -1925,6 +2489,10 @@ function ns.TargetPlate.Init()
 			SetShield(plate.Cast, event == "UNIT_SPELLCAST_NOT_INTERRUPTIBLE")
 		elseif event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
 			SetHealth(plate)
+		elseif event == "RAID_TARGET_UPDATE" then
+			if UnitExists(U()) then UpdateMarks(plate) end
+		elseif event == "UNIT_POWER_UPDATE" or event == "UNIT_MAXPOWER" or event == "UNIT_DISPLAYPOWER" then
+			UpdatePower(plate)
 		elseif event == "UNIT_HEAL_PREDICTION" or event == "UNIT_ABSORB_AMOUNT_CHANGED" then
 			SetPrediction(plate, UnitHealth(U()), UnitHealthMax(U()))
 		elseif event == "UNIT_AURA" then
