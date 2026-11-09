@@ -162,6 +162,37 @@ local function GlobeAuraArgs()
 		if registry then registry:NotifyChange(APP) end
 	end
 	local function off() return not DB().globeAuras.enabled end
+	local LOOK_NAMES = { radiate = "Radiance", shell = "Crystal shell", pour = "Pour", inhale = "Inhale", upwell = "Upwell", swirl = "Swirl" }
+
+	-- A skill's Preview: its whole life on the globe, on its own, then back to your real buffs.
+	local function PreviewButton(order, key, isDisabled)
+		return {
+			type = "execute", order = order, name = "Preview", width = 0.6,
+			desc = "Plays this on your globes for a few seconds, from lighting up to how it ends. Not in combat.",
+			disabled = function() return InCombatLockdown() or (isDisabled and isDisabled()) end,
+			func = function() ns.GlobeAura.PreviewSkill(key) end,
+		}
+	end
+
+	local hots = {}
+	for _, effect in ipairs(DATA.EFFECTS) do
+		if effect.hot then hots[#hots + 1] = effect end
+	end
+	-- The look they share, or "mixed" once they differ.
+	local function HotLook()
+		local looks = DB().globeAuras.looks
+		local look = looks[hots[1].key] or "default"
+		for _, effect in ipairs(hots) do
+			if (looks[effect.key] or "default") ~= look then return "mixed" end
+		end
+		return look
+	end
+	-- Red tints are left out: they'd vanish against the health globe.
+	local HOT_TINTS = {
+		default = "Each skill's own", nature = "Nature green", fel = "Fel green", innervate = "Teal", water = "Blue",
+		frost = "Ice", holy = "Gold", arcaneViolet = "Violet", shadow = "Shadow", steel = "Silver",
+	}
+	local HOT_TINT_ORDER = { "default", "nature", "fel", "innervate", "water", "frost", "holy", "arcaneViolet", "shadow", "steel" }
 
 	local args = {
 		intro = Note(1, "Light on the globes while a buff is up: light radiating from behind a globe, a crystal shell over it while a shield holds, or light pouring into it. In combat this client hides your buffs from addons, so they are followed from your casts (and, for shields, from the game's absorb amount, which it still shows). A buff cancelled by hand or purged in combat can stay lit until its time would have run out; the first reading after combat puts it right. /sanctuary watch shows what is known."),
@@ -174,6 +205,41 @@ local function GlobeAuraArgs()
 		settleLong = Toggle(15, "Long buffs settle down", "Buffs kept up for minutes (Lightning Shield, Inner Fire) light up in full when cast, then calm to a quiet glow after a few seconds. They still flare when recast, discharge when their charges are spent and blink in their last seconds.", "globeAuras", "settleLong"),
 		renderedStorm = Toggle(16.5, "Rendered lightning", "Lightning Shield's arcs branch and strike round the rim, crawl over the glass, and spending its charges flings bolts off the whole rim. Off, it uses the older static and bolts. Uses about 20 MB of video memory, only for characters who can have it.", "globeAuras", "renderedStorm"),
 		renderedBreak = Toggle(16, "Rendered shield break", "Shields crack along their seams and shatter with a 3D render, and blows run light along the crystal. Off, they use the drawn shards and ripple. The art uses about 20 MB of video memory, only while this is on.", "globeAuras", "renderedBreak"),
+		hotHeader = Header(17, "Healing over time"),
+		hotNote = Note(17.1, "Renew, Rejuvenation, Regrowth and Frenzied Regeneration on your health globe. The look can also be set one skill at a time on the class pages."),
+		hotLook = {
+			type = "select", order = 17.2, name = "Look",
+			desc = "What healing over time shows on the health globe.",
+			disabled = off,
+			values = {
+				default = "Default (Upwell)", mixed = "Set per skill",
+				radiate = "Radiance", shell = "Crystal shell", pour = "Pour", inhale = "Inhale", upwell = "Upwell", swirl = "Swirl",
+			},
+			sorting = { "default", "mixed", "radiate", "shell", "pour", "inhale", "upwell", "swirl" },
+			get = HotLook,
+			set = function(_, value)
+				if value == "mixed" then return end
+				for _, effect in ipairs(hots) do
+					DB().globeAuras.looks[effect.key] = value ~= "default" and value or nil
+				end
+				Changed()
+				-- A preview running shows the new look from its start.
+				local key = ns.GlobeAura.previewKey
+				local effect = key and ns.Watch.Effect(key)
+				if effect and effect.hot then ns.GlobeAura.PreviewSkill(key) end
+			end,
+		},
+		hotTint = (function()
+			local option = Select(17.3, "Colour", nil, "globeAuras", "hotTint", HOT_TINTS, HOT_TINT_ORDER)
+			option.disabled = off
+			return option
+		end)(),
+		hotStrength = (function()
+			local option = Range(17.4, "Brightness", "On top of the overall brightness above.", "globeAuras", "hotStrength", 0.25, 2, 0.05, true)
+			option.disabled = off
+			return option
+		end)(),
+		hotPreview = PreviewButton(17.5, myClass == "PRIEST" and "renew" or "rejuvenation", off),
 	}
 
 	-- One page per class, with your class first.
@@ -195,15 +261,20 @@ local function GlobeAuraArgs()
 					order = n,
 					name = effect.label,
 					desc = effect.desc:sub(1, 1):upper() .. effect.desc:sub(2) .. ".",
-					width = flareOnly and "full" or 1.5,
+					width = 1.5,
 					get = function() return DB().globeAuras.effects[effect.key] end,
 					set = function(_, value)
 						DB().globeAuras.effects[effect.key] = value
 						Changed()
 					end,
 				}
-				if not flareOnly then
-					local LOOK_NAMES = { radiate = "Radiance", shell = "Crystal shell", pour = "Pour", inhale = "Inhale", upwell = "Upwell", swirl = "Swirl" }
+				page.args[effect.key .. "Preview"] = PreviewButton(n + 0.7, effect.key, function()
+					return not DB().globeAuras.effects[effect.key]
+				end)
+				if flareOnly then
+					-- Keeps the Preview buttons in one column.
+					page.args[effect.key .. "Gap"] = { type = "description", order = n + 0.5, name = " ", width = 1 }
+				else
 					local native = effect.look == "surge" and (effect.surge or "swirl") or effect.look
 					page.args[effect.key .. "Look"] = {
 						type = "select",
@@ -221,6 +292,8 @@ local function GlobeAuraArgs()
 						set = function(_, value)
 							DB().globeAuras.looks[effect.key] = value ~= "default" and value or nil
 							Changed()
+							-- A preview of this skill running shows the new look from its start.
+							if ns.GlobeAura.previewKey == effect.key then ns.GlobeAura.PreviewSkill(effect.key) end
 						end,
 					}
 				end
@@ -406,16 +479,40 @@ local VISIBILITY = {
 	custom = "Custom conditional",
 }
 
-local function SourceValues(n)
-	-- Main bar 10-12 has three actions, too few for the console's twelve sockets.
-	local values = {}
-	if not (n and DB().rows[n].docked) then
-		values.main = "Main bar 10-12 (pages with the main bar)"
+-- "Page 6", or "Page 6 (bar 3)" while something else shows it. Bar n itself doesn't count.
+local function PageLabel(page, n)
+	local users = ns.ActionBar.PageUsers(page, n)
+	if #users > 0 then
+		return ("Page %d (%s)"):format(page, table.concat(users, ", "))
 	end
-	for page, name in pairs(ns.ActionBar.PAGE_NAMES) do
-		values[page] = name
+	return "Page " .. page
+end
+
+-- The main bar's last 3 buttons are too few for the console's twelve sockets.
+local function OffersMainButtons(n)
+	return not (n and DB().rows[n].docked)
+end
+
+local function SourceValues(n)
+	local values = {}
+	if OffersMainButtons(n) then
+		values.main = "Main bar's last 3 buttons"
+	end
+	for _, page in ipairs(ns.ActionBar.PAGE_LIST) do
+		values[page] = PageLabel(page, n)
 	end
 	return values
+end
+
+local function SourceOrder(n)
+	local order = {}
+	if OffersMainButtons(n) then
+		order[1] = "main"
+	end
+	for _, page in ipairs(ns.ActionBar.PAGE_LIST) do
+		order[#order + 1] = page
+	end
+	return order
 end
 
 -- A bar setting that only applies outside the console.
@@ -424,10 +521,76 @@ local function Undocked(n, option)
 	return option
 end
 
+-- Bars > Bar n: this bar's own page for each stance or form. Nil for classes without any.
+local function RowFormGroup(n)
+	local _, class = UnitClass("player")
+	local map = ns.ActionBar.CLASS_PAGES[class]
+	if not map then return nil end
+	local opt = function() return DB().rows[n] end
+	local pages = ns.ActionBar.PAGE_LIST
+	local args = {
+		follow = {
+			type = "toggle",
+			order = 1,
+			name = "Change with stance or form",
+			desc = "This bar shows another action page in each form you pick. Each page holds its own spells: shift, then drag spells onto the bar.",
+			width = "full",
+			get = function() return opt().followForms end,
+			set = function(_, value)
+				opt().followForms = value
+				Changed()
+			end,
+		},
+		clashes = {
+			type = "description",
+			order = 50,
+			name = function()
+				return "|cffff8a60Shared pages:|r " .. table.concat(ns.ActionBar.RowFormClashes(n), "; ") .. ". Spells changed in one place change in the other."
+			end,
+			hidden = function() return #ns.ActionBar.RowFormClashes(n) == 0 end,
+		},
+	}
+	for i, form in ipairs(map) do
+		local key = class .. "." .. form.key
+		local stay = form.sameAs and ("Same as " .. form.sameAs) or "Stay on this bar's page"
+		local sorting = { 0 }
+		for _, page in ipairs(pages) do
+			sorting[#sorting + 1] = page
+		end
+		args[form.key] = {
+			type = "select",
+			order = 1 + i,
+			name = form.label,
+			values = function()
+				local values = { [0] = stay }
+				for _, page in ipairs(pages) do
+					values[page] = PageLabel(page, n)
+				end
+				return values
+			end,
+			sorting = sorting,
+			disabled = function() return not opt().followForms end,
+			get = function() return tonumber(opt().formPages[key]) or 0 end,
+			set = function(_, value)
+				opt().formPages[key] = value ~= 0 and value or nil
+				Changed()
+			end,
+		}
+	end
+	return {
+		type = "group",
+		inline = true,
+		order = 5,
+		name = "Stances and forms",
+		hidden = function() return opt().source == "main" end,
+		args = args,
+	}
+end
+
 local function RowGroup(n, order)
 	local path = "rows." .. n
 	local opt = function() return DB().rows[n] end
-	local source = Select(2, "Source", "Which actions this bar shows. Pages 3-6 and 13-15 keep the keybinds you set for those bars in Key Bindings.", path, "source", function() return SourceValues(n) end)
+	local source = Select(2, "Spells from", "WoW keeps your spells on numbered pages of 12 buttons. Pick which page this bar shows. Two bars on the same page show the same spells. Pages 3-6 and 13-15 use the keys set for Blizzard's action bars in Key Bindings; for other pages, set keys with hover-binding.", path, "source", function() return SourceValues(n) end, function() return SourceOrder(n) end)
 	source.get = function()
 		local value = opt().source
 		return value == "main" and "main" or tonumber(value)
@@ -439,7 +602,7 @@ local function RowGroup(n, order)
 		args = {
 			enabled = Toggle(1, "Enabled", nil, path, "enabled"),
 			docked = (function()
-				local option = Toggle(1.5, "In the console", "Set this bar into the console: a row of twelve stone sockets between the globes, with the XP rail and the centre skull lifted to sit on top. Up to two bars, stacked in bar order. In the console the bar fills all twelve sockets, so a bar on Main bar 10-12 (three actions) moves to a free action page and takes its spells and keys with it. Size, spacing and position below don't apply while it's in the console.", path, "docked")
+				local option = Toggle(1.5, "In the console", "Set this bar into the console: a row of twelve stone sockets between the globes, with the XP rail and the centre skull lifted to sit on top. Up to two bars, stacked in bar order. In the console the bar fills all twelve sockets, so a bar on the main bar's last 3 buttons moves to a free action page and takes its spells and keys with it. Size, spacing and position below don't apply while it's in the console.", path, "docked")
 				option.set = function(_, value)
 					opt().docked = value
 					if value then
@@ -487,7 +650,7 @@ local function RowGroup(n, order)
 			countNote = {
 				type = "description",
 				order = 4,
-				name = "The console holds main-bar actions 1-9, so this source has 3 left (10-12). Pick an action page as the source for a full 12-button bar.",
+				name = "The console shows the main bar's first 9 buttons, so these are the 3 left over. They change along with the main bar. Pick a page for a full 12-button bar.",
 				hidden = function() return opt().source ~= "main" end,
 			},
 			countDocked = {
@@ -496,6 +659,7 @@ local function RowGroup(n, order)
 				name = "In the console this bar fills all twelve sockets.",
 				hidden = function() return not ns.ActionBar.DockIndex(n) end,
 			},
+			forms = RowFormGroup(n),
 			size = Header(10, "Size"),
 			scale = Undocked(n, Range(11, "Button size", "Relative to a main-bar socket.", path, "scale", 0.5, 1.2, 0.01, true)),
 			spacing = Undocked(n, Range(12, "Spacing", nil, path, "spacing", 0, 20, 1)),
@@ -908,6 +1072,16 @@ local function Build()
 						option.disabled = StyledTarget
 						return option
 					end)(),
+					rankWidth = (function()
+						local option = Select(7.05, "Width by rank", "D3 draws bosses far wider than ordinary monsters. Same frame width keeps the frame, the portrait and the target of target still as you change targets; same bar width keeps the health bar one length and lets the ornaments differ. Monster bar style only.", "target", "rankWidth", { frame = "Same frame width", bar = "Same bar width", d3 = "Grows with rank (D3)" }, { "frame", "bar", "d3" })
+						option.disabled = StyledTarget
+						return option
+					end)(),
+					height = (function()
+						local option = Range(7.1, "Height", "Makes the bar taller or shorter; the frame's lips and ornaments keep their size. Monster bar style only.", "target", "height", 0.7, 3, 0.05, true)
+						option.disabled = StyledTarget
+						return option
+					end)(),
 					portrait = (function()
 						local option = Toggle(8, "Target portrait", "The target's moving WoW portrait in a D3 hero portrait frame, left of the bar: silver for ordinary monsters, gold for elites and rares, the winged demon for bosses. The rendered styles always show it, in their own socket.", "target", "portrait")
 						option.disabled = StyledTarget
@@ -916,6 +1090,16 @@ local function Build()
 					tot = Toggle(9.2, "Target of target", "Who your target is attacking: a small monster bar with its portrait, right of the target's frame. Its name turns red when it's you. Left-click targets it, right-click opens its menu.", "target", "tot"),
 					totPortrait = (function()
 						local option = Toggle(9.3, "Target of target portrait", "The target of target's portrait in its silver ring, left of its bar. Off, the bar alone sits beside the target's frame.", "target", "totPortrait")
+						option.disabled = function() return DB().target.tot == false or StyledTarget() end
+						return option
+					end)(),
+					totWidth = (function()
+						local option = Range(9.33, "Target of target width", "Stretches its frame and bar between their ornaments. Monster bar style only.", "target", "totWidth", 0.6, 3, 0.05, true)
+						option.disabled = function() return DB().target.tot == false or StyledTarget() end
+						return option
+					end)(),
+					totHeight = (function()
+						local option = Range(9.35, "Target of target height", "Makes its bar taller or shorter. Monster bar style only.", "target", "totHeight", 0.7, 3, 0.05, true)
 						option.disabled = function() return DB().target.tot == false or StyledTarget() end
 						return option
 					end)(),
@@ -929,6 +1113,7 @@ local function Build()
 					raidIcon = Toggle(9.65, "Raid marker", "The skull, cross or other marker on the target, for anyone in your group who set one.", "target", "raidIcon"),
 					liquid = Toggle(9.7, "Liquid in the bar", "The globes' liquid drifting through the health bar.", "target", "liquid"),
 					edgeGlow = Toggle(9.8, "Edge glow", "An ember burning at the health bar's leading edge.", "target", "edgeGlow"),
+					textGlow = Toggle(9.85, "Soft glow behind text", "A soft dark glow around the name and numbers on the bars, so they stay easy to read on red, green or amber.", "target", "textGlow"),
 					healPrediction = Toggle(9.9, "Heal prediction", "Heals on their way to your target show in green past the end of its health, damage shields in silver after them, and a silver glow lights the bar's end when the shield is bigger than the health missing.", "target", "healPrediction"),
 					healthHeader = Header(11, "Health text"),
 					healthText = Select(11.1, "Show", "Works in combat too, where enemy health is hidden from addons: the client fills the numbers in.", "target", "healthText", HEALTH_TEXTS, HEALTH_ORDER),
@@ -1148,9 +1333,11 @@ local function Build()
 					slotSize = Range(13, "Slot size", nil, "bags", "slotSize", 28, 52, 1),
 					spacing = Range(14, "Spacing", nil, "bags", "spacing", 0, 8, 1),
 					scale = Range(15, "Scale", nil, "bags", "scale", 0.5, 1.6, 0.01, true),
+					backpackPos = Select(16, "Backpack", "Where the backpack's slots sit among your bags. At the bottom, the bags run last to first and the backpack ends in the bottom-right corner.", "bags", "backpackPos", { top = "Top of the grid", bottom = "Bottom of the grid" }, { "top", "bottom" }),
+					slotRowPos = Select(17, "Bag slots and search", nil, "bags", "slotRowPos", { top = "Above the items", bottom = "Below the items" }, { "top", "bottom" }),
 					look = Header(20, "Look"),
 					quality = Toggle(21, "Quality backgrounds", "D3's colored cell backgrounds for uncommon, rare, epic, legendary and heirloom items.", "bags", "quality"),
-					bagSlots = Toggle(23, "Show bag slots", "Your backpack and bag slots across the top of the window: drag bags on to equip or swap them.", "bags", "bagSlots"),
+					bagSlots = Toggle(23, "Show bag slots", "Your backpack and bag slots in a line beside the search box: drag bags on to equip or swap them.", "bags", "bagSlots"),
 					autoSellJunk = Toggle(22, "Sell junk automatically", "Sell grey items whenever a vendor opens. Off: use the Sell Junk button on the bag window.", "bags", "autoSellJunk"),
 					place = Header(30, "Position"),
 					placeNote = Note(31, "Drag the window by its stone to move it."),

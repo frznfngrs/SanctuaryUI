@@ -46,6 +46,8 @@ ns.DEFAULTS = {
 			renderedBreak = true, -- shields crack and shatter with the Blender render (GlobeAura.lua BREAK)
 			effects = { ["*"] = true, innerFire = false }, -- by Watch.lua effect key
 			looks = {}, -- by effect key, what that skill shows; unset: its default (GlobeAura.lua LookOf)
+			hotTint = "default", -- healing over time: a GlobeAura.lua colour, or each skill's own
+			hotStrength = 1, -- healing over time: brightness against the skill's own
 		},
 
 		-- rail
@@ -78,7 +80,7 @@ ns.DEFAULTS = {
 			possess = true,
 			barPaging = true,
 			stances = true,
-			forms = { ["*"] = true },
+			forms = { ["*"] = true, ["DRUID.moonkin"] = false },
 			ctrl = 0,
 			alt = 0,
 			shift = 0,
@@ -100,6 +102,8 @@ ns.DEFAULTS = {
 				enabled = false,
 				source = 2,
 				count = 12,
+				followForms = false, -- change page with stance or form (ActionBar.lua RowPageDriver)
+				formPages = {}, -- by "CLASS.form" (ActionBar.lua CLASS_PAGES): the page shown in that form
 				scale = 0.8,
 				spacing = 5,
 				visibility = "always", -- always | combat | nocombat | custom
@@ -138,6 +142,10 @@ ns.DEFAULTS = {
 			style = "d3", -- d3 (D3's monster bar) | lintel | slim | bracket | tablet
 			scale = 1, -- 1 = D3's own size (one art pixel per pixel at 1080p)
 			width = 1, -- frame and bar width, stretched between the ornaments (d3 style)
+			rankWidth = "frame", -- frame: every rank as wide | bar: every bar as long | d3: grows with rank
+			height = 1, -- the bar's height, the frame's lips and ornaments unstretched (d3 style)
+			totWidth = 1, -- the target of target bar's width (d3 style)
+			totHeight = 1, -- the target of target bar's height (d3 style)
 			power = true, -- the target's resource: a strip in D3's bar, a groove in the other styles
 			classColor = true, -- a player's name in their class colour
 			classIcon = true, -- a player's class icon on the portrait
@@ -145,6 +153,7 @@ ns.DEFAULTS = {
 			raidIcon = true, -- the raid marker (skull, cross...) on any target
 			portrait = false, -- 3D portrait of the target in a skill socket, left of the bar
 			edgeGlow = true, -- ember at the health bar's leading edge
+			textGlow = true, -- a soft dark glow behind the bar's text, so it reads on any fill
 			healPrediction = true, -- incoming heals and shields on the health bar, for healers
 			-- text on the bar: name, level and health, each placed, sized and fonted
 			-- pos: left | center | right (inside the bar) | above | below (the frame)
@@ -292,7 +301,9 @@ ns.DEFAULTS = {
 			dividers = false, -- each bag on its own lines, with a divider between bags
 			quality = true, -- D3 quality backgrounds
 			autoSellJunk = false,
-			bagSlots = true, -- backpack + bag slots along the top of the window
+			bagSlots = true, -- backpack + bag slots in a line with the search box
+			backpackPos = "top", -- top | bottom: where the backpack's slots sit in the grid
+			slotRowPos = "top", -- top | bottom: the bag slots and search box, above or under the items
 			scale = 1,
 			point = "BOTTOMRIGHT",
 			x = -60,

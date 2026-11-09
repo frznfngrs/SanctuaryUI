@@ -66,6 +66,22 @@ local function Style()
 	return ns.Art.TARGET_STYLES[Opt().style or "d3"]
 end
 
+-- Pixels the Height option adds to D3's bar, the same on every rank so the plate doesn't jump
+-- between them. The frame's top stays put and everything under the bar moves down.
+local BAR_BASE_H = 18
+local function BarExtra()
+	if Style() then return 0 end
+	return math.floor(BAR_BASE_H * ((Opt().height or 1) - 1) + 0.5)
+end
+
+local function BarLine() -- the bar's centre, below the plate's top
+	return BAR_Y + BarExtra() / 2
+end
+
+local function SubY() -- the rank line, under the bar
+	return SUB_Y + BarExtra()
+end
+
 -- Test mode (Options > Target > Preview): with no target, the plate shows a stand-in monster
 -- drawn from your own unit, cycling the normal, elite, rare and boss frames with its health
 -- dropping, so the look can be judged in game.
@@ -233,7 +249,7 @@ local function LayoutMarks(plate)
 		elseif showPortrait then
 			mark:SetPoint("CENTER", plate.Portrait, "CENTER", D3_MARKS[key][1], D3_MARKS[key][2])
 		else
-			mark:SetPoint("RIGHT", plate.FrameBox, "TOPLEFT", -4 - MARK_ROW[key] * 24, -(BAR_Y - (plate.frameTop or 0)))
+			mark:SetPoint("RIGHT", plate.FrameBox, "TOPLEFT", -4 - MARK_ROW[key] * 24, -(BarLine() - (plate.frameTop or 0)))
 		end
 	end
 end
@@ -308,6 +324,26 @@ local function SetStylePiece(plate, rank, colorKey, style)
 end
 
 -- Draw the rank's frame at the chosen width and fit the health bar (and its trail) to the slot.
+-- The width D3's frame is drawn at for a rank (Options > Target > Width by rank).
+local SAME_FRAME_W, SAME_BAR_W = 380, 300
+local function D3FrameWidth(rank)
+	local piece, w = ns.Art.UNIT[rank], Opt().width or 1
+	local mode = Opt().rankWidth or "frame"
+	if mode == "frame" then return SAME_FRAME_W * w end
+	if mode == "bar" then return piece[3] + SAME_BAR_W * w - piece.bar[3] end
+	return piece[3] * w
+end
+
+-- The narrowest and widest the frame can be drawn across the ranks.
+local function D3WidthRange()
+	local least, most = math.huge, 0
+	for _, rank in ipairs({ "normal", "elite", "boss" }) do
+		local w = D3FrameWidth(rank)
+		least, most = math.min(least, w), math.max(most, w)
+	end
+	return least, most
+end
+
 local function SetPiece(plate, rank, colorKey)
 	local style = Style()
 	if style then
@@ -317,8 +353,9 @@ local function SetPiece(plate, rank, colorKey)
 	if plate.rank == rank then return end
 	plate.rank = rank
 	local piece = ns.Art.UNIT[rank]
-	local width = piece[3] * (Opt().width or 1)
-	local extra = ns.Art.DrawSliced(plate.FrameBox, rank, width, 1)
+	local width = D3FrameWidth(rank)
+	local taller = BarExtra()
+	local extra = ns.Art.DrawSliced(plate.FrameBox, rank, width, 1, taller)
 	local bar = piece.bar
 	plate.FrameBox:ClearAllPoints()
 	plate.FrameBox:SetPoint("TOP", plate, "TOP", 0, -(BAR_Y - (bar[2] + bar[4] / 2)))
@@ -326,19 +363,20 @@ local function SetPiece(plate, rank, colorKey)
 	for _, b in ipairs({ plate.Health, plate.Trail }) do
 		b:ClearAllPoints()
 		b:SetPoint("TOPLEFT", plate.FrameBox, "TOPLEFT", bar[1], -bar[2])
-		b:SetSize(bar[3] + extra, bar[4])
+		b:SetSize(bar[3] + extra, bar[4] + taller)
 	end
-	FitBars(plate, bar[3] + extra, bar[4])
+	FitBars(plate, bar[3] + extra, bar[4] + taller)
 	-- D3's frames have no groove for a resource: it runs along the bottom of the health bar.
 	plate.Power:ClearAllPoints()
 	plate.Power:SetPoint("BOTTOMLEFT", plate.Health, "BOTTOMLEFT", 0, 0)
-	plate.Power:SetSize(bar[3] + extra, POWER_STRIP)
+	plate.Power:SetSize(bar[3] + extra, math.max(3, POWER_STRIP + math.floor(taller / 6 + 0.5)))
 	-- Clicks only on the frame drawn for this rank (and its rank line), not the room the boss
 	-- banner needs: the plate sits above the console, and its empty margins would block the
 	-- console's buttons. A secure button: out of combat only; in combat it keeps the last size.
 	if not InCombatLockdown() then
-		local side = (ns.Art.UNIT.boss[3] - piece[3]) * (Opt().width or 1) / 2
-		local bottom = math.max(0, PLATE_H - math.max(piece[4], SUB_Y + 8))
+		local _, widest = D3WidthRange()
+		local side = math.max(0, (widest - plate.FrameBox:GetWidth()) / 2)
+		local bottom = math.max(0, PLATE_H + taller - math.max(piece[4] + taller, SubY() + 8))
 		plate:SetHitRectInsets(side, side, 0, bottom)
 		plate.hitStale = nil
 	else
@@ -351,7 +389,7 @@ local function SetPiece(plate, rank, colorKey)
 	-- The portrait's D3 frame follows the rank too; its hole sits on the bar's line.
 	local ring = ns.Art.TARGET_RING[rank] or ns.Art.TARGET_RING.normal
 	plate.Portrait:ClearAllPoints()
-	plate.Portrait:SetPoint("CENTER", plate.FrameBox, "TOPLEFT", -(ring.reach - RING_OVERLAP), -(bar[2] + bar[4] / 2))
+	plate.Portrait:SetPoint("CENTER", plate.FrameBox, "TOPLEFT", -(ring.reach - RING_OVERLAP), -(bar[2] + (bar[4] + taller) / 2))
 	if plate.Portrait.ringArt then
 		plate.Portrait.ring:SetTexCoord(ns.Art.TargetRingTexCoord(rank))
 	end
@@ -400,6 +438,61 @@ local TEXT_FONTS = {
 	wow = STANDARD_TEXT_FONT,
 	narrow = "Fonts\\ARIALN.TTF",
 }
+
+-- The soft dark glow behind the bars' text. Text can't be blurred, so a ring of faint dark copies
+-- sits under it. The copies are told the same things as the text (hooks, values passed straight
+-- on, so a secret name or number works) and anchored like it, never to it. Their alpha is their
+-- frame's, leaving each copy's own free to follow the text's, which may be secret.
+local GLOW_COPIES, GLOW_RADIUS, GLOW_ALPHA = 8, 2, 0.3
+
+local function AddTextGlow(fs, parent)
+	local frame = CreateFrame("Frame", nil, parent)
+	frame:SetAllPoints()
+	frame:SetFrameLevel(parent:GetFrameLevel() + 4) -- over the bar, under the frame's art
+	frame:SetAlpha(GLOW_ALPHA)
+	fs.glowFrame = frame
+	local copies = {}
+	for i = 1, GLOW_COPIES do
+		local copy = frame:CreateFontString(nil, "OVERLAY")
+		copy:SetFont(STANDARD_TEXT_FONT, 10, "OUTLINE")
+		copy:SetTextColor(0, 0, 0, 1)
+		copy:SetShadowOffset(0, 0)
+		local angle = 2 * math.pi * i / GLOW_COPIES
+		copy.dx, copy.dy = GLOW_RADIUS * math.cos(angle), GLOW_RADIUS * math.sin(angle)
+		copies[i] = copy
+	end
+	local function Mirror(method)
+		hooksecurefunc(fs, method, function(_, ...)
+			for _, copy in ipairs(copies) do
+				pcall(copy[method], copy, ...)
+			end
+		end)
+	end
+	for _, method in ipairs({ "SetText", "SetFormattedText", "SetWidth", "SetJustifyH", "SetWordWrap", "SetAlpha", "ClearAllPoints", "Show", "Hide", "SetShown" }) do
+		Mirror(method)
+	end
+	hooksecurefunc(fs, "SetFont", function(_, font, size)
+		for _, copy in ipairs(copies) do
+			copy:SetFont(font, size, "OUTLINE")
+		end
+	end)
+	hooksecurefunc(fs, "SetPoint", function(_, point, relative, relativePoint, x, y)
+		if type(relative) ~= "table" then return end
+		for _, copy in ipairs(copies) do
+			copy:SetPoint(point, relative, relativePoint, (x or 0) + copy.dx, (y or 0) + copy.dy)
+		end
+	end)
+end
+
+-- On, the glow replaces the text's drop shadow, which would pull it down and right.
+local function SetTextGlow(fs, on)
+	fs.glowFrame:SetShown(on)
+	if on then
+		fs:SetShadowOffset(0, 0)
+	else
+		fs:SetShadowOffset(1, -1)
+	end
+end
 
 -- A number in the chosen style: short (2.48 M), full (2,480,000) or raw (2480000).
 local function Num(value)
@@ -578,6 +671,9 @@ end
 
 function LayoutTexts(plate)
 	local opt = Opt()
+	for _, fs in ipairs({ plate.Percent, plate.Level, plate.Name }) do
+		SetTextGlow(fs, opt.textGlow ~= false)
+	end
 	PlaceText(plate, plate.Name, "name", true)
 	PlaceText(plate, plate.Percent, "health")
 	plate.Name:SetShown(opt.nameShow ~= false)
@@ -1018,7 +1114,7 @@ end
 
 -- Where the rank line ends: the first place below the bar that's free.
 local function BelowBase(plate)
-	return SUB_Y + ((plate.Sub:GetText() or "") ~= "" and 14 or 0) + 2
+	return SubY() + ((plate.Sub:GetText() or "") ~= "" and 14 or 0) + 2
 end
 
 -- Columns beside the frame start from its top, middle or bottom (align left / centre / right).
@@ -1030,11 +1126,12 @@ local function PlaceSideRef(plate, ref, spec, away)
 	if style then
 		top, mid, bottom = 0, style.size[2] / 2, style.size[2]
 	else
-		top, mid, bottom = BAR_Y - 22, BAR_Y, BAR_Y + 22
+		local line, reach = BarLine(), 22 + BarExtra() / 2
+		top, mid, bottom = line - reach, line, line + reach
 	end
 	-- From the top on the right, start under the target of target, which sits there.
 	if spec.pos == "right" and spec.align == "left" and opt.tot ~= false then
-		top = style and style.tot[2] + 34 or (BAR_Y + plate.ToTArt.height / 2 + 2)
+		top = style and style.tot[2] + 34 or (BarLine() + plate.ToTArt.height / 2 + 2)
 	end
 	local y = top
 	if spec.align == "center" then
@@ -1153,7 +1250,7 @@ local function UpdateAuraIcons(plate)
 		return
 	end
 	-- The cast bar goes under whatever aura lines are below, else under the rank line.
-	local castY = SUB_Y + ((plate.Sub:GetText() or "") ~= "" and 16 or 2)
+	local castY = SubY() + ((plate.Sub:GetText() or "") ~= "" and 16 or 2)
 	if d.pos == "below" and dH > 0 then
 		castY = math.max(castY, BelowBase(plate) + dAway + dH + 2)
 	end
@@ -1439,7 +1536,7 @@ local function UpdateBoxes(plate)
 	plate.Cast:ClearAllPoints()
 	if not (under and plate.castAnchorable and pcall(plate.Cast.SetPoint, plate.Cast, "TOP", under, "BOTTOM", -mid, -4)) then
 		plate.Cast:ClearAllPoints()
-		plate.Cast:SetPoint("TOP", plate, "TOP", 0, -(SUB_Y + ((plate.Sub:GetText() or "") ~= "" and 16 or 2)))
+		plate.Cast:SetPoint("TOP", plate, "TOP", 0, -(SubY() + ((plate.Sub:GetText() or "") ~= "" and 16 or 2)))
 	end
 end
 
@@ -1830,7 +1927,10 @@ function ns.TargetPlate.Layout()
 		if style.castBottom then room = math.max(0, 18 - style.castBottom) end
 	else
 		-- Wide enough for the widest frame (the boss banner) at this width, plus the portrait.
-		plate:SetSize(ns.Art.UNIT.boss[3] * (opt.width or 1), PLATE_H)
+		local _, widest = D3WidthRange()
+		plate:SetSize(widest, PLATE_H + BarExtra())
+		plate.Sub:ClearAllPoints()
+		plate.Sub:SetPoint("TOP", plate, "TOP", 0, -SubY())
 	end
 	plate:ClearAllPoints()
 	if opt.moved then
@@ -1844,6 +1944,9 @@ function ns.TargetPlate.Layout()
 	local w = opt.width or 1
 	local art = plate.ToTArt
 	art.SetStyled(style and true or false)
+	if not style then
+		art.Resize(opt.totWidth or 1, math.floor(BAR_BASE_H * TOT_K * ((opt.totHeight or 1) - 1) + 0.5))
+	end
 	local showPortrait = opt.totPortrait ~= false
 	if art.portraitShown ~= showPortrait then
 		art.SetPortraitShown(showPortrait)
@@ -1854,15 +1957,16 @@ function ns.TargetPlate.Layout()
 		plate.ToT:SetPoint("TOPLEFT", plate, "TOPLEFT", style.tot[1], -style.tot[2])
 		plate.ToT:SetSize(art.width, art.height)
 	else
-		local from = ns.Art.UNIT.normal[3] * w / 2
-		local to = ns.Art.UNIT.boss[3] * w / 2 + TOT_GAP + art.width
-		plate.ToT:SetPoint("LEFT", plate, "TOP", from, -BAR_Y)
+		local least, most = D3WidthRange()
+		local from, to = least / 2, most / 2 + TOT_GAP + art.width
+		plate.ToT:SetPoint("LEFT", plate, "TOP", from, -BarLine())
 		plate.ToT:SetSize(to - from, art.height)
 	end
 	local font = TEXT_FONTS[opt.nameFont] or ns.FONT or STANDARD_TEXT_FONT
 	local size = math.max(8, math.floor((opt.nameSize or 13) * 0.8 + 0.5))
 	art.Name:SetFont(font, size, "OUTLINE")
 	if not art.Name:GetFont() then art.Name:SetFont(STANDARD_TEXT_FONT, size, "OUTLINE") end
+	SetTextGlow(art.Name, opt.textGlow ~= false)
 	if opt.enabled and opt.tot ~= false then
 		RegisterUnitWatch(plate.ToT)
 	else
@@ -1993,6 +2097,7 @@ local function MakeToTArt(plate, parent)
 	local art = CreateFrame("Frame", nil, parent)
 	art:SetFrameLevel(parent:GetFrameLevel() + 1)
 	art:EnableMouse(false)
+	art.extra, art.extraW, art.widthScale = 0, 0, 1 -- what its Width and Height options add
 	-- The frame box: its top sits so the bar's middle is on the art's middle line.
 	local box = CreateFrame("Frame", nil, art)
 	box:SetSize(piece[3] * k, piece[4] * k)
@@ -2004,11 +2109,12 @@ local function MakeToTArt(plate, parent)
 		art.portraitShown = show
 		if art.styled then return end -- the rendered frame has its own socket
 		local frameLeft = show and (2 * reach - RING_OVERLAP) * k or 0
-		art.width = frameLeft + piece[3] * k
-		art.height = show and 2 * reach * k or piece[4] * k
+		art.width = frameLeft + piece[3] * k + art.extraW
+		local barHeight = piece[4] * k + art.extra
+		art.height = show and math.max(2 * reach * k, barHeight) or barHeight
 		art:SetSize(art.width, art.height)
 		box:ClearAllPoints()
-		box:SetPoint("TOPLEFT", art, "LEFT", frameLeft, (bar[2] + bar[4] / 2) * k)
+		box:SetPoint("TOPLEFT", art, "LEFT", frameLeft, (bar[2] + bar[4] / 2) * k + art.extra / 2)
 		if art.Portrait then art.Portrait:SetShown(show) end
 	end
 	art.SetPortraitShown(true)
@@ -2040,6 +2146,7 @@ local function MakeToTArt(plate, parent)
 	art.Hover:SetBlendMode("ADD")
 	art.Hover:Hide()
 	art.Name = box:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	AddTextGlow(art.Name, art)
 	art.Name:SetPoint("CENTER", health, "CENTER", 0, 0)
 	art.Name:SetWidth(bar[3] * k - 6)
 	art.Name:SetWordWrap(false)
@@ -2082,9 +2189,9 @@ local function MakeToTArt(plate, parent)
 			portrait:Show()
 		else
 			health:SetPoint("TOPLEFT", box, "TOPLEFT", bar[1] * k, -bar[2] * k)
-			health:SetSize(bar[3] * k, bar[4] * k)
+			health:SetSize(bar[3] * k + art.extraW, bar[4] * k + art.extra)
 			art.Name:SetPoint("CENTER", health, "CENTER", 0, 0)
-			art.Name:SetWidth(bar[3] * k - 6)
+			art.Name:SetWidth(bar[3] * k + art.extraW - 6)
 			art.Name:SetJustifyH("CENTER")
 			portrait.ring:Show()
 			local d3 = portrait.d3
@@ -2094,6 +2201,16 @@ local function MakeToTArt(plate, parent)
 		end
 	end
 	art.styled = false
+	-- The Width and Height options: the frame stretches between its ornaments and along the band
+	-- level with the bar, as the target's does.
+	function art.Resize(widthScale, extra)
+		if art.widthScale == widthScale and art.extra == extra then return end
+		art.widthScale, art.extra = widthScale, extra
+		art.extraW = ns.Art.DrawSliced(box, "normal", piece[3] * k * widthScale, k, extra)
+		health:SetSize(bar[3] * k + art.extraW, bar[4] * k + extra)
+		art.Name:SetWidth(bar[3] * k + art.extraW - 6)
+		art.SetPortraitShown(art.portraitShown)
+	end
 	return art
 end
 
@@ -2248,6 +2365,9 @@ function ns.TargetPlate.Init()
 	plate.Percent:SetTextColor(0.95, 0.9, 0.8)
 	plate.Level = plate.FrameBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	plate.Name = plate.FrameBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	AddTextGlow(plate.Percent, plate)
+	AddTextGlow(plate.Level, plate)
+	AddTextGlow(plate.Name, plate)
 	plate.Name:SetWordWrap(false)
 	for _, fs in ipairs({ plate.Percent, plate.Level, plate.Name }) do
 		fs:SetShadowColor(0, 0, 0, 0.85)

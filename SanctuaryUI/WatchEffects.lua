@@ -35,6 +35,7 @@ local ns = SanctuaryUI
 --                     skill in the options (GlobeAura.lua LookOf)
 --   flare             a burst played at the cast (and, for look = "flare", all it does):
 --                     a list of { globe, tint, dir = "out" | "in" }
+--   hot               healing over time: follows the options' shared colour and brightness
 --
 -- Within one look on one globe the first listed wins, so the strongest effects come first.
 
@@ -107,13 +108,13 @@ ns.WatchData.EFFECTS = {
 	{ key = "bloodrage", class = "WARRIOR", spells = { 2687 }, names = { "Bloodrage" }, look = "surge", surge = "inhale", globe = "health", tint = "blood", length = 10, strength = 1.2,
 		flare = { { globe = "power", tint = "rage", dir = "in" } },
 		label = "Bloodrage", desc = "streaks of blood rushing in to the health globe it costs, and the rage globe draws the rage in" },
-	{ key = "frenziedRegeneration", class = "DRUID", spells = { 22842 }, names = { "Frenzied Regeneration" }, look = "surge", surge = "upwell", globe = "health", tint = "nature", length = 10,
+	{ key = "frenziedRegeneration", class = "DRUID", spells = { 22842 }, names = { "Frenzied Regeneration" }, look = "surge", surge = "upwell", hot = true, globe = "health", tint = "nature", length = 10,
 		label = "Frenzied Regeneration", desc = "green light welling up through the health globe" },
-	{ key = "renew", class = "PRIEST", spells = { 139 }, names = { "Renew" }, look = "surge", surge = "upwell", globe = "health", tint = "holy", length = 15, target = "any",
+	{ key = "renew", class = "PRIEST", spells = { 139 }, names = { "Renew" }, look = "surge", surge = "upwell", hot = true, globe = "health", tint = "holy", length = 15, target = "any",
 		label = "Renew", desc = "gold light welling up through the health globe, when it is on you" },
-	{ key = "rejuvenation", class = "DRUID", spells = { 774 }, names = { "Rejuvenation" }, look = "surge", surge = "upwell", globe = "health", tint = "nature", length = 12, target = "any",
+	{ key = "rejuvenation", class = "DRUID", spells = { 774 }, names = { "Rejuvenation" }, look = "surge", surge = "upwell", hot = true, globe = "health", tint = "nature", length = 12, target = "any",
 		label = "Rejuvenation", desc = "green light welling up through the health globe, when it is on you" },
-	{ key = "regrowth", class = "DRUID", spells = { 8936 }, names = { "Regrowth" }, look = "surge", surge = "upwell", globe = "health", tint = "nature", length = 21, target = "any",
+	{ key = "regrowth", class = "DRUID", spells = { 8936 }, names = { "Regrowth" }, look = "surge", surge = "upwell", hot = true, globe = "health", tint = "nature", length = 21, target = "any",
 		flare = { { globe = "health", tint = "nature", dir = "in" } },
 		label = "Regrowth", desc = "green light welling up through the health globe, when it is on you" },
 	{ key = "food", class = "ANY", names = { "Food", "Food & Drink", "Refreshment" }, spells = {}, look = "surge", surge = "pour", globe = "health", tint = "hearth", length = 30, kind = "reading",

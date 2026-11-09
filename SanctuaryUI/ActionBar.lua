@@ -26,28 +26,18 @@ local BINDING_BY_PAGE = {
 	[14] = "MULTIACTIONBAR6BUTTON%d",
 	[15] = "MULTIACTIONBAR7BUTTON%d",
 }
-ns.ActionBar.PAGE_NAMES = {
-	[1] = "Page 1 (main bar)",
-	[2] = "Page 2",
-	[3] = "Page 3 (right bar)",
-	[4] = "Page 4 (right bar 2)",
-	[5] = "Page 5 (bottom right)",
-	[6] = "Page 6 (bottom left)",
-	[7] = "Page 7",
-	[8] = "Page 8",
-	[9] = "Page 9",
-	[10] = "Page 10",
-	[13] = "Page 13 (bar 5)",
-	[14] = "Page 14 (bar 6)",
-	[15] = "Page 15 (bar 7)",
-}
+-- The action pages a bar can show (11 and 12 belong to the game's override bars).
+ns.ActionBar.PAGE_LIST = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 13, 14, 15 }
 
 -- Stance and form pages, matching Bartender4's Forever defaults for bar 1.
 local CLASS_PAGES = {
 	DRUID = {
-		{ key = "prowl", label = "Cat Form, prowling", cond = "[bonusbar:1,stealth:1]", page = 8 },
+		-- Prowling is Cat Form as far as the game goes, so left unset it follows Cat Form's page.
+		{ key = "prowl", label = "Cat Form, prowling", cond = "[bonusbar:1,stealth:1]", page = 8, sameAs = "Cat Form" },
 		{ key = "cat", label = "Cat Form", cond = "[bonusbar:1]", page = 7 },
 		{ key = "bear", label = "Bear Form", cond = "[bonusbar:3]", page = 9 },
+		-- Off on the main bar by default (Settings.lua), as in Bartender.
+		{ key = "moonkin", label = "Moonkin Form", cond = "[bonusbar:4]", page = 10 },
 	},
 	ROGUE = {
 		{ key = "stealth", label = "Stealth", cond = "[bonusbar:1]", page = 7 },
@@ -197,8 +187,89 @@ function ns.ActionBar.PageDriver()
 	return table.concat(parts, ";")
 end
 
+-- Does this bar change page with the player's stance or form? (Bars > Bar n)
+local function RowFollowsForms(n)
+	local opt = ns.DB().rows[n]
+	if not opt.followForms or opt.source == "main" then return false end
+	local _, class = UnitClass("player")
+	return CLASS_PAGES[class] ~= nil
+end
+ns.ActionBar.RowFollowsForms = RowFollowsForms
+
+-- The action page bar n shows in a form, or nil to stay on its own page.
+local function RowFormPage(n, class, form)
+	local pages = ns.DB().rows[n].formPages
+	local page = pages and tonumber(pages[class .. "." .. form.key])
+	return page and page > 0 and page or nil
+end
+
+-- The page driver of a bar that follows forms: state 0 is the bar's own page.
+function ns.ActionBar.RowPageDriver(n)
+	local _, class = UnitClass("player")
+	local parts = {}
+	for _, form in ipairs(CLASS_PAGES[class] or {}) do
+		local page = RowFormPage(n, class, form)
+		if page then
+			parts[#parts + 1] = form.cond .. page
+		end
+	end
+	parts[#parts + 1] = "0"
+	return table.concat(parts, ";")
+end
+
+-- Who else shows an action page, besides bar n itself: names for the per-bar form options.
+function ns.ActionBar.PageUsers(page, n)
+	local db = ns.DB()
+	local _, class = UnitClass("player")
+	local users = {}
+	if page == 1 then users[#users + 1] = "main bar" end
+	for _, mod in ipairs({ "ctrl", "alt", "shift" }) do
+		if tonumber(db.paging[mod]) == page then
+			users[#users + 1] = "main bar with " .. mod
+		end
+	end
+	if db.paging.stances then
+		for _, form in ipairs(CLASS_PAGES[class] or {}) do
+			if form.page == page and db.paging.forms[class .. "." .. form.key] then
+				users[#users + 1] = "main bar in " .. form.label
+			end
+		end
+	end
+	for _, id in ipairs(ROW_IDS) do
+		local opt = db.rows[id]
+		if id ~= n and opt.enabled then
+			if tonumber(opt.source) == page then
+				users[#users + 1] = "bar " .. id
+			end
+			if RowFollowsForms(id) then
+				for _, form in ipairs(CLASS_PAGES[class] or {}) do
+					if RowFormPage(id, class, form) == page then
+						users[#users + 1] = ("bar %d in %s"):format(id, form.label)
+					end
+				end
+			end
+		end
+	end
+	return users
+end
+
+-- Bar n's form pages that something else also shows, one line each.
+function ns.ActionBar.RowFormClashes(n)
+	local _, class = UnitClass("player")
+	local lines = {}
+	if not RowFollowsForms(n) then return lines end
+	for _, form in ipairs(CLASS_PAGES[class] or {}) do
+		local page = RowFormPage(n, class, form)
+		local users = page and ns.ActionBar.PageUsers(page, n) or {}
+		if #users > 0 then
+			lines[#lines + 1] = ("%s: page %d is also on the %s"):format(form.label, page, table.concat(users, ", "))
+		end
+	end
+	return lines
+end
+
 -- What a row shows: actions, binding names, paging. Source "main" is actions 10-12 of the
--- main bar, paged with it; a number is a fixed action bar page.
+-- main bar, paged with it; a number is a fixed action bar page, which can follow forms.
 function ns.ActionBar.RowSpec(n)
 	local opt = ns.DB().rows[n]
 	if opt.source == "main" then
@@ -217,8 +288,10 @@ function ns.ActionBar.RowSpec(n)
 	if ns.ActionBar.DockIndex(n) then
 		count = ROW_MAX
 	end
+	local forms = RowFollowsForms(n)
 	return {
-		paged = false,
+		paged = forms,
+		fromPageStart = forms, -- button 1 is a page's first action, not the bar's first
 		firstAction = (page - 1) * 12 + 1,
 		count = count,
 		binding = BINDING_BY_PAGE[page],
@@ -247,6 +320,11 @@ local function FreePage(n)
 		if id ~= n and opt.enabled and tonumber(opt.source) then
 			used[tonumber(opt.source)] = true
 		end
+		if opt.enabled and opt.formPages and RowFollowsForms(id) then
+			for _, page in pairs(opt.formPages) do
+				if tonumber(page) then used[tonumber(page)] = true end
+			end
+		end
 	end
 	for _, mod in ipairs({ "ctrl", "alt", "shift" }) do
 		local page = tonumber(db.paging[mod]) or 0
@@ -255,7 +333,9 @@ local function FreePage(n)
 	if db.paging.stances then
 		local _, class = UnitClass("player")
 		for _, form in ipairs(CLASS_PAGES[class] or {}) do
-			used[form.page] = true
+			if db.paging.forms[class .. "." .. form.key] then
+				used[form.page] = true
+			end
 		end
 	end
 	for _, page in ipairs(FREE_PAGES) do
@@ -711,7 +791,8 @@ local function ApplyRow(n)
 			button:SetState(0, "action", action)
 			for page = 1, PAGES do
 				-- Fixed rows hold the same action on every page, so paging cannot move them.
-				button:SetState(page, "action", spec.paged and ((page - 1) * 12 + action) or action)
+				local slot = spec.fromPageStart and i or action
+				button:SetState(page, "action", spec.paged and ((page - 1) * 12 + slot) or action)
 			end
 			local binding = spec.binding and spec.binding:format(spec.bindingOffset + i)
 			button:UpdateConfig(ButtonConfig(binding, DockIndex(n) ~= nil))
@@ -721,7 +802,7 @@ local function ApplyRow(n)
 		end
 	end
 	if spec.paged then
-		RegisterStateDriver(header, "page", ns.ActionBar.PageDriver())
+		RegisterStateDriver(header, "page", spec.fromPageStart and ns.ActionBar.RowPageDriver(n) or ns.ActionBar.PageDriver())
 	else
 		UnregisterStateDriver(header, "page")
 		header:SetAttribute("state-page", "0")

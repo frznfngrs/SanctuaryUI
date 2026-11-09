@@ -151,6 +151,9 @@ function ns.Experience.Layout()
 		badge:ClearAllPoints()
 		badge:SetPoint("CENTER", cluster, "BOTTOM", spot.x, metrics.baseY + spot.y)
 		badge.text:SetFont(STANDARD_TEXT_FONT, math.max(8, math.floor(spot.h * 0.4 + 0.5)), "OUTLINE")
+		-- The digits' ink sits left of the string's centre (measured 4% of the ring in game).
+		badge.text:ClearAllPoints()
+		badge.text:SetPoint("CENTER", badge, "CENTER", spot.w * 0.037, 0)
 		-- Over the console art, under the buttons.
 		badge:SetFrameLevel(cluster:GetFrameLevel() + ns.LEVEL.console + 1)
 	end
@@ -198,16 +201,16 @@ function ns.Experience.Init()
 	badge.art = badge:CreateTexture(nil, "ARTWORK")
 	badge.art:SetAllPoints()
 	if ns.Art.Apply(badge.art, "levelMedallion") then
-		badge.art:SetTexCoord(4 / 128, 124 / 128, 4 / 128, 124 / 128)
+		-- The ring sits a pixel right of the file's centre (x 8-122, y 6-122): crop to centre it.
+		badge.art:SetTexCoord(5 / 128, 125 / 128, 4 / 128, 124 / 128)
 	else
 		badge.art:SetColorTexture(0.25, 0.03, 0.03, 0.9)
 	end
 	badge.text = badge:CreateFontString(nil, "OVERLAY")
 	badge.text:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
-	badge.text:SetPoint("CENTER", 0, 1)
+	badge.text:SetPoint("CENTER", 0, 0)
 	badge.text:SetTextColor(0.98, 0.86, 0.59) -- D3 gold
-	badge.text:SetShadowColor(0.1, 0, 0, 0.9)
-	badge.text:SetShadowOffset(1, -1)
+	badge.text:SetShadowOffset(0, 0) -- the outline is enough; a shadow drags it down and right
 	badge:Hide()
 	ns.LevelPlaque = badge
 

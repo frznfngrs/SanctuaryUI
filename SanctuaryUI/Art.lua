@@ -276,7 +276,7 @@ ns.Art.UNIT_FIXED = {
 -- Draw a unit frame piece across `box` (a Frame) at `width` UI units, k UI units per piece
 -- pixel vertically and for the fixed parts. Textures come from (and stay in) box.slices.
 -- Returns the extra width added to the stretch spans, so callers can widen the bar slot.
-function ns.Art.DrawSliced(box, name, width, k)
+function ns.Art.DrawSliced(box, name, width, k, extraHeight)
 	local r = ns.Art.UNIT[name]
 	local fixed = ns.Art.UNIT_FIXED[name] or { { 0, r[3] } }
 	local segments = {}
@@ -293,37 +293,52 @@ function ns.Art.DrawSliced(box, name, width, k)
 		segments[#segments + 1] = { x, r[3], true }
 		stretchTotal = stretchTotal + (r[3] - x)
 	end
-	local extra = math.max(0, width - r[3] * k)
+	-- Narrower than the art comes out of the stretch spans too, keeping some of them.
+	local extra = math.max(-stretchTotal * k * 0.8, width - r[3] * k)
+	-- extraHeight goes to the band of the art level with the bar, so the lips and ornaments above
+	-- and below it keep their size. Without any, the piece is one row.
+	extraHeight = extraHeight or 0
+	local rows = { { 0, r[4], 0 } }
+	if extraHeight ~= 0 and r.bar then
+		local top, bottom = r.bar[2], r.bar[2] + r.bar[4]
+		rows = { { 0, top, 0 }, { top, bottom, extraHeight }, { bottom, r[4], 0 } }
+	end
 	box.slices = box.slices or {}
-	local left = 0
+	local left, count = 0, 0
 	local path = ns.Art.Path("unitFrames")
-	for i, seg in ipairs(segments) do
-		local tex = box.slices[i]
-		if not tex then
-			tex = box:CreateTexture(nil, "ARTWORK")
-			box.slices[i] = tex
-		end
+	for _, seg in ipairs(segments) do
 		local srcW = seg[2] - seg[1]
 		local w = srcW * k
 		if seg[3] and stretchTotal > 0 then
 			w = w + extra * srcW / stretchTotal
 		end
-		if path then
-			tex:SetTexture(path)
-			tex:SetTexCoord((r[1] + seg[1]) / 1024, (r[1] + seg[2]) / 1024, r[2] / 256, (r[2] + r[4]) / 256)
-		else
-			tex:SetColorTexture(0.05, 0.04, 0.03, 0.82)
+		local y = 0
+		for _, row in ipairs(rows) do
+			count = count + 1
+			local tex = box.slices[count]
+			if not tex then
+				tex = box:CreateTexture(nil, "ARTWORK")
+				box.slices[count] = tex
+			end
+			if path then
+				tex:SetTexture(path)
+				tex:SetTexCoord((r[1] + seg[1]) / 1024, (r[1] + seg[2]) / 1024, (r[2] + row[1]) / 256, (r[2] + row[2]) / 256)
+			else
+				tex:SetColorTexture(0.05, 0.04, 0.03, 0.82)
+			end
+			local h = math.max(1, (row[2] - row[1]) * k + row[3])
+			tex:ClearAllPoints()
+			tex:SetPoint("TOPLEFT", box, "TOPLEFT", left, -y)
+			tex:SetSize(w, h)
+			tex:Show()
+			y = y + h
 		end
-		tex:ClearAllPoints()
-		tex:SetPoint("TOPLEFT", box, "TOPLEFT", left, 0)
-		tex:SetSize(w, r[4] * k)
-		tex:Show()
 		left = left + w
 	end
-	for i = #segments + 1, #box.slices do
+	for i = count + 1, #box.slices do
 		box.slices[i]:Hide()
 	end
-	box:SetSize(left, r[4] * k)
+	box:SetSize(left, r[4] * k + extraHeight)
 	return extra
 end
 

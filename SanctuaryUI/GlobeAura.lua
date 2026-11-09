@@ -265,7 +265,17 @@ end
 
 local function Strength(inst)
 	local effect = inst.effect or inst.lastEffect
-	return effect and effect.strength or 1
+	local strength = effect and effect.strength or 1
+	if effect and effect.hot then
+		strength = strength * (tonumber(Opt().hotStrength) or 1)
+	end
+	return strength
+end
+
+-- The colour an effect shows: its own, or the options' shared one for healing over time.
+local function TintOf(effect)
+	local chosen = effect.hot and Opt().hotTint
+	return chosen and TINTS[chosen] and chosen or effect.tint
 end
 
 -- Last seconds: a blink that quickens (1.2 to 5 a second) and deepens as the buff runs out.
@@ -1605,7 +1615,7 @@ local function Wake()
 end
 
 local function Shatter(inst, was, now)
-	local tint = TINTS[was.tint] or TINTS.holy
+	local tint = TINTS[TintOf(was)] or TINTS.holy
 	inst.shatter, inst.shatterSeed = now, math.floor(now * 7) % 97
 	inst.shatterSat, inst.shatterHot = tint.sat, tint.hot
 	local k = 0.65 -- the rendered shards sit between the tint's two colours
@@ -1625,7 +1635,7 @@ local function Show(inst, effect, st, reason)
 		Shatter(inst, inst.effect, now)
 	end
 	if effect then
-		local tint = TINTS[effect.tint] or TINTS.holy
+		local tint = TINTS[TintOf(effect)] or TINTS.holy
 		inst.satTo, inst.hotTo = tint.sat, tint.hot
 		if inst.effect ~= effect then
 			if inst.level <= 0.01 then
@@ -1701,7 +1711,7 @@ local function Evaluate(reason)
 	end
 end
 
-local function PlayFlare(part)
+local function PlayFlare(part, tint)
 	local g = GlobeFor(part.globe)
 	if not g then return end
 	local slot
@@ -1715,7 +1725,7 @@ local function PlayFlare(part)
 			if f.started < slot.started then slot = f end
 		end
 	end
-	slot.started, slot.tint, slot.dir = GetTime(), part.tint, part.dir
+	slot.started, slot.tint, slot.dir = GetTime(), tint or part.tint, part.dir
 	Wake()
 end
 
@@ -1746,8 +1756,85 @@ local function PreviewStep(now)
 	end
 end
 
+-- One skill's preview (the options' Preview buttons): its whole life, on its own, through test
+-- mode, ending the way that skill really ends. Then the real buffs come back by themselves.
+local skillRun
+
+-- What happens after the cast, in seconds from it, and when the preview is over. Only real
+-- damage shields break (Watch.lua IconLost), so a skill merely dressed as a shell runs out.
+local function SkillScript(effect)
+	if effect.look == "flare" then return {}, 3 end
+	if effect.absorb or effect.kind == "absorb" then return { { 2.5, "hit" }, { 5, "break" } }, 7 end
+	if effect.fragile then return { { 5, "spend" } }, 7 end
+	if effect.group then return { { 5, "judge" } }, 7 end
+	return { { 4, "fade" } }, 11.5 -- "fade" leaves 6.5 seconds: the blink, then out
+end
+
+local function ForgetSkillRun()
+	skillRun = nil
+	ns.GlobeAura.previewKey = nil
+end
+
+local function StopSkillRun()
+	local keepTest = skillRun.keepTest
+	ForgetSkillRun()
+	if keepTest then
+		ns.Watch.Test("clear")
+	else
+		ns.Watch.SetTest(false)
+	end
+end
+
+local function SkillStep(now)
+	-- Test mode hides the real buffs, and combat can't read them back: never linger into it.
+	if InCombatLockdown() or now >= skillRun.stop then
+		StopSkillRun()
+		return
+	end
+	local t = now - skillRun.start
+	for i, step in ipairs(skillRun.steps) do
+		if t >= step[1] and not skillRun.done[i] then
+			skillRun.done[i] = true
+			if step[2] == "hit" then
+				ns.GlobeAura.Hit()
+			else
+				ns.Watch.Test(step[2])
+			end
+		end
+	end
+end
+
+-- Plays one skill by its effect key. Clicking again, or for another skill, starts over.
+function ns.GlobeAura.PreviewSkill(key)
+	local effect = ns.Watch.Effect(key)
+	if not effect then return false end
+	if InCombatLockdown() then
+		ns.Print("previews wait until you are out of combat")
+		return false
+	end
+	if preview then ns.GlobeAura.SetPreview(false) end
+	-- Test mode left on by hand stays on afterwards.
+	local keepTest
+	if skillRun then
+		keepTest = skillRun.keepTest
+	else
+		keepTest = ns.Watch.Testing()
+	end
+	ForgetSkillRun()
+	ns.Watch.SetTest(true)
+	ns.Watch.Test("clear")
+	ns.Watch.Test(key)
+	local now = GetTime()
+	local steps, seconds = SkillScript(effect)
+	skillRun = { start = now, stop = now + seconds, steps = steps, done = {}, keepTest = keepTest }
+	ns.GlobeAura.previewKey = key
+	Wake()
+	return true
+end
+
 function ns.GlobeAura.SetPreview(on)
 	if on then
+		ForgetSkillRun()
 		ns.Watch.SetTest(true)
 		ns.Watch.Test("clear")
 		preview = { start = GetTime(), done = {} }
@@ -1759,11 +1846,14 @@ function ns.GlobeAura.SetPreview(on)
 	ns.GlobeAura.preview = preview ~= nil
 end
 
--- Test mode (Watch.lua) going off ends the showcase too.
+-- Test mode (Watch.lua) going off ends the showcase and any skill's preview too.
 function ns.GlobeAura.OnTest(on)
-	if not on and preview then
-		preview = nil
-		ns.GlobeAura.preview = false
+	if not on then
+		ForgetSkillRun()
+		if preview then
+			preview = nil
+			ns.GlobeAura.preview = false
+		end
 	end
 	Evaluate("reading")
 end
@@ -1817,7 +1907,8 @@ function ns.GlobeAura.Step()
 	local dt = last and math.max(0, math.min(0.1, now - last)) or 0
 	last = now
 	if preview then PreviewStep(now) end
-	local busy = preview ~= nil
+	if skillRun then SkillStep(now) end
+	local busy = preview ~= nil or skillRun ~= nil
 	for _, g in pairs(globes) do
 		for _, inst in ipairs(g.looks.radiate) do
 			if AnimateRadiate(g, inst, now, dt) then busy = true end
@@ -2085,7 +2176,8 @@ function ns.GlobeAura.Init()
 		if not effect then return end
 		if reason == "flare" then
 			if Enabled(effect) then
-				for _, part in ipairs(effect.flare or {}) do PlayFlare(part) end
+				local tint = effect.hot and TintOf(effect) or nil
+				for _, part in ipairs(effect.flare or {}) do PlayFlare(part, tint) end
 			end
 			return
 		end

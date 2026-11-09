@@ -294,27 +294,57 @@ function Window:Layout()
 	local padX = side + 12
 	local top = headerH + 8
 
-	-- Slot row first (bag slots), then the items under them.
+	-- The line of bag slots and the search box: above the items, or under them (slotRowPos).
 	local rowSize = math.floor(size * 0.8)
 	local rowButtons = frame.rowButtons
-	for i, button in ipairs(rowButtons) do
-		button:SetShown(opt.bagSlots)
-		button:SetSize(rowSize, rowSize)
-		button:ClearAllPoints()
-		button:SetPoint("TOPLEFT", frame, "TOPLEFT", padX + (i - 1) * (rowSize + gap + 2), -top)
-	end
-	-- The search box takes the rest of that line (or the line alone).
-	local searchLeft = opt.bagSlots and (padX + #rowButtons * (rowSize + gap + 2) + 6) or padX
 	local searchH = math.max(22, math.floor(rowSize * 0.75))
-	frame.searchBox:ClearAllPoints()
-	frame.searchBox:SetPoint("TOPLEFT", frame, "TOPLEFT", searchLeft + 18, -(top + (rowSize - searchH) / 2))
-	frame.searchBox:SetPoint("RIGHT", frame, "RIGHT", -padX, 0)
-	frame.searchBox:SetHeight(searchH)
-	top = top + math.max(opt.bagSlots and rowSize or 0, searchH) + gap + 8
+	local lineH = math.max(opt.bagSlots and rowSize or 0, searchH)
+	local lineBelow = opt.slotRowPos == "bottom"
+	local function PlaceLine(y)
+		for i, button in ipairs(rowButtons) do
+			button:SetShown(opt.bagSlots)
+			button:SetSize(rowSize, rowSize)
+			button:ClearAllPoints()
+			button:SetPoint("TOPLEFT", frame, "TOPLEFT", padX + (i - 1) * (rowSize + gap + 2), -y)
+		end
+		-- The search box takes the rest of that line (or the line alone).
+		local searchLeft = opt.bagSlots and (padX + #rowButtons * (rowSize + gap + 2) + 6) or padX
+		frame.searchBox:ClearAllPoints()
+		frame.searchBox:SetPoint("TOPLEFT", frame, "TOPLEFT", searchLeft + 18, -(y + (rowSize - searchH) / 2))
+		frame.searchBox:SetPoint("RIGHT", frame, "RIGHT", -padX, 0)
+		frame.searchBox:SetHeight(searchH)
+	end
+	if not lineBelow then
+		PlaceLine(top)
+		top = top + lineH + gap + 8
+	end
+
+	-- Backpack at the bottom (backpackPos): the containers run last to first.
+	local containers = self.def.containers()
+	local backpackLast = opt.backpackPos == "bottom"
+	if backpackLast then
+		local reversed = {}
+		for i = #containers, 1, -1 do
+			reversed[#reversed + 1] = containers[i]
+		end
+		containers = reversed
+	end
 
 	local col, row, dividerCount, placed = 0, 0, 0, 0
+	-- In one combined grid the short line goes first, right-aligned, so the backpack ends flush
+	-- with the bottom-right corner. Divided bags each start on their own line anyway.
+	if backpackLast and not opt.dividers then
+		local total = 0
+		for _, bag in ipairs(containers) do
+			total = total + W.NumSlots(bag)
+		end
+		local short = total % cols
+		if short > 0 then
+			col = cols - short
+		end
+	end
 	local shownBags = {}
-	for _, bag in ipairs(self.def.containers()) do
+	for _, bag in ipairs(containers) do
 		shownBags[bag] = true
 		local holder = self:Holder(bag)
 		local count = W.NumSlots(bag)
@@ -368,8 +398,14 @@ function Window:Layout()
 	end
 	local rows = row + (col > 0 and 1 or 0)
 	local gridH = math.max(size, rows * (size + gap) - gap)
+	local bottom = top + gridH
+	if lineBelow then
+		local lineY = bottom + gap + 8
+		PlaceLine(lineY)
+		bottom = lineY + lineH
+	end
 	-- Everything between the header and the footer: the slot / search line plus the grid.
-	local bodyH = (top - headerH) + gridH + 12
+	local bodyH = (bottom - headerH) + 12
 	local width = inner + 2 * padX
 	frame:SetSize(width, headerH + bodyH + footerH)
 
