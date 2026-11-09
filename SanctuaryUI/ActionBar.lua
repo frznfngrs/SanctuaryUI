@@ -348,6 +348,22 @@ end
 -- left nine dead sockets. A bar set into the console on that source moves to a free page, and
 -- takes the three spells with it (into the page's first sockets, where those are empty); its
 -- keys follow through the usual binding move. Returns the page, or nil if nothing changed.
+-- Placing actions can't happen in combat or with something on the cursor; those wait for
+-- the end of combat (FlushSpellMoves, from Core).
+local spellMoves = {}
+
+function ns.ActionBar.FlushSpellMoves()
+	if InCombatLockdown() or GetCursorInfo() then return end
+	for _, move in ipairs(spellMoves) do
+		if HasAction(move[1]) and not HasAction(move[2]) then
+			PickupAction(move[1])
+			PlaceAction(move[2])
+			ClearCursor()
+		end
+	end
+	wipe(spellMoves)
+end
+
 function ns.ActionBar.LeaveMainSource(n)
 	local opt = ns.DB().rows[n]
 	if opt.source ~= "main" then return end
@@ -355,16 +371,10 @@ function ns.ActionBar.LeaveMainSource(n)
 	local page = FreePage(n)
 	opt.source = page
 	opt.count = ROW_MAX -- a full page bar, in the console or out of it
-	if not InCombatLockdown() and not GetCursorInfo() then
-		for i = 1, count do
-			local from, to = PRIMARY + i, (page - 1) * 12 + i
-			if HasAction(from) and not HasAction(to) then
-				PickupAction(from)
-				PlaceAction(to)
-				ClearCursor()
-			end
-		end
+	for i = 1, count do
+		spellMoves[#spellMoves + 1] = { PRIMARY + i, (page - 1) * 12 + i }
 	end
+	ns.ActionBar.FlushSpellMoves()
 	return page
 end
 
@@ -816,6 +826,12 @@ local function ApplyRow(n)
 	row.alpha = opt.alpha
 	row.mouseover = opt.mouseover
 	header:SetAlpha(opt.mouseover and 0 or opt.alpha)
+	-- Page changes only reach the header's own children, so a button back from row.spare still
+	-- holds the page it left on. Re-registering the same driver fires nothing; tell them here.
+	header:Execute([[
+		local state = self:GetAttribute("state")
+		if state ~= nil then control:ChildUpdate("state", state) end
+	]])
 end
 
 ---------------------------------------------------------------------------
@@ -833,7 +849,15 @@ function ns.MoverLit(mover, lit)
 end
 
 -- A labelled box that drags a frame while frames are unlocked. opt holds the position:
--- moved, mx, my (the frame's centre, UIParent coordinates at the frame's scale).
+-- moved, mx, my (the frame's centre, in coordinates at the scale it was dragged at: mscale).
+-- ns.MovedPoint gives the offsets at the frame's scale now, for frames with their own SetScale.
+function ns.MovedPoint(frame, opt)
+	local scale = frame:GetScale()
+	opt.mscale = opt.mscale or scale -- saved before the scale was recorded
+	local k = opt.mscale / scale
+	return opt.mx * k, opt.my * k
+end
+
 function ns.MakeMover(anchor, label, opt, hint)
 	local mover = CreateFrame("Frame", nil, anchor)
 	mover:SetAllPoints()
@@ -860,7 +884,7 @@ function ns.MakeMover(anchor, label, opt, hint)
 		local x, y = anchor:GetCenter()
 		if x then
 			local o = opt()
-			o.moved, o.mx, o.my = true, x, y
+			o.moved, o.mx, o.my, o.mscale = true, x, y, anchor:GetScale()
 		end
 		ns.Refresh()
 	end
@@ -1307,7 +1331,10 @@ local function UpdatePets()
 	for i = 1, PETS do
 		local button = ns.ActionBar.pets[i]
 		if not button then return end
-		local ok, name, texture, isToken, isActive = pcall(GetPetActionInfo, i)
+		local ok, name, texture, isToken, isActive, _, autoCast = pcall(GetPetActionInfo, i)
+		if button.autocast then
+			button.autocast:SetShown(ok and not ns.Secret(autoCast) and autoCast and true or false)
+		end
 		if not ok then
 			button.icon:Hide()
 		else
@@ -1476,8 +1503,15 @@ function ns.ActionBar.Init()
 	ns.ActionBar.pets = {}
 	for i = 1, PETS do
 		local button = CreateFrame("CheckButton", "SanctuaryUIPetButton" .. i, pets, "SecureActionButtonTemplate")
-		button:SetAttribute("type", "pet")
+		-- Left-click casts. Right-click toggles autocast through a secure click on Blizzard's
+		-- own button (its OnClick does the toggle); there is no secure action for it.
+		button:SetAttribute("type1", "pet")
 		button:SetAttribute("action", i)
+		local blizzard = _G["PetActionButton" .. i]
+		if blizzard then
+			button:SetAttribute("type2", "click")
+			button:SetAttribute("clickbutton2", blizzard)
+		end
 		button:SetID(i)
 		button:RegisterForClicks("AnyUp", "AnyDown")
 		button:RegisterForDrag("LeftButton")
@@ -1487,6 +1521,15 @@ function ns.ActionBar.Init()
 		button.cooldown = CreateFrame("Cooldown", button:GetName() .. "Cooldown", button, "CooldownFrameTemplate")
 		button.cooldown:SetAllPoints()
 		ns.Art.AttachRing(button, "buttonRingSmall")
+		local autocast = button:CreateTexture(nil, "OVERLAY")
+		autocast:SetPoint("TOPLEFT", -6, 6)
+		autocast:SetPoint("BOTTOMRIGHT", 6, -6)
+		autocast:Hide()
+		if ns.Art.Apply(autocast, "buttonGlow") then
+			autocast:SetBlendMode("ADD")
+			autocast:SetVertexColor(1, 0.8, 0.3)
+			button.autocast = autocast
+		end
 		button:SetScript("OnDragStart", function(self)
 			if InCombatLockdown() then return end
 			PickupPetAction(self:GetID())

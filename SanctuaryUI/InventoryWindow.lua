@@ -45,6 +45,9 @@ function W.Info(bag, slot)
 end
 
 function W.NumSlots(bag)
+	if W.keyring and bag == W.keyring and GetKeyRingSize then
+		return GetKeyRingSize() or 0
+	end
 	if C_Container and C_Container.GetContainerNumSlots then
 		return C_Container.GetContainerNumSlots(bag) or 0
 	end
@@ -140,6 +143,8 @@ local function MakeSlot(win, holder, bag, slot)
 	end
 	fresh:Hide()
 	button.sanctuaryNew = fresh
+	-- Blizzard forgets an item is new once it's hovered, without a bag event to tell us.
+	button:HookScript("OnEnter", function(self) self.sanctuaryNew:Hide() end)
 
 	-- Quest items: a soft amber frame, under the new-item light.
 	button.sanctuaryQuest = Glow(button, 4, QUEST_GLOW, 0.55, 0.06)
@@ -274,6 +279,8 @@ function Window:Holder(bag)
 	return holder
 end
 
+local MIN_SEARCH_W = 90 -- narrowest search box worth sharing the line with the bag slots
+
 function Window:Layout()
 	local frame = self.frame
 	if InCombatLockdown() then
@@ -298,19 +305,30 @@ function Window:Layout()
 	local rowSize = math.floor(size * 0.8)
 	local rowButtons = frame.rowButtons
 	local searchH = math.max(22, math.floor(rowSize * 0.75))
-	local lineH = math.max(opt.bagSlots and rowSize or 0, searchH)
+	-- A narrow window shrinks the slots to fit, and gives the search box a line of its own
+	-- once it would be too small to type in.
+	local rowCount = opt.bagSlots and #rowButtons or 0
+	local rowStep = rowSize + gap + 2
+	if rowCount > 0 then
+		rowStep = math.min(rowStep, math.floor((inner + gap + 2) / rowCount))
+		rowSize = math.min(rowSize, rowStep - gap - 2)
+	end
+	local slotsW = rowCount > 0 and (rowCount * rowStep + 6) or 0
+	local searchOwnLine = rowCount > 0 and slotsW + 18 + MIN_SEARCH_W > inner
+	local lineH = searchOwnLine and (rowSize + gap + searchH) or math.max(opt.bagSlots and rowSize or 0, searchH)
 	local lineBelow = opt.slotRowPos == "bottom"
 	local function PlaceLine(y)
 		for i, button in ipairs(rowButtons) do
 			button:SetShown(opt.bagSlots)
 			button:SetSize(rowSize, rowSize)
 			button:ClearAllPoints()
-			button:SetPoint("TOPLEFT", frame, "TOPLEFT", padX + (i - 1) * (rowSize + gap + 2), -y)
+			button:SetPoint("TOPLEFT", frame, "TOPLEFT", padX + (i - 1) * rowStep, -y)
 		end
 		-- The search box takes the rest of that line (or the line alone).
-		local searchLeft = opt.bagSlots and (padX + #rowButtons * (rowSize + gap + 2) + 6) or padX
+		local searchLeft = searchOwnLine and padX or (padX + slotsW)
+		local searchY = searchOwnLine and (y + rowSize + gap) or (y + (rowSize - searchH) / 2)
 		frame.searchBox:ClearAllPoints()
-		frame.searchBox:SetPoint("TOPLEFT", frame, "TOPLEFT", searchLeft + 18, -(y + (rowSize - searchH) / 2))
+		frame.searchBox:SetPoint("TOPLEFT", frame, "TOPLEFT", searchLeft + 18, -searchY)
 		frame.searchBox:SetPoint("RIGHT", frame, "RIGHT", -padX, 0)
 		frame.searchBox:SetHeight(searchH)
 	end
@@ -567,7 +585,9 @@ function W.New(def)
 	frame:SetMovable(true)
 	frame:EnableMouse(true)
 	frame:RegisterForDrag("LeftButton")
-	frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
+	frame:SetScript("OnDragStart", function(self)
+		if not InCombatLockdown() then self:StartMoving() end
+	end)
 	frame:SetScript("OnDragStop", function(self)
 		self:StopMovingOrSizing()
 		self:SetUserPlaced(false)

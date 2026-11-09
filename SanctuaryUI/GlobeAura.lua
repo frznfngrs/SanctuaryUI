@@ -2759,7 +2759,13 @@ local function Refresh(g, look, reason, changed)
 		end
 		local scale = 1 + RANK_SCALE[look] * (rank - 1)
 		if inst then
-			if changed == effect.key then Show(inst, effect, st, reason) end
+			if changed == effect.key then
+				Show(inst, effect, st, reason)
+			else
+				-- Settings can change the colour of something already lit.
+				local tint = TINTS[TintOf(effect)] or TINTS.holy
+				inst.satTo, inst.hotTo = tint.sat, tint.hot
+			end
 		else
 			-- A free instance: a dark one if there is one, else the dimmest still fading out.
 			for _, candidate in ipairs(insts) do
@@ -2844,9 +2850,11 @@ local skillRun
 -- damage shields break (Watch.lua IconLost), so a skill merely dressed as a shell runs out.
 local function SkillScript(effect)
 	if effect.look == "flare" then return {}, 3 end
-	if effect.absorb or effect.kind == "absorb" then return { { 2.5, "hit" }, { 5, "break" } }, 7 end
-	if effect.fragile then return { { 5, "spend" } }, 7 end
-	if effect.group then return { { 5, "judge" } }, 7 end
+	-- Before a short test buff runs out on its own, or there is nothing left to end.
+	local ending = math.min(5, (tonumber(Opt().testLength) or 30) - 0.5)
+	if effect.absorb or effect.kind == "absorb" then return { { math.min(2.5, ending - 1), "hit" }, { ending, "break" } }, 7 end
+	if effect.fragile then return { { ending, "spend" } }, 7 end
+	if effect.group then return { { ending, "judge" } }, 7 end
 	return { { 4, "fade" } }, 11.5 -- "fade" leaves 6.5 seconds: the blink, then out
 end
 
@@ -2938,15 +2946,30 @@ function ns.GlobeAura.OnTest(on)
 	Evaluate("reading")
 end
 
+-- The anyone's-shield shell stays lit once absorbs are proven, gated to nothing while there is
+-- no shield. With a readable zero there is nothing to draw, so it needn't keep the driver
+-- running; the next absorb event wakes it (Hit). In combat the amount is secret: it animates.
+local function ShellResting(s, now)
+	local st = s.st
+	if not s.effect or s.effect.kind ~= "absorb" or not st or st.source ~= "reading" then return false end
+	if s.level ~= s.target or (s.shatter and now - s.shatter < (s.shatterSeconds or SHATTER)) then return false end
+	local ok, amount = pcall(UnitGetTotalAbsorbs, "player")
+	return ok and not ns.Secret(amount) and amount ~= nil and amount <= 0
+end
+
 -- The shell takes a hit: a ripple runs out from the blow and the crystal flares. From
 -- UNIT_ABSORB_AMOUNT_CHANGED (or the showcase and test mode). False if no shield is up.
 function ns.GlobeAura.Hit()
 	local any = false
-	local angle = math.rad(30 + 120 * Hash(GetTime() * 3.7))
+	local now = GetTime()
+	local angle = math.rad(30 + 120 * Hash(now * 3.7))
 	for _, g in pairs(globes) do
 		for _, sh in ipairs(g.looks.shell) do
 			if sh.effect then
-				sh.hit, sh.hitAngle = GetTime(), angle
+				-- The event that comes with gaining the shield is not a blow.
+				if not (sh.ignite and now - sh.ignite < IGNITE) then
+					sh.hit, sh.hitAngle = now, angle
+				end
 				any = true
 			end
 			FeedGate(sh)
@@ -2997,7 +3020,7 @@ function ns.GlobeAura.Step()
 			if AnimateRadiate(g, inst, now, dt) then busy = true end
 		end
 		for _, inst in ipairs(g.looks.shell) do
-			if AnimateShell(g, inst, now, dt) then busy = true end
+			if AnimateShell(g, inst, now, dt) and not ShellResting(inst, now) then busy = true end
 		end
 		for _, inst in ipairs(g.looks.surge) do
 			if AnimateSurge(g, inst, now, dt) then busy = true end

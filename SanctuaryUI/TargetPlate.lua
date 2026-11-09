@@ -1179,7 +1179,9 @@ end
 
 -- Debuffs and buffs share one flow only when they are laid out alike.
 local function SameFlow(d, b)
-	return b.pos == d.pos and b.align == d.align and b.grow == d.grow
+	if b.pos ~= d.pos or b.align ~= d.align then return false end
+	-- Grow means nothing on a centred line or a side column (the option is greyed out there).
+	return IsSide(d) or d.align == "center" or b.grow == d.grow
 end
 
 -- Lay out the shown icons line by line; returns the height they take.
@@ -1214,12 +1216,12 @@ end
 
 -- A rendered style's cast bar: in its groove, else on a rail above the frame, riding over any
 -- aura lines that are up there. `over` is the aura container above the frame, if there is one.
-local function PlaceStyleCast(plate, style, over)
+local function PlaceStyleCast(plate, style, over, overMid)
 	local cast = plate.Cast
 	cast:ClearAllPoints()
 	if style.castGroove then
 		cast:SetPoint("TOPLEFT", plate, "TOPLEFT", style.castGroove[1], -style.castGroove[2])
-	elseif not (over and plate.castAnchorable and pcall(cast.SetPoint, cast, "BOTTOM", over, "TOP", 0, 4)) then
+	elseif not (over and plate.castAnchorable and pcall(cast.SetPoint, cast, "BOTTOM", over, "TOP", -(overMid or 0), 4)) then
 		cast:ClearAllPoints()
 		cast:SetPoint("BOTTOMLEFT", plate, "TOPLEFT", style.bar[1], -style.castBottom)
 	end
@@ -1515,13 +1517,13 @@ local function UpdateBoxes(plate)
 	local style = Style()
 	if style then
 		-- A rail rides over whichever aura lines are above the frame.
-		local over
+		local over, overMid
 		if (opt.debuffs or same) and d.pos == "above" then
-			over = plate.debuffBox
+			over, overMid = plate.debuffBox, dMid
 		elseif opt.buffs and not same and b.pos == "above" then
-			over = plate.buffBox
+			over, overMid = plate.buffBox, bMid
 		end
-		PlaceStyleCast(plate, style, over)
+		PlaceStyleCast(plate, style, over, overMid)
 		return
 	end
 
@@ -1553,11 +1555,17 @@ end
 
 -- A unit's moving 3D portrait, square, behind the D3 frame, which hides its corners; out of
 -- view (no model to draw) its round 2D portrait instead, masked into the hole.
-local function ShowPortrait(portrait, unit)
+local function ShowPortrait(portrait, unit, force)
 	local visible = UnitIsVisible(unit)
 	if not Secret(visible) and visible then
-		portrait.model:SetUnit(unit)
-		pcall(portrait.model.SetPortraitZoom, portrait.model, 1)
+		-- Setting the unit restarts the model's idle, so only for a different unit or a new model.
+		local guid = UnitGUID(unit)
+		if Secret(guid) then guid = nil end
+		if force or not guid or guid ~= portrait.modelGUID or not portrait.model:IsShown() then
+			portrait.modelGUID = guid
+			portrait.model:SetUnit(unit)
+			pcall(portrait.model.SetPortraitZoom, portrait.model, 1)
+		end
 		portrait.model:Show()
 		portrait.face:Hide()
 	else
@@ -1567,14 +1575,14 @@ local function ShowPortrait(portrait, unit)
 	end
 end
 
-local function UpdatePortrait(plate)
+local function UpdatePortrait(plate, force)
 	local portrait = plate.Portrait
 	if not (Opt().portrait or Style()) or not UnitExists(U()) then
 		portrait:Hide()
 		return
 	end
 	portrait:Show()
-	ShowPortrait(portrait, U())
+	ShowPortrait(portrait, U(), force)
 end
 
 -- The ToT bar's fill: red for enemies, green for friends, amber for neutrals, grey if tapped,
@@ -1804,7 +1812,7 @@ function ns.TargetPlate.Update(snap)
 	SetHealth(plate, snap)
 	UpdatePower(plate)
 	UpdateToT(plate, true)
-	UpdatePortrait(plate)
+	UpdatePortrait(plate, snap)
 	UpdateMarks(plate)
 	UpdateAuras(plate)
 	StartCast(plate.Cast, false)
@@ -1934,7 +1942,7 @@ function ns.TargetPlate.Layout()
 	end
 	plate:ClearAllPoints()
 	if opt.moved then
-		plate:SetPoint("CENTER", UIParent, "BOTTOMLEFT", opt.mx, opt.my)
+		plate:SetPoint("CENTER", UIParent, "BOTTOMLEFT", ns.MovedPoint(plate, opt))
 	else
 		plate:SetPoint("TOP", UIParent, "TOP", 0, -12 - room)
 	end
@@ -1985,6 +1993,15 @@ function ns.TargetPlate.Layout()
 	end
 end
 
+-- Update stops when there is no target, but the aura containers can only be set up out of
+-- combat: left to the first target, a first target in combat would get the wrong layout.
+local function ConfigureWithoutTarget()
+	local plate = ns.TargetPlate.frame
+	if plate and plate.debuffBox and Opt().enabled and not UnitExists(U()) then
+		UpdateAuras(plate)
+	end
+end
+
 function ns.TargetPlate.SetPreview(on)
 	if InCombatLockdown() then
 		ns.Print("cannot preview in combat")
@@ -1994,11 +2011,13 @@ function ns.TargetPlate.SetPreview(on)
 	preview.rank, preview.clock, preview.health = 1, 0, 1
 	ns.TargetPlate.Layout()
 	ns.TargetPlate.Update(true)
+	ConfigureWithoutTarget()
 end
 
 function ns.TargetPlate.ApplySettings()
 	ns.TargetPlate.Layout()
 	ns.TargetPlate.Update()
+	ConfigureWithoutTarget()
 end
 
 function ns.TargetPlate.ResetPosition()
@@ -2538,6 +2557,8 @@ function ns.TargetPlate.Init()
 	MakeBoxes(plate)
 
 	ns.TargetPlate.mover = ns.MakeMover(plate, "Target", Opt, "Reset its position in /sanctuary > Target.")
+	-- The plate is hidden with no target; the mover must still show to be dragged.
+	ns.TargetPlate.mover:SetParent(UIParent)
 
 	-- Every frame, on a plain child frame (so it runs while the plate shows, as the globes'
 	-- driver does): health easing, the bar's liquid, the preview, and the target of target
@@ -2619,7 +2640,9 @@ function ns.TargetPlate.Init()
 			-- The containers watch auras themselves.
 			if not plate.debuffBox then UpdateAuraIcons(plate) end
 		elseif event == "UNIT_MODEL_CHANGED" or event == "UNIT_PORTRAIT_UPDATE" then
-			UpdatePortrait(plate)
+			UpdatePortrait(plate, true)
+		elseif event == "UNIT_TARGET" then
+			UpdateToT(plate)
 		elseif event == "PLAYER_REGEN_ENABLED" then
 			if ns.TargetPlate.pending then ns.TargetPlate.Layout() end
 			-- The rank changed in combat: fit the click area to its frame now.
@@ -2631,6 +2654,7 @@ function ns.TargetPlate.Init()
 			if plate.debuffBox then UpdateAuras(plate) end
 		else
 			ns.TargetPlate.Update(event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_ENTERING_WORLD")
+			if event == "PLAYER_ENTERING_WORLD" then ConfigureWithoutTarget() end
 		end
 	end)
 

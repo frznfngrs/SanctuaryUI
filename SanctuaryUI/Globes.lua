@@ -288,7 +288,10 @@ end
 
 local function TintHalf(half, color)
 	if half.pool then
-		half.pool:SetColor(color[1], color[2], color[3])
+		local c = half.pool.color
+		if not (c and c[1] == color[1] and c[2] == color[2] and c[3] == color[3]) then
+			half.pool:SetColor(color[1], color[2], color[3])
+		end
 		return
 	end
 	local tex = half.bar:GetStatusBarTexture()
@@ -304,13 +307,17 @@ function ns.Globes.IsSplit()
 		return false
 	end
 	local maxMana = UnitPowerMax("player", MANA)
-	if maxMana == nil or (issecretvalue and issecretvalue(maxMana)) then
-		return false
+	if issecretvalue and issecretvalue(maxMana) then
+		return ns.Globes.hadMana or false -- hidden in combat: stay as it was
 	end
-	return maxMana > 0
+	ns.Globes.hadMana = maxMana ~= nil and maxMana > 0
+	return ns.Globes.hadMana
 end
 
 local function Tint(globe, r, g, b)
+	-- Runs on every power tick; a new colour is the rare case.
+	local tint = globe.tint
+	if tint and tint[1] == r and tint[2] == g and tint[3] == b then return end
 	globe.tint = { r, g, b }
 	if globe.pool then
 		globe.pool:SetColor(r, g, b)
@@ -818,8 +825,13 @@ function ns.Globes.UpdatePower()
 	end
 	ns.Globes.ApplyNumbers()
 	ns.Globes.UpdatePips()
-	if ns.Experience and ns.Experience.Update then
-		ns.Experience.Update()
+	-- The rail wears the resource colour; only a change of colour needs it redrawn.
+	if ns.Experience and ns.Experience.Update and ns.Globes.ResourceColor then
+		local r, g, b = ns.Globes.ResourceColor()
+		if r ~= ns.Globes.railR or g ~= ns.Globes.railG or b ~= ns.Globes.railB then
+			ns.Globes.railR, ns.Globes.railG, ns.Globes.railB = r, g, b
+			ns.Experience.Update()
+		end
 	end
 end
 
@@ -1085,7 +1097,6 @@ function ns.Globes.Init()
 	local events = CreateFrame("Frame", nil, parent)
 	events:RegisterUnitEvent("UNIT_HEALTH", "player")
 	events:RegisterUnitEvent("UNIT_MAXHEALTH", "player")
-	events:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
 	events:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")
 	events:RegisterUnitEvent("UNIT_MAXPOWER", "player")
 	events:RegisterUnitEvent("UNIT_DISPLAYPOWER", "player")
@@ -1116,6 +1127,9 @@ function ns.Globes.Init()
 			ns.Globes.SetCombat(false)
 		elseif event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
 			ns.Globes.UpdateHealth()
+		elseif event == "UNIT_POWER_FREQUENT" or event == "UNIT_MAXPOWER" then
+			-- Not the health globe: with hidden health, its update reads as a change and sloshes.
+			ns.Globes.UpdatePower()
 		else
 			ns.Globes.UpdateHealth()
 			ns.Globes.UpdatePower()

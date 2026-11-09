@@ -282,7 +282,7 @@ function ns.Portraits.Layout()
 	anchor:SetSize(player:GetWidth(), player:GetHeight() + GAP + pet:GetHeight())
 	anchor:ClearAllPoints()
 	if opt.moved then
-		anchor:SetPoint("CENTER", UIParent, "BOTTOMLEFT", opt.mx, opt.my)
+		anchor:SetPoint("CENTER", UIParent, "BOTTOMLEFT", ns.MovedPoint(anchor, opt))
 	else
 		anchor:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 16, -16)
 	end

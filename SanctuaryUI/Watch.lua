@@ -98,6 +98,10 @@ local function Index(def, byName, byID, value, names, multi)
 	local function put(map, key)
 		if multi then
 			map[key] = map[key] or {}
+			-- A name listed under both spells and names must not count twice.
+			for _, existing in ipairs(map[key]) do
+				if existing == value then return end
+			end
 			table.insert(map[key], value)
 		else
 			map[key] = value
@@ -319,6 +323,7 @@ end
 
 local absorbProbe -- when your shield landed, waiting for the absorb event
 local lastAbsorbEvent, lastHit = -math.huge, -math.huge
+local iconCount = 0 -- the buff frame's icon count, as of the last frame
 
 local function AbsorbWorks()
 	return (Store().absorb.works or 0) > 0
@@ -569,7 +574,7 @@ local function OnCast(spellID, now, castGUID)
 			elseif aimed == nil and Kept(effect) then
 				-- Can't tell where it went: it is yours if a buff icon turns up with it. A direct
 				-- heal leaves no buff, so it stays silent rather than guess.
-				table.insert(landing, { effect = effect, id = spellID, name = name, at = now, icons = ns.BuffIcons() })
+				table.insert(landing, { effect = effect, id = spellID, name = name, at = now, icons = iconCount })
 			end
 		end
 	end
@@ -825,7 +830,7 @@ function ns.Watch.Init()
 		pcall(driver.RegisterEvent, driver, event)
 	end
 	for _, event in ipairs({ "UNIT_AURA", "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_CHANNEL_START",
-		"UNIT_SPELLCAST_CHANNEL_STOP", "UNIT_SPELLCAST_CHANNEL_UPDATE", "UNIT_ABSORB_AMOUNT_CHANGED", "UNIT_HEALTH" }) do
+		"UNIT_SPELLCAST_CHANNEL_STOP", "UNIT_SPELLCAST_CHANNEL_UPDATE", "UNIT_ABSORB_AMOUNT_CHANGED", "UNIT_COMBAT" }) do
 		pcall(driver.RegisterUnitEvent, driver, event, "player")
 	end
 	local gateDirty = false
@@ -849,8 +854,9 @@ function ns.Watch.Init()
 			lastAbsorbEvent = now
 			SettleProbe(now, true)
 			UpdateAbsorb()
-		elseif event == "UNIT_HEALTH" then
-			lastHit = now
+		elseif event == "UNIT_COMBAT" then
+			-- Only a wound spends a charge; heals and regen move health too. (unit, event, ...)
+			if not Readable(a2) or a2 == "WOUND" then lastHit = now end
 		elseif event == "PLAYER_DEAD" then
 			for group in pairs(GROUPS) do groupCast[group] = nil end
 			for _, effect in ipairs(EFFECTS) do
@@ -867,7 +873,8 @@ function ns.Watch.Init()
 			dirty = true
 		end
 	end)
-	local nextScan, nextGate, icons = 0, 0, ns.BuffIcons()
+	local nextScan, nextGate = 0, 0
+	iconCount = ns.BuffIcons()
 	driver:SetScript("OnUpdate", function()
 		local now = GetTime()
 		if test then
@@ -877,8 +884,8 @@ function ns.Watch.Init()
 		end
 		-- The buff frame's icon count: casts landing, Judgement, shields breaking, charges spent.
 		local count = ns.BuffIcons()
-		if count < icons then IconLost(now) end
-		icons = count
+		if count < iconCount then IconLost(now) end
+		iconCount = count
 		if #landing > 0 then WatchLanding(now, count) end
 		if pending then Settle(now, now - pending.at >= CONSUME_WINDOW) end
 		SettleProbe(now, false)

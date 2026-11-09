@@ -667,7 +667,7 @@ function ns.ActiveSkill.Init()
 	local events = {
 		"PLAYER_ENTERING_WORLD", "PLAYER_TOTEM_UPDATE", "SPELLS_CHANGED",
 		"ACTIONBAR_SLOT_CHANGED", "ACTIONBAR_PAGE_CHANGED", "UPDATE_BONUS_ACTIONBAR",
-		"UPDATE_SHAPESHIFT_FORM", "ACTIONBAR_UPDATE_STATE",
+		"UPDATE_SHAPESHIFT_FORM", "ACTIONBAR_UPDATE_STATE", "PLAYER_REGEN_ENABLED",
 	}
 	for _, event in ipairs(events) do
 		pcall(driver.RegisterEvent, driver, event)

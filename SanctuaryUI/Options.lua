@@ -349,7 +349,7 @@ local function GlobeAuraArgs()
 					end,
 				}
 				page.args[effect.key .. "Preview"] = PreviewButton(n + 0.7, effect.key, function()
-					return not DB().globeAuras.effects[effect.key]
+					return not DB().globeAuras.enabled or not DB().globeAuras.effects[effect.key]
 				end)
 				local native = flareOnly and (effect.heal or "burst") or effect.look == "surge" and (effect.surge or "swirl")
 					or effect.look == "shell" and (effect.shell or "shell") or effect.look
@@ -1239,7 +1239,7 @@ local function Build()
 					}),
 					debuffs = Card(2, "Debuffs", {
 						debuffs = Third(Toggle(1, "Show debuffs", "Every debuff on the target: yours first and bright, the rest greyed.", "target", "debuffs")),
-						maxDebuffs = TargetAura("debuffs", Range(2, "How many", nil, "target", "maxDebuffs", 1, 24, 1)),
+						maxDebuffs = TargetAura("debuffs", Range(2, "How many", "For your debuffs and other players' debuffs separately: the client hides how many of each there are in combat, so up to twice this can show.", "target", "maxDebuffs", 1, 24, 1)),
 						auraSize = TargetAura("debuffs", Range(3, "Icon size", nil, "target", "debuffSize", 14, 48, 1)),
 						auraPos = TargetAura("debuffs", Select(4, "Position", "Beside the frame, icons run down in columns (Icons per line sets how many in each).", "target", "auraPos", AURA_POSITIONS, AURA_POSITION_ORDER)),
 						auraAlign = TargetAura("debuffs", Select(5, "Align to", "Where each line starts: the bar's left end, centre or right end. Beside the frame: its top, middle or bottom.", "target", "auraAlign", AuraAlignValues("auraPos"))),

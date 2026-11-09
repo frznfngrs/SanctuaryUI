@@ -153,7 +153,9 @@ local function PurchaseButton()
 end
 
 local function MakeBuy(frame)
-	local button = CreateFrame("Button", "SanctuaryUIBankBuy", frame, "SecureActionButtonTemplate")
+	-- The insecure action template (as ElvUI uses here): the same secure click, without making
+	-- the whole window a protected frame that Esc or a drag can't touch in combat.
+	local button = CreateFrame("Button", "SanctuaryUIBankBuy", frame, "InsecureActionButtonTemplate")
 	local plate = button:CreateTexture(nil, "BACKGROUND")
 	plate:SetAllPoints()
 	if ns.Art.Apply(plate, "d3Button") then
@@ -194,8 +196,8 @@ local function CloseBank()
 	end
 end
 
--- The Buy Slot button is secure, which makes the whole window protected: it can only show
--- or hide out of combat. A change asked for in combat waits for PLAYER_REGEN_ENABLED.
+-- Its item buttons are Blizzard's secure templates, so the window only shows or hides out of
+-- combat. A change asked for in combat waits for PLAYER_REGEN_ENABLED.
 local function SetWindowShown(shown)
 	local win = ns.Bank.win
 	if not win then return end
@@ -228,12 +230,13 @@ local function Opened()
 		target:SetAttribute("overrideBankType", CHARACTERBANK_TYPE)
 	end
 	SetWindowShown(true)
-	ns.Bags.Open()
+	ns.Bags.OpenForBank()
 end
 
 local function Closed()
 	ns.Bank.open = false
 	SetWindowShown(false)
+	ns.Bags.CloseForBank()
 	if BankFrame and BankFrame:IsShown() then
 		BankFrame:Hide()
 	end
@@ -298,7 +301,9 @@ function ns.Bank.Init()
 					end
 				end,
 				setup = function(button)
-					button:SetShown(C_Bank and C_Bank.AutoDepositItemsIntoBank and true or false)
+					local supported = C_Bank and C_Bank.AutoDepositItemsIntoBank
+						and (not C_Bank.DoesBankTypeSupportAutoDeposit or C_Bank.DoesBankTypeSupportAutoDeposit(CHARACTERBANK_TYPE))
+					button:SetShown(supported and true or false)
 					button:SetScript("OnEnter", function(self)
 						GameTooltip:SetOwner(self, "ANCHOR_TOP")
 						GameTooltip:SetText("Deposit")

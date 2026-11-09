@@ -275,6 +275,12 @@ function Pool:Size()
 	self:PlaceSurface(true)
 end
 
+-- The surface's height at px across the globe. (Not a closure: this runs per pool, per frame.)
+local function SurfaceWave(px, gx, h, tilt, bob, ripple, t, phase)
+	local x = (gx + px) / h * 2 - 1
+	return (tilt * x + bob + ripple * (math.sin(x * 7.2 + t * 1.9 + phase * 9) + 0.6 * math.sin(-x * 11.5 + t * 2.7))) * h
+end
+
 -- Surface slices: top edge on the level, plus the wave. Called every frame while visible.
 function Pool:PlaceSurface(force, t)
 	local h = self.height
@@ -296,13 +302,9 @@ function Pool:PlaceSurface(force, t)
 	local sh = SURFACE_H * h
 	local pad = SURFACE_PAD * h
 	local q = sh + 2 * pad
-	local function Wave(px)
-		local x = (gx + px) / h * 2 - 1
-		return (tilt * x + bob + ripple * (math.sin(x * 7.2 + t * 1.9 + phase * 9) + 0.6 * math.sin(-x * 11.5 + t * 2.7))) * h
-	end
-	local yl = Wave(0)
+	local yl = SurfaceWave(0, gx, h, tilt, bob, ripple, t, phase)
 	for i, slice in ipairs(self.slices) do
-		local yr = Wave(slice.x + slice.w)
+		local yr = SurfaceWave(slice.x + slice.w, gx, h, tilt, bob, ripple, t, phase)
 		local mid = (yl + yr) * 0.5
 		slice.glow:SetPoint("TOPLEFT", guide, "TOPLEFT", slice.x, 1 + mid + pad)
 		-- Depth of the line below the quad top at each edge, in texture heights.
@@ -316,6 +318,12 @@ function Pool:PlaceSurface(force, t)
 		yl = yr
 	end
 	if force then self:UpdateSurface() end
+end
+
+-- A different unit now drives this pool: no glide or damage ghost from the last one's level.
+function Pool:Forget()
+	self.target, self.level, self.vel, self.ghost, self.started = nil, nil, 0, nil, nil
+	if self.ghostBar then self.ghostBar:Hide() end
 end
 
 -- New value. Secret values go straight to the bar (with the client's own easing if it has

@@ -790,6 +790,8 @@ loader:SetScript("OnEvent", function(_, event)
 		if ns.ActionBar and ns.ActionBar.ReassignBindings then ns.ActionBar.ReassignBindings() end
 		if ns.Menu and ns.Menu.ReassignBindings then ns.Menu.ReassignBindings() end
 		if ns.Stance and ns.Stance.ReassignBindings then ns.Stance.ReassignBindings() end
+		if ns.Totem and ns.Totem.ReassignBindings then ns.Totem.ReassignBindings() end
+		if ns.ActionBar and ns.ActionBar.FlushSpellMoves then ns.ActionBar.FlushSpellMoves() end
 		if ns.pendingRefresh then ns.Refresh() end
 	end
 end)

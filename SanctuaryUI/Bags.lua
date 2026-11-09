@@ -119,8 +119,9 @@ end
 -- otherwise one item every 0.15 s while the vendor stays open.
 function ns.Bags.SellJunk()
 	if not MerchantOpen() then return end
-	if C_MerchantFrame and C_MerchantFrame.SellAllJunkItems then
-		C_MerchantFrame.SellAllJunkItems()
+	local merchant = C_MerchantFrame
+	if merchant and merchant.SellAllJunkItems and (not merchant.IsSellAllJunkEnabled or merchant.IsSellAllJunkEnabled()) then
+		merchant.SellAllJunkItems()
 		return
 	end
 	local queue = JunkSlots()
@@ -172,6 +173,21 @@ function ns.Bags.Close()
 	end
 end
 
+-- The bank opens this window itself, without Blizzard's bookkeeping (its OnShow is disabled),
+-- and closes it again only if it was the one that opened it.
+function ns.Bags.OpenForBank()
+	if not ns.Bags.win or not Opt().enabled then return end
+	if not ns.Bags.win:IsShown() then ns.Bags.byBank = true end
+	ns.Bags.Open()
+end
+
+function ns.Bags.CloseForBank()
+	if ns.Bags.byBank then
+		ns.Bags.byBank = nil
+		ns.Bags.Close()
+	end
+end
+
 function ns.Bags.Toggle()
 	if ns.Bags.win and ns.Bags.win:IsShown() then
 		ns.Bags.Close()
@@ -180,10 +196,23 @@ function ns.Bags.Toggle()
 	end
 end
 
--- After Blizzard's toggles run, follow whether it thinks the backpack is open.
+local function BlizzardBagsOpen()
+	if IsAnyBagOpen then return IsAnyBagOpen() end
+	return IsBagOpen and IsBagOpen(0)
+end
+
+-- After Blizzard's toggles run, follow whether it thinks any bag is open. Blizzard can decline
+-- a close (a vendor leaving when you had opened the bags yourself), so its state decides.
 local function Follow()
 	if not Opt().enabled then return end
-	if IsBagOpen and IsBagOpen(0) then
+	if ns.Bags.byBank then
+		-- Open only for the bank, so Blizzard thought the bags were shut: any toggle means close.
+		ns.Bags.byBank = nil
+		ns.Bags.Close()
+		if BlizzardBagsOpen() then CloseAllBags() end
+		return
+	end
+	if BlizzardBagsOpen() then
 		ns.Bags.Open()
 	else
 		ns.Bags.Close()
@@ -238,6 +267,12 @@ end
 
 function ns.Bags.Init()
 	if not Opt().enabled then return end
+	-- Blizzard's bag frames are disabled, so the keyring has to be listed here where the client has one.
+	local keyring = Enum and Enum.BagIndex and Enum.BagIndex.Keyring
+	if keyring and C_ActionBar and C_ActionBar.ShouldShowKeyring and C_ActionBar.ShouldShowKeyring() then
+		BAGS[#BAGS + 1] = keyring
+		W.keyring = keyring
+	end
 	local win = W.New({
 		name = "SanctuaryUIBags",
 		key = "bags",
@@ -248,7 +283,10 @@ function ns.Bags.Init()
 		updateRow = UpdateRow,
 		onClose = function() CloseAllBags() end,
 		onShow = function() PlaySound(SOUNDKIT and SOUNDKIT.IG_BACKPACK_OPEN or 862) end,
-		onHide = function() PlaySound(SOUNDKIT and SOUNDKIT.IG_BACKPACK_CLOSE or 863) end,
+		onHide = function()
+			ns.Bags.byBank = nil
+			PlaySound(SOUNDKIT and SOUNDKIT.IG_BACKPACK_CLOSE or 863)
+		end,
 		footer = {
 			{
 				key = "sort",
@@ -293,12 +331,12 @@ function ns.Bags.Init()
 	hooksecurefunc("ToggleBackpack", Follow)
 	hooksecurefunc("ToggleAllBags", Follow)
 	hooksecurefunc("OpenAllBags", function() if Opt().enabled then ns.Bags.Open() end end)
-	hooksecurefunc("CloseAllBags", ns.Bags.Close)
+	hooksecurefunc("CloseAllBags", Follow)
 	if OpenBackpack then
 		hooksecurefunc("OpenBackpack", function() if Opt().enabled then ns.Bags.Open() end end)
 	end
 	if CloseBackpack then
-		hooksecurefunc("CloseBackpack", ns.Bags.Close)
+		hooksecurefunc("CloseBackpack", Follow)
 	end
 
 	local events = CreateFrame("Frame", nil, win.frame)

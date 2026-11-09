@@ -279,6 +279,8 @@ end
 
 local STATE_TEXT = { dead = DEAD or "Dead", ghost = "Ghost", offline = PLAYER_OFFLINE or "Offline" }
 
+local UpdatePower, UpdatePortrait -- defined below; a death or resurrection changes them too
+
 local function UpdateHealth(b)
 	local v = b.v
 	if not v then return end
@@ -292,7 +294,12 @@ local function UpdateHealth(b)
 		health, maxHealth = UnitHealth(unit), UnitHealthMax(unit)
 	end
 	local state = State(b, unit, pv)
+	local changed = b.state ~= state
 	b.state = state
+	if changed then
+		UpdatePortrait(b)
+		UpdatePower(b)
+	end
 
 	local r, g, bl = HealthColor()
 	if state == "offline" then r, g, bl = 0.32, 0.32, 0.32 end
@@ -343,7 +350,7 @@ local function UpdateHealth(b)
 	end
 end
 
-local function UpdatePower(b)
+function UpdatePower(b)
 	local v = b.v
 	if not v or not v.power then return end
 	local unit, pv = U(b), PV(b)
@@ -364,7 +371,7 @@ end
 
 -- The portrait: the moving 3D bust in the slab's square socket when the unit is in view, else
 -- the round 2D one (always, in the globes' round medallion). Greyed while dead or offline.
-local function UpdatePortrait(b)
+function UpdatePortrait(b, force)
 	local v = b.v
 	if not v or not v.face then return end -- a globe pet has none
 	local unit, pv = U(b), PV(b)
@@ -372,8 +379,14 @@ local function UpdatePortrait(b)
 	local state = b.state
 	local visible = UnitIsVisible(unit)
 	if v.model and Opt().portrait3d ~= false and not state and Bool(visible) then
-		v.model:SetUnit(unit)
-		pcall(v.model.SetPortraitZoom, v.model, 1)
+		-- Setting the unit restarts the model's idle, so only for a new member or model.
+		local guid = UnitGUID(unit)
+		if Secret(guid) then guid = nil end
+		if force or not guid or guid ~= v.modelGUID or not v.model:IsShown() then
+			v.modelGUID = guid
+			v.model:SetUnit(unit)
+			pcall(v.model.SetPortraitZoom, v.model, 1)
+		end
 		v.model:Show()
 		v.face:Hide()
 		return
@@ -401,7 +414,7 @@ local function ClassColor(b)
 		class = pv.class
 	else
 		if not UnitExists(b.unit) then return nil end
-		_, class = UnitClass(b.unit)
+		class = select(2, UnitClass(b.unit))
 	end
 	if Readable(class) then return RAID_CLASS_COLORS and RAID_CLASS_COLORS[class] end
 	if Secret(class) and C_ClassColor and C_ClassColor.GetClassColor then
@@ -467,6 +480,8 @@ local function UpdateReady(b)
 			status = GetReadyCheckStatus(b.unit)
 		end
 	end
+	-- The client forgets the answers as the check finishes; READY_CHECK_FINISHED needs them.
+	if not pv and not b.readyHold and Readable(status) then b.readyLast = status end
 	local path = Readable(status) and READY_TEXTURES[status]
 	if path then
 		v.ready:SetTexture(path)
@@ -1010,7 +1025,7 @@ local function Place()
 	local anchor, opt = P.anchor, Opt()
 	anchor:ClearAllPoints()
 	if opt.moved then
-		anchor:SetPoint("CENTER", UIParent, "BOTTOMLEFT", opt.mx, opt.my)
+		anchor:SetPoint("CENTER", UIParent, "BOTTOMLEFT", ns.MovedPoint(anchor, opt))
 		return
 	end
 	-- Under your portrait (and its pet's), as D3 stacks its party under you.
@@ -1124,6 +1139,7 @@ local UNIT_EVENTS = {
 	UNIT_POWER_UPDATE = "power", UNIT_MAXPOWER = "power", UNIT_DISPLAYPOWER = "power",
 	UNIT_THREAT_SITUATION_UPDATE = "threat", UNIT_THREAT_LIST_UPDATE = "threat",
 	UNIT_PORTRAIT_UPDATE = "portrait", UNIT_MODEL_CHANGED = "portrait",
+	PARTY_MEMBER_ENABLE = "portrait", PARTY_MEMBER_DISABLE = "portrait", -- in and out of view
 	UNIT_SPELLCAST_START = "cast", UNIT_SPELLCAST_DELAYED = "cast",
 	UNIT_SPELLCAST_CHANNEL_START = "channel", UNIT_SPELLCAST_CHANNEL_UPDATE = "channel",
 	UNIT_SPELLCAST_EMPOWER_START = "channel", UNIT_SPELLCAST_EMPOWER_UPDATE = "channel",
@@ -1147,7 +1163,7 @@ local function OnUnitEvent(kind, b)
 	elseif kind == "threat" then
 		UpdateThreat(b)
 	elseif kind == "portrait" then
-		UpdatePortrait(b)
+		UpdatePortrait(b, true)
 	elseif kind == "cast" then
 		StartCast(b, false)
 	elseif kind == "channel" then
@@ -1174,30 +1190,50 @@ local function OnEvent(_, event, unit)
 			if b:IsShown() then UpdateTarget(b) end
 		end
 	elseif event == "READY_CHECK" or event == "READY_CHECK_CONFIRM" then
+		P.readyRound = (P.readyRound or 0) + 1
 		for _, b in ipairs(P.members) do b.readyHold = nil UpdateReady(b) end
 	elseif event == "READY_CHECK_FINISHED" then
 		-- Keep the answers up a while; anyone still thinking counts as not ready.
 		for _, b in ipairs(P.members) do
 			local status = GetReadyCheckStatus and GetReadyCheckStatus(b.unit)
+			if not Readable(status) then status = b.readyLast end
 			if Readable(status) then b.readyHold = status == "waiting" and "notready" or status end
+			b.readyLast = nil
 			UpdateReady(b)
 		end
+		P.readyRound = (P.readyRound or 0) + 1
+		local round = P.readyRound
 		C_Timer.After(READY_LINGER, function()
+			if P.readyRound ~= round then return end -- a newer check owns the icons now
 			for _, b in ipairs(P.members) do b.readyHold = nil UpdateReady(b) end
 		end)
 	elseif event == "UNIT_PET" then
 		local owner = P.byUnit[unit]
 		if owner and owner.pet and owner.pet:IsShown() then P.UpdateButton(owner.pet) end
-		if unit == "player" and not InCombatLockdown() then
+		if unit == "player" and InCombatLockdown() then
+			P.pending = true
+		elseif unit == "player" then
 			for _, b in ipairs(P.members) do ConfigureAuras(b) end -- a warlock's felhunter dispels
 		end
 	elseif event == "SPELLS_CHANGED" then
-		if not InCombatLockdown() then
+		if InCombatLockdown() then
+			P.pending = true
+		else
 			for _, b in ipairs(P.members) do ConfigureAuras(b) end
 		end
 	elseif event == "PLAYER_REGEN_ENABLED" then
 		if P.pending then P.Layout() end
+		P.UpdateAll() -- markers, threat and roles read as hidden in combat
 	elseif event == "GROUP_ROSTER_UPDATE" then
+		-- A token can now mean someone else: their globe doesn't glide from the last one's level.
+		for _, b in ipairs(P.all) do
+			local guid = UnitGUID(b.unit)
+			if Secret(guid) then guid = nil end
+			if b.memberGUID ~= guid then
+				b.memberGUID = guid
+				if b.v and b.v.pool then b.v.pool:Forget() end
+			end
+		end
 		for _, b in ipairs(P.members) do RefreshAuras(b) end
 		P.UpdateAll()
 	else

@@ -34,13 +34,17 @@ local function WatchedFaction()
 			local high = data.nextReactionThreshold or low
 			local value = data.currentStanding or low
 			local label = _G["FACTION_STANDING_LABEL" .. (data.reaction or 0)]
+			-- Exalted has no next threshold: a full bar, as Blizzard's own draws it.
+			if high <= low then return data.name, label, 1, 1 end
 			return data.name, label, value - low, math.max(1, high - low)
 		end
 	end
 	if GetWatchedFactionInfo then
 		local name, standing, low, high, value = GetWatchedFactionInfo()
 		if name then
-			return name, _G["FACTION_STANDING_LABEL" .. (standing or 0)], (value or 0) - (low or 0), math.max(1, (high or 1) - (low or 0))
+			local label = _G["FACTION_STANDING_LABEL" .. (standing or 0)]
+			if high and low and high <= low then return name, label, 1, 1 end
+			return name, label, (value or 0) - (low or 0), math.max(1, (high or 1) - (low or 0))
 		end
 	end
 end
@@ -82,6 +86,10 @@ end
 
 function ns.Experience.Update(_, event, arg)
 	UpdateLevel(event == "PLAYER_LEVEL_UP" and tonumber(arg) or nil)
+	if event == "PLAYER_LEVEL_UP" then
+		-- UnitLevel lags this event, and the rail's mode depends on it at the level cap.
+		C_Timer.After(0.5, function() ns.Experience.Update() end)
+	end
 	local bar = ns.ExperienceBar
 	if not bar then return end
 	local rested = bar.Rested

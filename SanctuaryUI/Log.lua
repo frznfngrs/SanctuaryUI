@@ -411,7 +411,8 @@ end
 
 local function Redact(text, name)
 	if not name or name == "" then return text end
-	return (text:gsub("%f[%w]" .. name:gsub("%p", "%%%0") .. "%f[%W]", "<hidden>"))
+	-- High bytes count as letters, so a name may start or end with an accented character.
+	return (text:gsub("%f[%w\128-\255]" .. name:gsub("%p", "%%%0") .. "%f[^%w\128-\255]", "<hidden>"))
 end
 
 local function Clean(text)

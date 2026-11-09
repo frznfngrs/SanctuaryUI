@@ -162,6 +162,8 @@ local ENTRIES = {
 		key = "talents",
 		label = TALENTS_BUTTON or "Talents",
 		binding = "TOGGLETALENTS",
+		-- Like Character: Blizzard's button opens it, so the panel's OnShow runs untainted.
+		secureClick = { "TalentMicroButton", "PlayerSpellsMicroButton" },
 		toggle = ToggleTalents,
 	},
 	{
@@ -177,6 +179,7 @@ local ENTRIES = {
 		key = "quests",
 		label = QUESTLOG_BUTTON or "Quest Log",
 		binding = "TOGGLEQUESTLOG",
+		secureClick = "QuestLogMicroButton",
 		toggle = function() ToggleQuestLog() end,
 	},
 	{
@@ -246,7 +249,10 @@ end
 local ToggleFlyout
 
 local function MakeMenuButton(parent, entry)
-	local delegate = entry.secureClick and _G[entry.secureClick]
+	local delegate
+	for _, name in ipairs(type(entry.secureClick) == "table" and entry.secureClick or { entry.secureClick }) do
+		delegate = delegate or _G[name]
+	end
 	local button
 	if delegate then
 		-- The secure template clicks Blizzard's (hidden) button for us, out of the addon's taint.

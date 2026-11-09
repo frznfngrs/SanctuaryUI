@@ -92,9 +92,14 @@ function ns.Blizzard.Hide()
 	-- Blizzard's buff frames are never hidden now: SanctuaryUI's buffs are those frames,
 	-- moved and dressed (Auras.lua), since only Blizzard can read your buffs in combat.
 	ns.Blizzard.Auras(true)
-	if ns.DB().totems.enabled and _G.TotemFrame then
-		pcall(_G.TotemFrame.SetParent, _G.TotemFrame, ns.Hider)
-		pcall(Suppress, _G.TotemFrame)
+	local totemFrame = _G.TotemFrame
+	if totemFrame and ns.DB().totems.enabled then
+		if totemFrame:GetParent() ~= ns.Hider then ns.Blizzard.totemParent = totemFrame:GetParent() end
+		totemFrame.sanctuaryAllow = nil
+		pcall(totemFrame.SetParent, totemFrame, ns.Hider)
+		pcall(Suppress, totemFrame)
+	elseif totemFrame then
+		ns.Blizzard.RestoreTotemFrame()
 	end
 	-- Blizzard's bag buttons, while the SanctuaryUI bag window (which has its own bag slots) is on.
 	if ns.DB().bags.enabled then
@@ -119,6 +124,17 @@ local function Restore(frame, parent)
 	-- The C Show, as RawHide uses the C Hide: an Edit Mode frame's Lua override would run tainted.
 	local show = rawget(frame, "ShowBase") or frame.Show
 	show(frame)
+end
+
+-- Totems turned off again: Blizzard's frame goes back where it was. Not shown here, because
+-- it shows itself only while a totem is down, on its next update.
+function ns.Blizzard.RestoreTotemFrame()
+	local frame = _G.TotemFrame
+	if not frame or not ns.Hider or frame:GetParent() ~= ns.Hider then return end
+	frame.sanctuaryAllow = true
+	pcall(frame.SetParent, frame, ns.Blizzard.totemParent or UIParent)
+	frame:SetAlpha(1)
+	pcall(frame.EnableMouse, frame, true)
 end
 
 -- Show or hide Blizzard's micro menu. Hiding it again after a restore works through the

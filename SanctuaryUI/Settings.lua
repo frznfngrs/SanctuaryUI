@@ -337,7 +337,8 @@ function ns.Migrate(p)
 	end
 	-- The target's health text used to be a percent on/off.
 	if type(p.target) == "table" and p.target.percent ~= nil then
-		if p.target.percent == false and rawget(p.target, "healthText") == nil then
+		-- (AceDB has already filled in the default, so "not set" looks like the default.)
+		if p.target.percent == false and p.target.healthText == ns.DEFAULTS.profile.target.healthText then
 			p.target.healthText = "none"
 		end
 		p.target.percent = nil
@@ -347,7 +348,7 @@ function ns.Migrate(p)
 		local copy = { auraPos = "buffPos", auraAlign = "buffAlign", auraGrow = "buffGrow", debuffSize = "buffSize", auraPerLine = "buffPerLine", auraSpacing = "buffSpacing", auraX = "buffX" }
 		for from, to in pairs(copy) do
 			local value = rawget(p.target, from)
-			if value ~= nil and rawget(p.target, to) == nil then
+			if value ~= nil and p.target[to] == ns.DEFAULTS.profile.target[to] then
 				p.target[to] = value
 			end
 		end
@@ -365,6 +366,13 @@ function ns.InitDB()
 	if type(SanctuaryUIDB) == "table" and not SanctuaryUIDB.profileKeys then
 		old = SanctuaryUIDB
 		SanctuaryUIDB = nil
+	end
+	-- auras used to be a plain on/off. AceDB replaces a false with its default table, turning
+	-- them back on, so that has to be converted before AceDB sees it.
+	if type(SanctuaryUIDB) == "table" and type(SanctuaryUIDB.profiles) == "table" then
+		for _, saved in pairs(SanctuaryUIDB.profiles) do
+			if type(saved) == "table" and saved.auras == false then saved.auras = { enabled = false } end
+		end
 	end
 	local AceDB = LibStub("AceDB-3.0")
 	ns.db = AceDB:New("SanctuaryUIDB", ns.DEFAULTS, true)

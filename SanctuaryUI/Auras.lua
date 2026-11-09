@@ -124,7 +124,7 @@ local function SkinFrame(frame, harmful)
 end
 
 -- Temporary weapon enchants come as time left only; the full length is the longest seen.
-local enchantLength = {}
+local enchantLength, enchantLeft = {}, {}
 
 local function UpdateBars()
 	local opt = Opt()
@@ -147,9 +147,12 @@ local function UpdateBars()
 				if Readable(kind) and kind == "TempEnchant" then
 					local id = info.ID
 					local key = Readable(id) and id or 0
-					if not enchantLength[key] or left > enchantLength[key] then
+					-- Time jumping up is a new enchant, which may be shorter than the last one.
+					local last = enchantLeft[key]
+					if not enchantLength[key] or left > enchantLength[key] or (last and left > last + 1) then
 						enchantLength[key] = left
 					end
+					enchantLeft[key] = left
 					total = enchantLength[key]
 				end
 			end
