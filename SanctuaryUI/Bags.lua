@@ -18,14 +18,18 @@ if REAGENT_BAG then
 	BAGS[#BAGS + 1] = REAGENT_BAG
 end
 
+-- The same bags with the keyring after them, for while the key slots are showing.
+local BAGS_AND_KEYS = {}
+
 local BACKPACK_ICON = 133633 -- Interface\Icons\INV_Misc_Bag_08
+local KEY_ICON = [[Interface\ICONS\ui-hud-actionbar-keyring]]
 
 local function Opt()
 	return ns.DB().bags
 end
 
 ---------------------------------------------------------------------------
--- Bag slots: the backpack, the four equippable bag slots and the reagent bag slot.
+-- Bag slots: the backpack, the four equippable bag slots, the reagent bag slot and the keyring.
 
 local function InvSlot(bag)
 	if C_Container and C_Container.ContainerIDToInventoryID then
@@ -53,47 +57,75 @@ end
 local function DropOn(button)
 	if button.bag == 0 then
 		PutItemInBackpack()
+	elseif button.bag == W.keyring then
+		PutKeyInKeyRing()
 	elseif button.inv then
 		PutItemInBag(button.inv)
 	end
 end
 
+-- The keyring has no bag to equip: its socket shows or hides the key slots and takes keys.
+local function KeySocket(win)
+	local button = ns.Bags.SlotButton(win.frame, "SanctuaryUIBagSlotKeys")
+	button.bag, button.sanctuaryBag = W.keyring, W.keyring
+	button:SetScript("OnClick", function(self)
+		if GetCursorInfo() then
+			DropOn(self)
+		else
+			Opt().showKeys = not Opt().showKeys
+			win:Refresh()
+		end
+	end)
+	button:SetScript("OnReceiveDrag", DropOn)
+	button:SetScript("OnEnter", function(self)
+		if GameTooltip:IsForbidden() then return end
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip:SetText(KEYRING or "Keyring", 1, 1, 1)
+		GameTooltip:Show()
+	end)
+	return button
+end
+
 local function SlotRow(win)
 	local list = {}
 	for _, bag in ipairs(BAGS) do
-		-- The keyring's items are in the grid, but it has no slot to equip a bag in.
-		if bag ~= W.keyring then
-			local button = ns.Bags.SlotButton(win.frame, "SanctuaryUIBagSlot" .. bag)
-			button.bag, button.sanctuaryBag = bag, bag
-			button.inv = bag > 0 and InvSlot(bag) or nil
-			button:SetScript("OnClick", function(self)
-				if GetCursorInfo() then DropOn(self) end
-			end)
-			button:SetScript("OnReceiveDrag", DropOn)
-			button:SetScript("OnDragStart", function(self)
-				if self.inv then PickupBagFromSlot(self.inv) end
-			end)
-			button:SetScript("OnEnter", function(self)
-				if GameTooltip:IsForbidden() then return end
-				GameTooltip:SetOwner(self, "ANCHOR_TOP")
-				if self.bag == 0 then
-					GameTooltip:SetText(BACKPACK_TOOLTIP or "Backpack")
-				elseif not self.inv or not GameTooltip:SetInventoryItem("player", self.inv) then
-					GameTooltip:SetText(EQUIP_CONTAINER or "Equip Container", 1, 1, 1)
-				end
-				GameTooltip:Show()
-			end)
-			list[#list + 1] = button
-		end
+		local button = ns.Bags.SlotButton(win.frame, "SanctuaryUIBagSlot" .. bag)
+		button.bag, button.sanctuaryBag = bag, bag
+		button.inv = bag > 0 and InvSlot(bag) or nil
+		button:SetScript("OnClick", function(self)
+			if GetCursorInfo() then DropOn(self) end
+		end)
+		button:SetScript("OnReceiveDrag", DropOn)
+		button:SetScript("OnDragStart", function(self)
+			if self.inv then PickupBagFromSlot(self.inv) end
+		end)
+		button:SetScript("OnEnter", function(self)
+			if GameTooltip:IsForbidden() then return end
+			GameTooltip:SetOwner(self, "ANCHOR_TOP")
+			if self.bag == 0 then
+				GameTooltip:SetText(BACKPACK_TOOLTIP or "Backpack")
+			elseif not self.inv or not GameTooltip:SetInventoryItem("player", self.inv) then
+				GameTooltip:SetText(EQUIP_CONTAINER or "Equip Container", 1, 1, 1)
+			end
+			GameTooltip:Show()
+		end)
+		list[#list + 1] = button
+	end
+	if W.keyring then
+		list[#list + 1] = KeySocket(win)
 	end
 	return list
 end
 
 local function UpdateRow(win)
 	for _, button in ipairs(win.frame.rowButtons) do
-		local texture = button.bag == 0 and BACKPACK_ICON or (button.inv and GetInventoryItemTexture("player", button.inv))
+		local isKeys = button.bag == W.keyring
+		local texture = button.bag == 0 and BACKPACK_ICON or (isKeys and KEY_ICON)
+			or (button.inv and GetInventoryItemTexture("player", button.inv))
 		button.icon:SetTexture(texture)
 		button.icon:SetShown(texture ~= nil)
+		-- Grey while the key slots are hidden.
+		button.icon:SetDesaturated(isKeys and not Opt().showKeys)
 	end
 end
 
@@ -270,17 +302,22 @@ end
 
 function ns.Bags.Init()
 	if not Opt().enabled then return end
-	-- Blizzard's bag frames are disabled, so the keyring has to be listed here where the client has one.
+	-- Blizzard's bag frames are disabled, so the keyring has to be offered here where the client has one.
 	local keyring = Enum and Enum.BagIndex and Enum.BagIndex.Keyring
 	if keyring and C_ActionBar and C_ActionBar.ShouldShowKeyring and C_ActionBar.ShouldShowKeyring() then
-		BAGS[#BAGS + 1] = keyring
 		W.keyring = keyring
+		for i, bag in ipairs(BAGS) do
+			BAGS_AND_KEYS[i] = bag
+		end
+		BAGS_AND_KEYS[#BAGS + 1] = keyring
 	end
 	local win = W.New({
 		name = "SanctuaryUIBags",
 		key = "bags",
 		art = "bagFrame",
-		containers = function() return BAGS end,
+		containers = function()
+			return W.keyring and Opt().showKeys and BAGS_AND_KEYS or BAGS
+		end,
 		template = function() return "ContainerFrameItemButtonTemplate" end,
 		slotRow = SlotRow,
 		updateRow = UpdateRow,
@@ -346,12 +383,22 @@ function ns.Bags.Init()
 	for _, event in ipairs({ "BAG_UPDATE_DELAYED", "BAG_CONTAINER_UPDATE", "ITEM_LOCK_CHANGED", "BAG_UPDATE_COOLDOWN", "PLAYER_MONEY", "BAG_NEW_ITEMS_UPDATED", "QUEST_ACCEPTED", "QUEST_REMOVED", "PLAYER_REGEN_ENABLED", "MERCHANT_SHOW", "MERCHANT_CLOSED", "INVENTORY_SEARCH_UPDATE" }) do
 		pcall(events.RegisterEvent, events, event)
 	end
+	-- The keyring grows as it fills, with no container event to say so.
+	local function KeySlotsChanged()
+		local holder = W.keyring and Opt().showKeys and win.frame.holders[W.keyring]
+		if not holder then return false end
+		local shown = 0
+		for _, button in ipairs(holder.slots) do
+			if button:IsShown() then shown = shown + 1 end
+		end
+		return shown ~= W.NumSlots(W.keyring)
+	end
 	events:SetScript("OnEvent", function(_, event)
 		if event == "MERCHANT_SHOW" or event == "MERCHANT_CLOSED" then
 			MerchantChanged(event == "MERCHANT_SHOW")
 			return
 		end
-		if event == "BAG_CONTAINER_UPDATE" or (event == "PLAYER_REGEN_ENABLED" and win.pendingLayout) then
+		if event == "BAG_CONTAINER_UPDATE" or (event == "PLAYER_REGEN_ENABLED" and win.pendingLayout) or KeySlotsChanged() then
 			win:Refresh()
 		end
 		win:Update()

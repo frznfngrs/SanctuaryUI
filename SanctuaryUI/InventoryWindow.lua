@@ -498,9 +498,12 @@ function Window:Update()
 				end
 			end
 		end
-		total = total + W.NumSlots(bag)
-		if C_Container and C_Container.GetContainerNumFreeSlots then
-			free = free + (C_Container.GetContainerNumFreeSlots(bag) or 0)
+		-- Key slots only hold keys, so they aren't bag space.
+		if bag ~= W.keyring then
+			total = total + W.NumSlots(bag)
+			if C_Container and C_Container.GetContainerNumFreeSlots then
+				free = free + (C_Container.GetContainerNumFreeSlots(bag) or 0)
+			end
 		end
 	end
 	if self.def.updateRow then

@@ -305,6 +305,7 @@ ns.DEFAULTS = {
 			bagSlots = true, -- backpack + bag slots in a line with the search box
 			backpackPos = "top", -- top | bottom: where the backpack's slots sit in the grid
 			slotRowPos = "top", -- top | bottom: the bag slots and search box, above or under the items
+			showKeys = false, -- the key slots in the grid, toggled by the keyring socket
 			scale = 1,
 			point = "BOTTOMRIGHT",
 			x = -60,
