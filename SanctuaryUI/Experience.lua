@@ -62,7 +62,7 @@ local function SetFill(bar, slot)
 	end
 end
 
--- Your level in D3's iron prestige ring around a red stone disc, resting on the centre skull (Options > Experience > Your level on
+-- Your level in D3's iron prestige ring around a red stone disc, resting on the centre skull (Options > XP & Reputation > Your level on
 -- the console). PLAYER_LEVEL_UP hands the new level before UnitLevel catches up.
 local function UpdateLevel(newLevel)
 	local badge = ns.LevelPlaque

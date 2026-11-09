@@ -620,7 +620,7 @@ function ns.ActiveSkill.Report()
 		local limit = Opt().activeMax or 60
 		local why = ""
 		if not lit and aura and not aura.hidden and aura.duration > limit then
-			why = (" (longer than the %ds limit in Bars > Longest buff to show)"):format(limit)
+			why = (" (longer than the %ds limit in Buttons > Longest buff to show)"):format(limit)
 		end
 		ns.Print(("%s (%d): %s, %s%s"):format(spell, id, what, lit and "lit" or "dark", why))
 		lines = lines + 1

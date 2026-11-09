@@ -197,7 +197,7 @@ function ns.Stance.Init()
 		bar.buttons[i] = MakeButton(bar, i)
 	end
 	ns.Stance.bar = bar
-	ns.Stance.mover = ns.MakeMover(bar, "Stances", Opt, "Reset its position in /sanctuary > Stance bar.")
+	ns.Stance.mover = ns.MakeMover(bar, "Stances", Opt, "Reset its position in /sanctuary > Stance & pet bars.")
 
 	-- Mouseover-only: invisible until the mouse is over a stance button.
 	local wait = 0

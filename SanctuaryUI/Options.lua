@@ -33,19 +33,90 @@ local function Field(path, key)
 	end
 end
 
+-- Every page sits on the same grid. Relative widths hold in the standalone window, inside a
+-- tab and in Blizzard's options panel. Two halves or three thirds fill a row.
+local HALF, THIRD = 0.5, 0.333
+
+local function Width(option, share)
+	option.width, option.relWidth = "relative", share
+	return option
+end
+
 local function Toggle(order, name, desc, path, key)
 	local get, set = Field(path, key)
-	return { type = "toggle", order = order, name = name, desc = desc, get = get, set = set, width = "full" }
+	return Width({ type = "toggle", order = order, name = name, desc = desc, get = get, set = set }, HALF)
 end
 
 local function Range(order, name, desc, path, key, min, max, step, isPercent)
 	local get, set = Field(path, key)
-	return { type = "range", order = order, name = name, desc = desc, get = get, set = set, min = min, max = max, step = step, isPercent = isPercent }
+	return Width({ type = "range", order = order, name = name, desc = desc, get = get, set = set, min = min, max = max, step = step, isPercent = isPercent }, THIRD)
 end
 
 local function Select(order, name, desc, path, key, values, sorting)
 	local get, set = Field(path, key)
-	return { type = "select", order = order, name = name, desc = desc, get = get, set = set, values = values, sorting = sorting }
+	return Width({ type = "select", order = order, name = name, desc = desc, get = get, set = set, values = values, sorting = sorting }, THIRD)
+end
+
+local function Gold(text)
+	return "|cffd8b86a" .. text .. "|r"
+end
+
+local function Muted(text)
+	return "|cffb3a78f" .. text .. "|r"
+end
+
+local function Header(order, name)
+	return { type = "header", order = order, name = Gold(name) }
+end
+
+-- Text may be a function, for a note that changes with the settings.
+local function Note(order, text)
+	local name = type(text) == "function" and function() return Muted(text()) end or Muted(text)
+	return { type = "description", order = order, name = name, fontSize = "medium" }
+end
+
+-- A titled box of related settings. extra adds fields such as hidden or disabled.
+local function Card(order, name, args, extra)
+	local card = { type = "group", inline = true, order = order, name = Gold(name), args = args }
+	for key, value in pairs(extra or {}) do card[key] = value end
+	return card
+end
+
+-- A tab on a tabbed page.
+local function Tab(order, name, args, extra)
+	local tab = { type = "group", order = order, name = name, args = args }
+	for key, value in pairs(extra or {}) do tab[key] = value end
+	return tab
+end
+
+-- A row of the tree, indented under its label and in cream, so the gold labels lead.
+local function TreeRow(name)
+	return "   |cffe6dfd0" .. name .. "|r"
+end
+
+-- A page in the tree. childGroups = "tab" turns its groups into tabs under its own settings.
+local function Page(order, name, args, childGroups)
+	return { type = "group", order = order, name = TreeRow(name), args = args, childGroups = childGroups }
+end
+
+-- A gold label in the tree. Disabled, so it can't be selected.
+local function Section(order, name)
+	return { type = "group", order = order, name = Gold(name:upper()), disabled = true, args = {} }
+end
+
+-- An empty row between sections of the tree.
+local function Gap(order)
+	return { type = "group", order = order, name = " ", disabled = true, args = {} }
+end
+
+local UNLOCK = "Unlock frames on the General page, then drag its mover to place it anywhere."
+
+-- Every movable frame's Position card: where it sits now and how to put it back.
+local function PositionCard(order, note, reset, notMoved)
+	return Card(order, "Position", {
+		note = Note(1, note),
+		reset = { type = "execute", order = 2, name = "Reset position", func = reset, disabled = notMoved },
+	})
 end
 
 -- Greys a target aura setting out while its buffs / debuffs are off.
@@ -143,16 +214,7 @@ local LEVEL_POSITIONS = { badge = "Plaque on the portrait", left = "In the bar, 
 local LEVEL_ORDER = { "badge", "left", "center", "right", "above", "below" }
 local TEXT_FONTS = { d3 = "Diablo (Exocet)", wow = "WoW (Friz Quadrata)", narrow = "Arial Narrow" }
 
-local function Header(order, name)
-	return { type = "header", order = order, name = name }
-end
-
-local function Note(order, text)
-	return { type = "description", order = order, name = text, fontSize = "medium" }
-end
-
--- Options > Globe auras: the look, one page per class of buffs (yours first), and a test
--- page that plays any class's casts.
+-- Options > Globe auras.
 local function GlobeAuraArgs()
 	local DATA = ns.WatchData
 	local _, myClass = UnitClass("player")
@@ -180,7 +242,7 @@ local function GlobeAuraArgs()
 	-- A skill's Preview: its whole life on the globe, on its own, then back to your real buffs.
 	local function PreviewButton(order, key, isDisabled)
 		return {
-			type = "execute", order = order, name = "Preview", width = 0.6,
+			type = "execute", order = order, name = "Preview", width = "relative", relWidth = 0.16,
 			desc = "Plays this on your globes for a few seconds, from lighting up to how it ends. Not in combat.",
 			disabled = function() return InCombatLockdown() or (isDisabled and isDisabled()) end,
 			func = function() ns.GlobeAura.PreviewSkill(key) end,
@@ -208,25 +270,29 @@ local function GlobeAuraArgs()
 	}
 	local HOT_TINT_ORDER = { "default", "nature", "fel", "innervate", "water", "frost", "holy", "arcaneViolet", "shadow", "steel" }
 
+	-- Tabs: the look, each skill by class (yours first), and a test page for any class's casts.
+	local skills = Tab(2, "Skills", {
+		note = Note(0.5, "Turn each skill on or off, pick its look, and press Preview to see it."),
+	}, { childGroups = "select" })
 	local args = {
-		intro = Note(1, "Light on the globes while a buff is up: light radiating from behind a globe, a crystal shell over it while a shield holds, or light pouring into it. In combat this client hides your buffs from addons, so they are followed from your casts (and, for shields, from the game's absorb amount, which it still shows). A buff cancelled by hand or purged in combat can stay lit until its time would have run out; the first reading after combat puts it right. /sanctuary watch shows what is known."),
+		intro = Note(1, "Light on the globes while a buff is up. In combat this client hides your buffs from addons, so they are followed from your casts; one cancelled by hand can stay lit until its time would have run out. /sanctuary watch shows what is known."),
 		enabled = Toggle(2, "Enabled", nil, "globeAuras", "enabled"),
-		look = Header(10, "Look"),
-		intensity = Range(11, "Brightness", nil, "globeAuras", "intensity", 0.25, 1.5, 0.05, true),
-		rays = Toggle(12, "Rays", "God rays turning slowly behind a radiating globe.", "globeAuras", "rays"),
-		sparks = Toggle(13, "Sparks", "Motes of light rising off a radiating globe's rim.", "globeAuras", "sparks"),
-		catch = Toggle(14, "Light on the glass", "Radiance wraps round onto the top of the globe's glass.", "globeAuras", "catch"),
-		settleLong = Toggle(15, "Long buffs settle down", "Buffs kept up for minutes (Lightning Shield, Inner Fire) light up in full when cast, then calm to a quiet glow after a few seconds. They still flare when recast, discharge when their charges are spent and blink in their last seconds.", "globeAuras", "settleLong"),
-		renderedStorm = Toggle(16.5, "Rendered lightning", "Lightning Shield's arcs branch and strike round the rim, crawl over the glass, and spending its charges flings bolts off the whole rim. Off, it uses the older static and bolts. Uses about 20 MB of video memory, only for characters who can have it.", "globeAuras", "renderedStorm"),
-		renderedBreak = Toggle(16, "Rendered shield break", "The Shatter break cracks along its seams and flies apart with a 3D render, and blows run light along the Crystal shell. Off, they use the drawn shards and ripple. The art uses about 20 MB of video memory, only while this is on. The other shield looks and breaks are set per skill on the class pages.", "globeAuras", "renderedBreak"),
-		healing = {
-			type = "group",
-			order = 18,
-			name = "Healing over time",
-			disabled = off,
-			args = {
-				note = Note(1, "Renew, Rejuvenation, Regrowth and Frenzied Regeneration on your health globe. The look can also be set one skill at a time on the class pages."),
-				look = {
+		look = Tab(1, "Look", {
+			light = Card(1, "Light", {
+				intensity = Range(1, "Brightness", nil, "globeAuras", "intensity", 0.25, 1.5, 0.05, true),
+				spacer = Note(1.5, ""),
+				rays = Toggle(2, "Rays", "God rays turning slowly behind a radiating globe.", "globeAuras", "rays"),
+				sparks = Toggle(3, "Sparks", "Motes of light rising off a radiating globe's rim.", "globeAuras", "sparks"),
+				catch = Toggle(4, "Light on the glass", "Radiance wraps round onto the top of the globe's glass.", "globeAuras", "catch"),
+				settleLong = Toggle(5, "Long buffs settle down", "Buffs kept up for minutes (Lightning Shield, Inner Fire) light up in full when cast, then calm to a quiet glow after a few seconds. They still flare when recast, discharge when their charges are spent and blink in their last seconds.", "globeAuras", "settleLong"),
+			}),
+			rendered = Card(2, "Rendered effects", {
+				renderedStorm = Toggle(1, "Rendered lightning", "Lightning Shield's arcs branch and strike round the rim, crawl over the glass, and spending its charges flings bolts off the whole rim. Off, it uses the older static and bolts. Uses about 20 MB of video memory, only for characters who can have it.", "globeAuras", "renderedStorm"),
+				renderedBreak = Toggle(2, "Rendered shield break", "The Shatter break cracks along its seams and flies apart with a 3D render, and blows run light along the Crystal shell. Off, they use the drawn shards and ripple. The art uses about 20 MB of video memory, only while this is on. The other shield looks and breaks are set per skill on the Skills tab.", "globeAuras", "renderedBreak"),
+			}),
+			healing = Card(3, "Healing over time", {
+				note = Note(1, "Renew, Rejuvenation, Regrowth and Frenzied Regeneration on your health globe. The Skills tab sets the look one skill at a time."),
+				look = Width({
 					type = "select", order = 2, name = "Look",
 					desc = "What healing over time shows on the health globe.",
 					values = HOT_LOOKS,
@@ -243,12 +309,17 @@ local function GlobeAuraArgs()
 						local effect = key and ns.Watch.Effect(key)
 						if effect and effect.hot then ns.GlobeAura.PreviewSkill(key) end
 					end,
-				},
+				}, THIRD),
 				tint = Select(3, "Colour", nil, "globeAuras", "hotTint", HOT_TINTS, HOT_TINT_ORDER),
-				strength = Range(4, "Brightness", "On top of the overall brightness on the Globe auras page.", "globeAuras", "hotStrength", 0.25, 2, 0.05, true),
-				preview = PreviewButton(5, myClass == "PRIEST" and "renew" or "rejuvenation"),
-			},
-		},
+				strength = Range(4, "Brightness", "On top of the overall brightness above.", "globeAuras", "hotStrength", 0.25, 2, 0.05, true),
+				preview = (function()
+					local key = myClass == "PRIEST" and "renew" or "rejuvenation"
+					-- The button's own disabled replaces the card's, so it checks Enabled too.
+					return PreviewButton(5, key, function() return off() or not DB().globeAuras.effects[key] end)
+				end)(),
+			}, { disabled = off }),
+		}),
+		skills = skills,
 	}
 
 	-- One page per class, with your class first.
@@ -270,7 +341,7 @@ local function GlobeAuraArgs()
 					order = n,
 					name = effect.label,
 					desc = effect.desc:sub(1, 1):upper() .. effect.desc:sub(2) .. ".",
-					width = 1.5,
+					width = "relative", relWidth = 0.33,
 					get = function() return DB().globeAuras.effects[effect.key] end,
 					set = function(_, value)
 						DB().globeAuras.effects[effect.key] = value
@@ -290,7 +361,7 @@ local function GlobeAuraArgs()
 					name = "",
 					desc = "What this skill shows on the globe. Default is " .. LOOK_NAMES[native] .. "." ..
 						(flareOnly and " A part going out of a globe (Life Tap's cost) stays a burst." or ""),
-					width = 1,
+					width = "relative", relWidth = 0.25,
 					values = lookValues,
 					sorting = lookSorting,
 					disabled = function() return not DB().globeAuras.effects[effect.key] end,
@@ -316,7 +387,7 @@ local function GlobeAuraArgs()
 						order = n + 0.6,
 						name = "",
 						desc = "How this shield goes when it breaks. Default is " .. BREAK_NAMES[nativeBreak] .. ".",
-						width = 1,
+						width = "relative", relWidth = 0.25,
 						values = breakValues,
 						sorting = breakSorting,
 						disabled = function() return not DB().globeAuras.effects[effect.key] end,
@@ -332,7 +403,7 @@ local function GlobeAuraArgs()
 				end
 			end
 		end
-		args["class" .. class] = page
+		skills.args["class" .. class] = page
 	end
 
 	-- Test: any class's casts, played through the same path as real ones.
@@ -355,8 +426,8 @@ local function GlobeAuraArgs()
 			get = function() return testClass end,
 			set = function(_, value) testClass = value end,
 		},
-		casts = { type = "header", order = 10, name = "Cast" },
-		moments = { type = "header", order = 60, name = "Moments" },
+		casts = Header(10, "Cast"),
+		moments = Header(60, "Moments"),
 		preview = {
 			type = "toggle", order = 80, name = "Showcase loop", width = "full",
 			desc = "Loops a run of effects through test mode: Lightning Shield, Innervate, a Power Word: Shield that takes a hit and shatters, Life Tap, Arcane Power, Divine Shield, then everything running out.",
@@ -397,7 +468,7 @@ local function GlobeAuraArgs()
 			end,
 		}
 	end
-	args.test = { type = "group", order = 19, name = "Test", args = testArgs }
+	args.test = Tab(3, "Test", testArgs)
 	return args
 end
 
@@ -409,7 +480,8 @@ local function CVarToggle(order, name, desc, cvar)
 		order = order,
 		name = name,
 		desc = desc,
-		width = "full",
+		width = "relative",
+		relWidth = HALF,
 		get = function() return GetCVar(cvar) == "1" end,
 		set = function(_, value)
 			ns.AskCVarReload(cvar, value and "1" or "0", ("Turn Blizzard's %s %s?"):format(name, value and "on" or "off"))
@@ -475,13 +547,13 @@ local function KeybindArgs()
 			end,
 		},
 		hearth = KeyField(3, "Hearthstone", "SANCTUARYUIHEARTH"),
-		main = { type = "group", inline = true, order = 10, name = "Main bar", args = {} },
+		main = Card(10, "Main bar", {}),
 	}
 	for i = 1, 9 do
 		args.main.args["b" .. i] = KeyField(i, "Socket " .. i, "ACTIONBUTTON" .. i)
 	end
 	if ns.Totem and ns.Totem.HasTotems() then
-		local group = { type = "group", inline = true, order = 9, name = "Totem bar", args = {} }
+		local group = Card(9, "Totem bar", {})
 		for i, element in ipairs(ns.Totem.ELEMENTS) do
 			group.args["t" .. i] = KeyField(i, element.label .. " totem", "SANCTUARYUITOTEM" .. i)
 		end
@@ -491,7 +563,7 @@ local function KeybindArgs()
 		local opt = DB().rows[n]
 		if opt.enabled then
 			local spec = ns.ActionBar.RowSpec(n)
-			local group = { type = "group", inline = true, order = 10 + idx, name = "Bar " .. n, args = {} }
+			local group = Card(10 + idx, "Bar " .. n, {})
 			for i = 1, spec.count do
 				local binding = spec.binding and spec.binding:format(spec.bindingOffset + i)
 				group.args["b" .. i] = KeyField(i, "Button " .. i, binding, ("SanctuaryUIRow%dButton%d"):format(n, i))
@@ -594,6 +666,8 @@ local function RowFormGroup(n)
 			type = "select",
 			order = 1 + i,
 			name = form.label,
+			width = "relative",
+			relWidth = THIRD,
 			values = function()
 				local values = { [0] = stay }
 				for _, page in ipairs(pages) do
@@ -613,8 +687,8 @@ local function RowFormGroup(n)
 	return {
 		type = "group",
 		inline = true,
-		order = 5,
-		name = "Stances and forms",
+		order = 4,
+		name = Gold("Stances and forms"),
 		hidden = function() return opt().source == "main" end,
 		args = args,
 	}
@@ -623,7 +697,7 @@ end
 local function RowGroup(n, order)
 	local path = "rows." .. n
 	local opt = function() return DB().rows[n] end
-	local source = Select(2, "Spells from", "WoW keeps your spells on numbered pages of 12 buttons. Pick which page this bar shows. Two bars on the same page show the same spells. Pages 3-6 and 13-15 use the keys set for Blizzard's action bars in Key Bindings; for other pages, set keys with hover-binding.", path, "source", function() return SourceValues(n) end, function() return SourceOrder(n) end)
+	local source = Width(Select(1, "Spells from", "WoW keeps your spells on numbered pages of 12 buttons. Pick which page this bar shows. Two bars on the same page show the same spells. Pages 3-6 and 13-15 use the keys set for Blizzard's action bars in Key Bindings; for other pages, set keys with hover-binding.", path, "source", function() return SourceValues(n) end, function() return SourceOrder(n) end), HALF)
 	source.get = function()
 		local value = opt().source
 		return value == "main" and "main" or tonumber(value)
@@ -631,11 +705,14 @@ local function RowGroup(n, order)
 	return {
 		type = "group",
 		order = order,
-		name = "Bar " .. n,
+		-- Bars that are off read dimmed on the tabs, so the ones in use stand out.
+		name = function()
+			return opt().enabled and ("Bar " .. n) or ("|cff808080Bar " .. n .. "|r")
+		end,
 		args = {
 			enabled = Toggle(1, "Enabled", nil, path, "enabled"),
 			docked = (function()
-				local option = Toggle(1.5, "In the console", "Set this bar into the console: a row of twelve stone sockets between the globes, with the XP rail and the centre skull lifted to sit on top. Up to two bars, stacked in bar order. In the console the bar fills all twelve sockets, so a bar on the main bar's last 3 buttons moves to a free action page and takes its spells and keys with it. Size, spacing and position below don't apply while it's in the console.", path, "docked")
+				local option = Toggle(2, "In the console", "Set this bar into the console: a row of twelve stone sockets between the globes, with the XP rail and the centre skull lifted to sit on top. Up to two bars, stacked in bar order. In the console the bar fills all twelve sockets, so a bar on the main bar's last 3 buttons moves to a free action page and takes its spells and keys with it. Size, spacing and position below don't apply while it's in the console.", path, "docked")
 				option.set = function(_, value)
 					opt().docked = value
 					if value then
@@ -648,94 +725,85 @@ local function RowGroup(n, order)
 				end
 				return option
 			end)(),
-			source = source,
-			-- The main bar has 12 actions and the console holds 9, so a main-bar row has at most
-			-- 3. Two sliders so the range matches the source.
-			count = {
-				type = "range",
-				order = 3,
-				name = "Buttons",
-				min = 1,
-				max = 12,
-				step = 1,
-				get = function() return ns.ActionBar.RowSpec(n).count end,
-				set = function(_, value)
-					opt().count = value
-					Changed()
-				end,
-				disabled = function() return ns.ActionBar.DockIndex(n) ~= nil end,
-				hidden = function() return opt().source == "main" end,
-			},
-			countMain = {
-				type = "range",
-				order = 3,
-				name = "Buttons",
-				min = 1,
-				max = 3,
-				step = 1,
-				get = function() return ns.ActionBar.RowSpec(n).count end,
-				set = function(_, value)
-					opt().count = value
-					Changed()
-				end,
-				hidden = function() return opt().source ~= "main" end,
-			},
-			countNote = {
-				type = "description",
-				order = 4,
-				name = "The console shows the main bar's first 9 buttons, so these are the 3 left over. They change along with the main bar. Pick a page for a full 12-button bar.",
-				hidden = function() return opt().source ~= "main" end,
-			},
-			countDocked = {
-				type = "description",
-				order = 4.5,
-				name = "In the console this bar fills all twelve sockets.",
-				hidden = function() return not ns.ActionBar.DockIndex(n) end,
-			},
+			spells = Card(3, "Spells", {
+				source = source,
+				-- The main bar has 12 actions and the console holds 9, so a main-bar row has at most
+				-- 3. Two sliders so the range matches the source.
+				count = Width({
+					type = "range",
+					order = 2,
+					name = "Buttons",
+					min = 1,
+					max = 12,
+					step = 1,
+					get = function() return ns.ActionBar.RowSpec(n).count end,
+					set = function(_, value)
+						opt().count = value
+						Changed()
+					end,
+					disabled = function() return ns.ActionBar.DockIndex(n) ~= nil end,
+					hidden = function() return opt().source == "main" end,
+				}, THIRD),
+				countMain = Width({
+					type = "range",
+					order = 2,
+					name = "Buttons",
+					min = 1,
+					max = 3,
+					step = 1,
+					get = function() return ns.ActionBar.RowSpec(n).count end,
+					set = function(_, value)
+						opt().count = value
+						Changed()
+					end,
+					hidden = function() return opt().source ~= "main" end,
+				}, THIRD),
+				countNote = {
+					type = "description",
+					order = 3,
+					name = Muted("The console shows the main bar's first 9 buttons, so these are the 3 left over. They change along with the main bar. Pick a page for a full 12-button bar."),
+					hidden = function() return opt().source ~= "main" end,
+				},
+				countDocked = {
+					type = "description",
+					order = 4,
+					name = Muted("In the console this bar fills all twelve sockets."),
+					hidden = function() return not ns.ActionBar.DockIndex(n) end,
+				},
+			}),
 			forms = RowFormGroup(n),
-			size = Header(10, "Size"),
-			scale = Undocked(n, Range(11, "Button size", "Relative to a main-bar socket.", path, "scale", 0.5, 1.2, 0.01, true)),
-			spacing = Undocked(n, Range(12, "Spacing", nil, path, "spacing", 0, 20, 1)),
-			perLine = Undocked(n, Range(13, "Buttons per line", "Wrap the bar into a grid. 1 makes it vertical.", path, "perLine", 1, 12, 1)),
-			place = Header(15, "Position"),
-			placeNote = {
-				type = "description",
-				order = 16,
-				name = function()
-					if opt().docked then
-						return ns.ActionBar.DockIndex(n) and "In the console." or "In the console, but two bars are there already: this one stacks above."
-					end
-					if opt().moved then
-						return "Moved: this bar keeps its own position."
-					end
-					return "Stacked above the console. Turn off General > Lock frames, then drag the bar's mover to place it anywhere."
-				end,
-			},
-			resetPos = {
-				type = "execute",
-				order = 17,
-				name = "Reset position",
-				desc = "Put the bar back in the stack above the console.",
-				func = function() ns.ActionBar.ResetRowPosition(n) end,
-				disabled = function() return not opt().moved or opt().docked end,
-			},
-			show = Header(20, "Visibility"),
-			visibility = Select(21, "Show", nil, path, "visibility", VISIBILITY),
-			custom = (function()
-				local get, set = Field(path, "custom")
-				return {
-					type = "input",
-					order = 22,
-					name = "Custom conditional",
-					desc = "A macro conditional, e.g. [combat][mod:shift] show; hide",
-					width = "full",
-					get = get,
-					set = set,
-					hidden = function() return opt().visibility ~= "custom" end,
-				}
-			end)(),
-			alpha = Range(23, "Opacity", nil, path, "alpha", 0, 1, 0.05, true),
-			mouseover = Toggle(24, "Show on mouseover only", "Invisible until the mouse is over the bar.", path, "mouseover"),
+			size = Card(5, "Size and spacing", {
+				scale = Undocked(n, Range(1, "Button size", "Relative to a main-bar socket.", path, "scale", 0.5, 1.2, 0.01, true)),
+				spacing = Undocked(n, Range(2, "Spacing", nil, path, "spacing", 0, 20, 1)),
+				perLine = Undocked(n, Range(3, "Buttons per line", "Wrap the bar into a grid. 1 makes it vertical.", path, "perLine", 1, 12, 1)),
+			}),
+			show = Card(6, "Visibility", {
+				visibility = Select(1, "Show", nil, path, "visibility", VISIBILITY),
+				alpha = Range(2, "Opacity", nil, path, "alpha", 0, 1, 0.05, true),
+				mouseover = Width(Toggle(3, "Show on mouseover only", "Invisible until the mouse is over the bar.", path, "mouseover"), THIRD),
+				custom = (function()
+					local get, set = Field(path, "custom")
+					return {
+						type = "input",
+						order = 4,
+						name = "Custom conditional",
+						desc = "A macro conditional, e.g. [combat][mod:shift] show; hide",
+						width = "full",
+						get = get,
+						set = set,
+						hidden = function() return opt().visibility ~= "custom" end,
+					}
+				end)(),
+			}),
+			place = PositionCard(7, function()
+				if opt().docked then
+					return ns.ActionBar.DockIndex(n) and "In the console." or "In the console, but two bars are there already: this one stacks above."
+				end
+				if opt().moved then
+					return "Moved: this bar keeps its own position."
+				end
+				return "Stacked above the console. " .. UNLOCK
+			end, function() ns.ActionBar.ResetRowPosition(n) end, function() return not opt().moved or opt().docked end),
 		},
 	}
 end
@@ -743,44 +811,52 @@ end
 ---------------------------------------------------------------------------
 -- Paging
 
-local function PagingArgs()
+-- Main bar: the console's sockets and what swaps its page.
+local function MainBarArgs()
 	local path = "paging"
 	local args = {
-		intro = Note(1, "Paging swaps the main bar (and bars set to follow it) to another action page. Page numbers follow Blizzard's action pages."),
-		possess = Toggle(2, "Vehicle, possess and override bars", "Swap to the vehicle or possess bar when one is active.", path, "possess"),
-		barPaging = Toggle(3, "Action bar paging", "Follow Blizzard's bar page (Shift + number, Shift + mouse wheel).", path, "barPaging"),
-		stances = Toggle(4, "Stance and form pages", nil, path, "stances"),
-		mods = Header(10, "Modifier pages (0 = off)"),
-		ctrl = Range(11, "Ctrl page", nil, path, "ctrl", 0, 10, 1),
-		alt = Range(12, "Alt page", nil, path, "alt", 0, 10, 1),
-		shift = Range(13, "Shift page", nil, path, "shift", 0, 10, 1),
-		adv = Header(20, "Advanced"),
-		custom = (function()
-			local get, set = Field(path, "custom")
-			return {
-				type = "input",
-				order = 21,
-				name = "Custom page conditional",
-				desc = "Replaces everything above, e.g. [mod:ctrl]2;[bonusbar:1]7;0. Leave empty to use the settings above.",
-				width = "full",
-				multiline = 2,
-				get = get,
-				set = set,
-			}
-		end)(),
-		current = {
-			type = "description",
-			order = 22,
-			name = function() return "|cffd8b86aIn use:|r " .. ns.ActionBar.PageDriver() end,
-		},
+		sockets = Card(1, "Sockets", {
+			iconSize = Range(1, "Icon size", "Skill icons in the console's sockets, docked bars included. Below 100% they sit centred in the socket with its stone around them; the console keeps its size.", nil, "iconSize", 0.6, 1, 0.01, true),
+		}),
+		paging = Card(2, "Paging", {
+			note = Note(1, "Swaps the main bar, and bars set to follow it, to another action page. Page numbers follow Blizzard's action pages."),
+			possess = Toggle(2, "Vehicle, possess and override bars", "Swap to the vehicle or possess bar when one is active.", path, "possess"),
+			barPaging = Toggle(3, "Action bar paging", "Follow Blizzard's bar page (Shift + number, Shift + mouse wheel).", path, "barPaging"),
+			stances = Toggle(4, "Stance and form pages", nil, path, "stances"),
+		}),
+		mods = Card(4, "Modifier pages (0 = off)", {
+			ctrl = Range(1, "Ctrl page", nil, path, "ctrl", 0, 10, 1),
+			alt = Range(2, "Alt page", nil, path, "alt", 0, 10, 1),
+			shift = Range(3, "Shift page", nil, path, "shift", 0, 10, 1),
+		}),
+		adv = Card(5, "Advanced", {
+			custom = (function()
+				local get, set = Field(path, "custom")
+				return {
+					type = "input",
+					order = 1,
+					name = "Custom page conditional",
+					desc = "Replaces everything above, e.g. [mod:ctrl]2;[bonusbar:1]7;0. Leave empty to use the settings above.",
+					width = "full",
+					multiline = 2,
+					get = get,
+					set = set,
+				}
+			end)(),
+			current = {
+				type = "description",
+				order = 2,
+				name = function() return Gold("In use:") .. " " .. ns.ActionBar.PageDriver() end,
+			},
+		}),
 	}
 	local _, class = UnitClass("player")
 	local map = ns.ActionBar.CLASS_PAGES[class]
 	if map then
-		args.forms = { type = "group", inline = true, order = 5, name = "Forms", args = {} }
+		args.forms = Card(3, "Forms", {})
 		for i, entry in ipairs(map) do
 			local key = class .. "." .. entry.key
-			args.forms.args[entry.key] = {
+			args.forms.args[entry.key] = Width({
 				type = "toggle",
 				order = i,
 				name = ("%s (page %d)"):format(entry.label, entry.page),
@@ -790,47 +866,40 @@ local function PagingArgs()
 					Changed()
 				end,
 				disabled = function() return not DB().paging.stances end,
-			}
+			}, HALF)
 		end
 	end
 	return args
 end
 
--- Bars > Main bar: the console's nine sockets, their icon size and paging.
-local function MainBarArgs()
-	local args = PagingArgs()
-	args.size = Header(0.1, "Size")
-	args.iconSize = Range(0.2, "Icon size", "Skill icons in the console's sockets, docked bars included. Below 100% they sit centred in the socket with its stone around them; the console keeps its size.", nil, "iconSize", 0.6, 1, 0.01, true)
-	args.pagingHeader = Header(0.5, "Paging")
-	return args
-end
-
 ---------------------------------------------------------------------------
 
+-- The tree says what you're setting up, grouped by where it is on screen; tabs and cards on
+-- a page split it by aspect. Settings keep their saved names wherever a page puts them.
 local function Build()
+	local function Third(option) return Width(option, THIRD) end
 	local options = {
 		type = "group",
 		name = "SanctuaryUI",
 		childGroups = "tree",
 		args = {
-			general = {
-				type = "group",
-				order = 1,
-				name = "General",
-				args = {
-					console = Header(1, "Console"),
-					locked = Toggle(2, "Lock frames", "When unlocked, drag the console to move it, and drag a bar's mover to move that bar.", nil, "locked"),
-					snapping = Toggle(2.5, "Bar snapping", "While dragging, the console, bars and other frames snap to each other's edges and centres and to the screen's edges and centre, as in Bartender4. Hold Shift while dragging to place one freely.", nil, "snapping"),
-					grid = Toggle(2.6, "Show grid", "While frames are unlocked, draw a grid like Edit Mode's, its centre lines brighter, and snap frames' edges and centres to its lines (with Bar snapping on).", nil, "grid"),
+			sectionSetup = Section(0, "Setup"),
+			general = Page(1, "General", {
+				moving = Card(1, "Moving frames", {
+					locked = Toggle(1, "Lock frames", "When unlocked, drag the console to move it, and drag a bar's mover to move that bar.", nil, "locked"),
+					snapping = Toggle(2, "Bar snapping", "While dragging, the console, bars and other frames snap to each other's edges and centres and to the screen's edges and centre, as in Bartender4. Hold Shift while dragging to place one freely.", nil, "snapping"),
+					grid = Toggle(3, "Show grid", "While frames are unlocked, draw a grid like Edit Mode's, its centre lines brighter, and snap frames' edges and centres to its lines (with Bar snapping on).", nil, "grid"),
 					gridSize = (function()
-						local option = Range(2.7, "Grid spacing", "Distance between grid lines, counted out from the screen's centre.", nil, "gridSize", ns.Snap.GRID_MIN, ns.Snap.GRID_MAX, 5)
+						local option = Range(4, "Grid spacing", "Distance between grid lines, counted out from the screen's centre.", nil, "gridSize", ns.Snap.GRID_MIN, ns.Snap.GRID_MAX, 5)
 						option.disabled = function() return not DB().grid end
 						return option
 					end)(),
-					scale = Range(3, "Scale", "The console: its bars, menu and rail, and the globes unless they are scaled separately.", nil, "scale", 0.5, 1.8, 0.01, true),
-					globesSeparate = Toggle(3.1, "Scale globes separately", "Give the globes their own scale. They stay on the ends of the bar, bottoms level, whatever its size.", nil, "globesSeparate"),
+				}),
+				size = Card(2, "Console size", {
+					scale = Range(1, "Scale", "The console: its bars, menu and rail, and the globes unless they are scaled separately.", nil, "scale", 0.5, 1.8, 0.01, true),
+					globesSeparate = Third(Toggle(2, "Scale globes separately", "Give the globes their own scale. They stay on the ends of the bar, bottoms level, whatever its size.", nil, "globesSeparate")),
 					globeScale = (function()
-						local option = Range(3.2, "Globe scale", "The globes and their statues.", nil, "globeScale", 0.5, 1.8, 0.01, true)
+						local option = Range(3, "Globe scale", "The globes and their statues.", nil, "globeScale", 0.5, 1.8, 0.01, true)
 						option.disabled = function() return not DB().globesSeparate end
 						return option
 					end)(),
@@ -844,20 +913,20 @@ local function Build()
 							Changed()
 						end,
 					},
-					blizzard = Header(10, "Blizzard frames"),
-					hideMicroMenu = Toggle(11, "Hide Blizzard micro menu", "The console's menu buttons replace it. If it comes back misplaced after turning this off, /reload.", nil, "hideMicroMenu"),
-					extras = Header(20, "Extras"),
-					minimap = {
+				}),
+				other = Card(3, "Other", {
+					hideMicroMenu = Toggle(1, "Hide Blizzard micro menu", "The console's menu buttons replace it. If it comes back misplaced after turning this off, /reload.", nil, "hideMicroMenu"),
+					minimap = Width({
 						type = "toggle",
-						order = 24,
+						order = 2,
 						name = "Minimap button",
 						desc = "Left-click opens these options, right-click locks or unlocks frames. Drag it around the minimap.",
 						get = function() return not ns.db.global.minimap.hide end,
 						set = function(_, value) ns.Minimap.SetShown(value) end,
-					},
-					hearthItem = {
+					}, HALF),
+					hearthItem = Width({
 						type = "input",
-						order = 23,
+						order = 3,
 						name = "Town portal item ID",
 						desc = "The item the portal socket uses. 6948 is the Hearthstone.",
 						get = function() return tostring(DB().hearthItem) end,
@@ -868,72 +937,72 @@ local function Build()
 						validate = function(_, value)
 							return tonumber(value) and true or "Enter an item ID number."
 						end,
-					},
-				},
-			},
-			globes = {
-				type = "group",
-				order = 2,
-				name = "Globes",
-				args = {
-					text = Header(1, "Numbers"),
-					numbers = Select(2, "Show numbers", nil, nil, "numbers", { on = "Always", combat = "In combat (and on mouseover)", hover = "On mouseover (like D3)", off = "Never" }),
-					numbersMax = Toggle(3, "Show maximum under the value", nil, nil, "numbersMax"),
-					numberSize = Range(4, "Number size", nil, nil, "numberSize", 12, 34, 1),
-					liquid = Header(10, "Liquid"),
-					liquidStyle = Select(10.5, "Liquid style", "Classic is D3's layered tiles. Rendered is a test style: a looping 3D render with real depth, which boils at low health. It uses more video memory (about 48 MB) and only loads while it is selected. Changes straight away.", nil, "liquidStyle", { classic = "Classic", rendered = "Rendered (test)" }),
-					pollution = Toggle(10.6, "Debuffs pollute the health globe", "While you carry a poison, disease, curse or magic debuff, its colour bleeds into your health globe until it wears off or is cleansed. /sanctuary pollute poison, disease, curse or magic shows the look without the debuff. Uses about 28 MB of video memory while on.", nil, "pollution"),
-					liquidAnimate = Toggle(11, "Swirl", "Animate the globe liquid.", nil, "liquidAnimate"),
-					liquidSpeed = Range(12, "Swirl speed", nil, nil, "liquidSpeed", 0.25, 3, 0.05, true),
-					lowHealthPulse = Toggle(13, "Low health heartbeat", "The health globe pulses below 35%, faster as it empties.", nil, "lowHealthPulse"),
-					lowHealthAgitate = Toggle(14, "Restless at low health", "Below half health the health globe's liquid turns faster and sloshes on its own, more and more as health falls to 10%.", nil, "lowHealthAgitate"),
-					prediction = Header(20, "Prediction"),
-					healPrediction = Toggle(21, "Incoming heals", "Heals on their way to you show as pale green liquid poured on top of the health globe.", nil, "healPrediction"),
-					absorbPrediction = Toggle(21.5, "Absorb shields", "Damage shields (Power Word: Shield and the like) show as silver liquid above your health and incoming heals. A shield bigger than the room left, as at full health, lights a silver glow round the inside of the globe.", nil, "absorbPrediction"),
-					costPrediction = Toggle(22, "Spell cost", "While you cast, the part of your resource the spell will spend lights up at the top of the resource globe.", nil, "costPrediction"),
-				},
-			},
-			globeAuras = {
-				type = "group",
-				order = 2.1,
-				name = "Globe auras",
-				args = GlobeAuraArgs(),
-			},
-			rail = {
-				type = "group",
-				order = 3,
-				name = "Experience & Reputation",
-				args = {
-					railMode = Select(1, "Rail shows", nil, nil, "railMode", {
+					}, THIRD),
+				}),
+			}),
+
+			gap10 = Gap(9),
+			sectionConsole = Section(10, "Console"),
+			globes = Page(11, "Globes", {
+				text = Card(1, "Numbers", {
+					numbers = Select(1, "Show numbers", nil, nil, "numbers", { on = "Always", combat = "In combat (and on mouseover)", hover = "On mouseover (like D3)", off = "Never" }),
+					numberSize = Range(2, "Number size", nil, nil, "numberSize", 12, 34, 1),
+					numbersMax = Third(Toggle(3, "Show maximum under value", nil, nil, "numbersMax")),
+				}),
+				liquid = Card(2, "Liquid", {
+					liquidStyle = Select(1, "Liquid style", "Classic is D3's layered tiles. Rendered is a test style: a looping 3D render with real depth, which boils at low health. It uses more video memory (about 48 MB) and only loads while it is selected. Changes straight away.", nil, "liquidStyle", { classic = "Classic", rendered = "Rendered (test)" }),
+					liquidSpeed = Range(2, "Swirl speed", nil, nil, "liquidSpeed", 0.25, 3, 0.05, true),
+					liquidAnimate = Third(Toggle(3, "Swirl", "Animate the globe liquid.", nil, "liquidAnimate")),
+				}),
+				warnings = Card(3, "Warnings", {
+					lowHealthPulse = Toggle(1, "Low health heartbeat", "The health globe pulses below 35%, faster as it empties.", nil, "lowHealthPulse"),
+					lowHealthAgitate = Toggle(2, "Restless at low health", "Below half health the health globe's liquid turns faster and sloshes on its own, more and more as health falls to 10%.", nil, "lowHealthAgitate"),
+					pollution = Toggle(3, "Debuffs pollute the health globe", "While you carry a poison, disease, curse or magic debuff, its colour bleeds into your health globe until it wears off or is cleansed. /sanctuary pollute poison, disease, curse or magic shows the look without the debuff. Uses about 28 MB of video memory while on.", nil, "pollution"),
+				}),
+				prediction = Card(4, "Prediction", {
+					healPrediction = Toggle(1, "Incoming heals", "Heals on their way to you show as pale green liquid poured on top of the health globe.", nil, "healPrediction"),
+					absorbPrediction = Toggle(2, "Absorb shields", "Damage shields (Power Word: Shield and the like) show as silver liquid above your health and incoming heals. A shield bigger than the room left, as at full health, lights a silver glow round the inside of the globe.", nil, "absorbPrediction"),
+					costPrediction = Toggle(3, "Spell cost", "While you cast, the part of your resource the spell will spend lights up at the top of the resource globe.", nil, "costPrediction"),
+				}),
+			}),
+			globeAuras = Page(12, "Globe auras", GlobeAuraArgs(), "tab"),
+			rail = Page(13, "XP & Reputation", {
+				rail = Card(1, "Rail", {
+					railMode = Width(Select(1, "Rail shows", nil, nil, "railMode", {
 						auto = "Experience, then reputation at max level",
 						xp = "Experience",
 						rep = "Reputation (watched faction)",
-					}),
+					}), HALF),
+					spacer = Note(1.5, ""),
 					railRested = Toggle(2, "Show rested experience", nil, nil, "railRested"),
-					levelPlaque = Toggle(2.5, "Your level on the console", "Your level in a D3 medallion resting on the skull at the console's top centre.", nil, "levelPlaque"),
-					note = Note(3, "Reputation is tinted with your resource color. Watch a faction from the Reputation panel."),
-				},
-			},
-			bars = {
-				type = "group",
-				order = 4,
-				name = "Bars",
-				args = {
-					intro = Note(0, "The main bar is the nine sockets in the console. Bars 2-9 stack above it, bar 2 at the bottom, or dock in the console. The settings on this page apply to every bar's buttons."),
-					text = Header(1, "Text"),
-					hotkeys = Toggle(2, "Show keybinds", nil, "buttons", "hotkeys"),
+					levelPlaque = Toggle(3, "Your level on the console", "Your level in a D3 medallion resting on the skull at the console's top centre.", nil, "levelPlaque"),
+					note = Note(4, "Reputation is tinted with your resource colour. Watch a faction from the Reputation panel."),
+				}),
+			}),
+
+			gap20 = Gap(19),
+			sectionBars = Section(20, "Action bars"),
+			buttons = Page(21, "Buttons", {
+				intro = Note(0, "These apply to the buttons on every bar."),
+				text = Card(1, "On the button", {
+					hotkeys = Third(Toggle(1, "Show keybinds", nil, "buttons", "hotkeys")),
 					hotkeySize = (function()
-						local option = Range(2.5, "Keybind size", "Font size of the keybind text on every bar's buttons. Stance and totem sockets use one point less.", "buttons", "hotkeySize", 6, 24, 1)
+						local option = Range(2, "Keybind size", "Font size of the keybind text on every bar's buttons. Stance and totem sockets use one point less.", "buttons", "hotkeySize", 6, 24, 1)
 						option.disabled = function() return not DB().buttons.hotkeys end
 						return option
 					end)(),
-					macroNames = Toggle(3, "Show macro names", nil, "buttons", "macroNames"),
-					look = Header(10, "Behaviour"),
-					range = Select(11, "Out of range", nil, "buttons", "range", { button = "Tint the icon", hotkey = "Tint the keybind", none = "Nothing" }),
-					tooltips = Select(12, "Tooltips", nil, "buttons", "tooltips", { enabled = "Always", nocombat = "Out of combat", disabled = "Never" }),
-					grid = Toggle(13, "Show empty sockets' grid", "Keep empty buttons visible so actions can be dropped on them.", "buttons", "grid"),
+					macroNames = Third(Toggle(3, "Show macro names", nil, "buttons", "macroNames")),
+					grid = Toggle(4, "Show empty sockets' grid", "Keep empty buttons visible so actions can be dropped on them.", "buttons", "grid"),
+				}),
+				behaviour = Card(2, "Behaviour", {
+					lock = Toggle(1, "Lock buttons", "Locked buttons only pick up actions while holding Shift. Unlocked buttons drag freely.", "buttons", "lock"),
+					keyDown = CVarToggle(2, "Cast on key down", "Blizzard's ActionButtonUseKeyDown.", "ActionButtonUseKeyDown"),
+					range = Select(3, "Out of range", nil, "buttons", "range", { button = "Tint the icon", hotkey = "Tint the keybind", none = "Nothing" }),
+					tooltips = Select(4, "Tooltips", nil, "buttons", "tooltips", { enabled = "Always", nocombat = "Out of combat", disabled = "Never" }),
+				}),
+				cooldowns = Card(3, "Cooldowns", {
 					cooldownNumbers = (function()
-						local option = Select(14, "Cooldown numbers", "The time left on a skill's cooldown, counted down on its button. The global cooldown never shows one.", "buttons", "cooldownNumbers", { cvar = "Blizzard setting", show = "Show", hide = "Hide" })
+						local option = Select(1, "Cooldown numbers", "The time left on a skill's cooldown, counted down on its button. The global cooldown never shows one.", "buttons", "cooldownNumbers", { cvar = "Blizzard setting", show = "Show", hide = "Hide" })
 						local set = option.set
 						option.set = function(...)
 							-- Choosing Show again asks again to turn on Blizzard's setting.
@@ -943,483 +1012,429 @@ local function Build()
 						return option
 					end)(),
 					cooldownTenths = (function()
-						local option = Range(14.5, "Tenths of a second below", "Cooldowns with less than this many seconds left count down in tenths (4.7). 0 shows whole seconds only.", "buttons", "cooldownTenths", 0, 60, 1)
+						local option = Range(2, "Tenths of a second below", "Cooldowns with less than this many seconds left count down in tenths (4.7). 0 shows whole seconds only.", "buttons", "cooldownTenths", 0, 60, 1)
 						option.disabled = function() return DB().buttons.cooldownNumbers == "hide" end
 						return option
 					end)(),
-					keyDown = CVarToggle(15, "Cast on key down", "Blizzard's ActionButtonUseKeyDown.", "ActionButtonUseKeyDown"),
-					lock = Toggle(16, "Lock buttons", "Locked buttons only pick up actions while holding Shift. Unlocked buttons drag freely.", "buttons", "lock"),
-					procGlow = Toggle(16.95, "Proc highlight", "When a skill that needs a condition becomes available (Overpower, Revenge, Execute, Riposte, Hammer of Wrath), its socket flashes and sparks chase around it until it is used or lapses. /sanctuary proc shows it.", "buttons", "procGlow"),
-					active = Header(16.9, "Active skills"),
-					activeGlow = Toggle(17, "Active skill glow", "While a skill's buff, channel or totem is up, its socket burns like D3's.", "buttons", "activeGlow"),
-					activeTimer = Toggle(18, "Active skill timer", "A tab in the socket with a yellow bar that drains until the effect ends.", "buttons", "activeTimer"),
-					activeTimerPos = Select(18.5, "Active skill timer position", nil, "buttons", "activeTimerPos", { top = "Top of the socket", bottom = "Bottom of the socket" }),
-					activeEndless = Toggle(20, "Light buffs with no duration", "Stances, paladin auras, aspects and other buffs that never run out glow too. Tracking (Find Minerals, Find Herbs) never does.", "buttons", "activeEndless"),
-					activeGlowMax = Range(19.5, "Glow only for buffs up to (seconds)", "Short effects (Bloodrage, trinkets) burn and show the timer. Longer buffs (Battle Shout) show just the timer tab. Channels, totems and buffs with no duration always glow.", "buttons", "activeGlowMax", 0, 600, 5),
-					activeMax = Range(19, "Longest buff to show (seconds)", "Buffs that last longer than this don't light their skill, so long buffs like Fortitude stay quiet. Channels and totems always show.", "buttons", "activeMax", 10, 600, 5),
-					petHeader = Header(30, "Pet bar"),
-					pets = Toggle(31, "Show the pet bar", "Pet actions above the bars when you have a pet.", nil, "pets"),
-					main = { type = "group", order = 1, name = "Main bar", args = MainBarArgs() },
-					stance = {
-						type = "group",
-						order = 30,
-						name = "Stance bar",
-						args = {
-							intro = Note(1, "Stances, forms, auras, stealth: whatever your class has. Hidden for classes without any. Keybinds come from Blizzard's Stance Bar bindings, or use hover-binding."),
-							enabled = Toggle(2, "Enabled", nil, "stance", "enabled"),
-							size = Header(10, "Size"),
-							scale = Range(11, "Button size", "Relative to a main-bar socket.", "stance", "scale", 0.4, 1.2, 0.01, true),
-							spacing = Range(12, "Spacing", nil, "stance", "spacing", 0, 20, 1),
-							perLine = Range(13, "Buttons per line", "1 makes a vertical bar.", "stance", "perLine", 1, 10, 1),
-							show = Header(20, "Visibility"),
-							alpha = Range(21, "Opacity", nil, "stance", "alpha", 0, 1, 0.05, true),
-							mouseover = Toggle(22, "Show on mouseover only", nil, "stance", "mouseover"),
-							place = Header(30, "Position"),
-							placeNote = Note(31, "Above the health globe by default. Turn off General > Lock frames and drag its mover to place it anywhere."),
-							reset = {
-								type = "execute",
-								order = 32,
-								name = "Reset position",
-								func = function() ns.Stance.ResetPosition() end,
-								disabled = function() return not DB().stance.moved end,
-							},
-						},
-					},
-					totems = {
-						type = "group",
-						order = 31,
-						name = "Totem bar",
-						args = {
-							intro = Note(1, "One socket per element: earth, fire, water, air, framed like the combo point pips. Shown once you know a totem. A totem that is down lights its socket, and a round sweep runs out its time."),
-							enabled = Toggle(2, "Enabled", nil, "totems", "enabled"),
-							preview = {
-								type = "toggle",
-								order = 2.5,
-								name = "Preview",
-								desc = "Show the bar with every totem and two on timers, on any character. Nothing casts. Turns off on /reload.",
-								width = "full",
-								get = function() return ns.Totem.preview end,
-								set = function(_, value) ns.Totem.SetPreview(value) end,
-							},
-							mode = Select(3, "Mode", nil, "totems", "mode", {
-								bar = "Totem bar: cast, pick each socket's totem from a flyout",
-								tracker = "Tracker: only show totems that are down",
-							}),
-							modeNote = Note(4, "Bar mode: left-click casts, right-click dismisses. Shift + right-click a socket to fan out that element's totems: left-click one to put it in the socket, right-click to cast it once. Tracker mode: right-click dismisses. Keybinds are under Key Bindings > AddOns > SanctuaryUI, or use hover-binding."),
-							ring = Header(5, "Globe"),
-							attach = Select(6, "Attach to", "Ring a globe's rim like the combo point pips, or stand free as a row you can drag anywhere.", "totems", "attach", {
-								none = "Nothing: a free row",
-								health = "Health globe",
-								resource = "Resource globe",
-							}),
-							arc = {
-								type = "range",
-								order = 7,
-								name = "Position on the rim",
-								desc = "Angle of the ring's centre, in degrees: 90 is the top of the globe, 180 its left side, 0 its right. Or turn off General > Lock frames and drag the totems around the globe.",
-								min = 0,
-								max = 359,
-								step = 1,
-								get = function()
-									local opt = DB().totems
-									return opt.attach == "health" and opt.arcHealth or opt.arcResource
-								end,
-								set = function(_, value)
-									local opt = DB().totems
-									if opt.attach == "health" then opt.arcHealth = value else opt.arcResource = value end
-									Changed()
-								end,
-								hidden = function() return DB().totems.attach == "none" end,
-							},
-							ringGap = (function()
-								local r = Range(8, "Distance from the rim", nil, "totems", "ringGap", -20, 40, 1)
-								r.hidden = function() return DB().totems.attach == "none" end
-								return r
-							end)(),
-							ringNote = {
-								type = "description",
-								order = 9,
-								name = "Attached, the sockets sit on the rim like the pips and follow the console; each picker fans out on a wider arc. Unlock frames to drag them around the globe. The picker direction and vertical settings apply to the free row only.",
-								hidden = function() return DB().totems.attach == "none" end,
-							},
-							size = Header(10, "Size"),
-							scale = Range(11, "Button size", "Relative to a main-bar socket.", "totems", "scale", 0.4, 1.2, 0.01, true),
-							spacing = Range(12, "Spacing", nil, "totems", "spacing", 0, 20, 1),
-							vertical = Toggle(13, "Vertical", "Stack the sockets instead of a row.", "totems", "vertical"),
-							flyout = Select(14, "Picker opens", nil, "totems", "flyout", { up = "Up", down = "Down" }),
-							show = Header(20, "Visibility"),
-							alpha = Range(21, "Opacity", nil, "totems", "alpha", 0, 1, 0.05, true),
-							mouseover = Toggle(22, "Show on mouseover only", nil, "totems", "mouseover"),
-							place = Header(30, "Position"),
-							placeNote = Note(31, "Free row: above the resource globe by default. Turn off General > Lock frames and drag its mover to place it anywhere."),
-							reset = {
-								type = "execute",
-								order = 32,
-								name = "Reset position",
-								func = function() ns.Totem.ResetPosition() end,
-								disabled = function() return not DB().totems.moved end,
-							},
-						},
-					},
-					keybinding = {
-						type = "group",
-						order = 40,
-						name = "Keybinds",
-						args = {},
-					},
-				},
-			},
-			auras = {
-				type = "group",
-				order = 6.1,
-				name = "Buffs",
-				args = {
-					intro = Note(1, "Your buffs and debuffs, D3 style: Blizzard's buff and debuff frames set in stone sockets, debuffs in red. They are Blizzard's own because this client lets only Blizzard read your buffs in combat. Right-click a buff to cancel it. Turning this off gives Blizzard's look back."),
-					enabled = Toggle(2, "Enabled", nil, "auras", "enabled"),
-					duration = Toggle(3, "Show time left under each icon", nil, "auras", "duration"),
-					bars = Toggle(4, "Countdown bars", "A bar under each timed buff and debuff that runs down, turning red in its last 10 seconds. In combat it shows only while the client lets addons read the time left.", "auras", "bars"),
-					editMode = Note(20, "Position, icon size, icons per row, how many and wrap direction are Edit Mode's (Esc > Edit Mode, then drag or click the Buff Frame and Debuff Frame). For the D3 look, place them just above the bars with Icon Wrap set to Up."),
-				},
-			},
-			target = {
-				type = "group",
-				order = 6.12,
-				name = "Target",
-				args = {
-					intro = Note(1, "Your target's frame, at the top of the screen unless you move it: D3's monster bar or one of the rendered styles, with the metal changing by rank, and every debuff on the target (yours bright, the rest dimmed). Left-click targets, right-click opens the unit menu. Turning it off brings back Blizzard's target frame."),
-					enabled = Toggle(2, "Enabled", nil, "target", "enabled"),
-					preview = {
-						type = "toggle",
-						order = 3,
-						name = "Preview",
-						desc = "With no target, show a stand-in monster that cycles the normal, elite, rare and boss frames while its health drops, to judge the look in game.",
-						get = function() return ns.TargetPlate.preview end,
-						set = function(_, value) ns.TargetPlate.SetPreview(value) end,
-						width = "full",
-					},
-					lookHeader = Header(5, "Look"),
-					style = Select(5.5, "Style", "The look of the frame. Monster bar is D3's own enemy bar. The others are rendered for SanctuaryUI: a portrait socket, one health bar and a resource bar.", "target", "style", TARGET_STYLES, TARGET_STYLE_ORDER),
-					scale = Range(6, "Scale", "100% is D3's own size: the art one-to-one at 1080p, the same share of the screen at any resolution.", "target", "scale", 0.5, 2, 0.05, true),
-					width = (function()
-						local option = Range(7, "Width", "Stretches the frame and bar between their ornaments. Monster bar style only.", "target", "width", 0.6, 2.5, 0.05, true)
-						option.disabled = StyledTarget
-						return option
-					end)(),
-					rankWidth = (function()
-						local option = Select(7.05, "Width by rank", "D3 draws bosses far wider than ordinary monsters. Same frame width keeps the frame, the portrait and the target of target still as you change targets; same bar width keeps the health bar one length and lets the ornaments differ. Monster bar style only.", "target", "rankWidth", { frame = "Same frame width", bar = "Same bar width", d3 = "Grows with rank (D3)" }, { "frame", "bar", "d3" })
-						option.disabled = StyledTarget
-						return option
-					end)(),
-					height = (function()
-						local option = Range(7.1, "Height", "Makes the bar taller or shorter; the frame's lips and ornaments keep their size. Monster bar style only.", "target", "height", 0.7, 3, 0.05, true)
-						option.disabled = StyledTarget
-						return option
-					end)(),
-					portrait = (function()
-						local option = Toggle(8, "Target portrait", "The target's moving WoW portrait in a D3 hero portrait frame, left of the bar: silver for ordinary monsters, gold for elites and rares, the winged demon for bosses. The rendered styles always show it, in their own socket.", "target", "portrait")
-						option.disabled = StyledTarget
-						return option
-					end)(),
-					tot = Toggle(9.2, "Target of target", "Who your target is attacking: a small monster bar with its portrait, right of the target's frame. Its name turns red when it's you. Left-click targets it, right-click opens its menu.", "target", "tot"),
-					totPortrait = (function()
-						local option = Toggle(9.3, "Target of target portrait", "The target of target's portrait in its silver ring, left of its bar. Off, the bar alone sits beside the target's frame.", "target", "totPortrait")
-						option.disabled = function() return DB().target.tot == false or StyledTarget() end
-						return option
-					end)(),
-					totWidth = (function()
-						local option = Range(9.33, "Target of target width", "Stretches its frame and bar between their ornaments. Monster bar style only.", "target", "totWidth", 0.6, 3, 0.05, true)
-						option.disabled = function() return DB().target.tot == false or StyledTarget() end
-						return option
-					end)(),
-					totHeight = (function()
-						local option = Range(9.35, "Target of target height", "Makes its bar taller or shorter. Monster bar style only.", "target", "totHeight", 0.7, 3, 0.05, true)
-						option.disabled = function() return DB().target.tot == false or StyledTarget() end
-						return option
-					end)(),
-					cast = Toggle(9.5, "Cast bar", nil, "target", "cast"),
-					power = (function()
-						return Toggle(9.6, "Resource bar", "The target's mana, rage or energy. In the Monster bar it runs along the bottom of the health bar; the other styles have a groove for it.", "target", "power")
-					end)(),
-					classColor = Toggle(9.62, "Class colour on player names", "A player's name in their class colour, instead of cream.", "target", "classColor"),
-					classIcon = Toggle(9.63, "Class icon on players", "The class crest at the portrait's corner. With no portrait, in a row left of the frame.", "target", "classIcon"),
-					factionIcon = Toggle(9.64, "Faction emblem on players", "Alliance or Horde, whether or not they are flagged for PvP.", "target", "factionIcon"),
-					raidIcon = Toggle(9.65, "Raid marker", "The skull, cross or other marker on the target, for anyone in your group who set one.", "target", "raidIcon"),
-					liquid = Toggle(9.7, "Liquid in the bar", "The globes' liquid drifting through the health bar.", "target", "liquid"),
-					edgeGlow = Toggle(9.8, "Edge glow", "An ember burning at the health bar's leading edge.", "target", "edgeGlow"),
-					textGlow = Toggle(9.85, "Soft glow behind text", "A soft dark glow around the name and numbers on the bars, so they stay easy to read on red, green or amber.", "target", "textGlow"),
-					healPrediction = Toggle(9.9, "Heal prediction", "Heals on their way to your target show in green past the end of its health, damage shields in silver after them, and a silver glow lights the bar's end when the shield is bigger than the health missing.", "target", "healPrediction"),
-					healthHeader = Header(11, "Health text"),
-					healthText = Select(11.1, "Show", "Works in combat too, where enemy health is hidden from addons: the client fills the numbers in.", "target", "healthText", HEALTH_TEXTS, HEALTH_ORDER),
-					healthNumbers = TargetText("healthText", Select(11.2, "Numbers", nil, "target", "healthNumbers", { short = "Short (2.48M)", full = "Full (2,480,000)", raw = "Plain (2480000)" })),
-					healthHideFull = TargetText("healthText", Toggle(11.3, "Hide at full health", nil, "target", "healthHideFull")),
-					healthPos = TargetText("healthText", Select(11.4, "Position", nil, "target", "healthPos", TEXT_POSITIONS, POS_ORDER)),
-					healthFont = TargetText("healthText", Select(11.5, "Font", nil, "target", "healthFont", TEXT_FONTS)),
-					healthSize = TargetText("healthText", Range(11.6, "Size", nil, "target", "healthSize", 6, 24, 1)),
-					healthX = TargetText("healthText", Range(11.7, "Nudge left / right", nil, "target", "healthX", -200, 200, 1)),
-					healthY = TargetText("healthText", Range(11.8, "Nudge up / down", nil, "target", "healthY", -60, 60, 1)),
-					nameHeader = Header(12, "Name"),
-					nameShow = Toggle(12.1, "Show name", nil, "target", "nameShow"),
-					namePos = TargetText("nameShow", Select(12.4, "Position", nil, "target", "namePos", TEXT_POSITIONS, POS_ORDER)),
-					nameFont = TargetText("nameShow", Select(12.5, "Font", nil, "target", "nameFont", TEXT_FONTS)),
-					nameSize = TargetText("nameShow", Range(12.6, "Size", nil, "target", "nameSize", 6, 24, 1)),
-					nameX = TargetText("nameShow", Range(12.7, "Nudge left / right", nil, "target", "nameX", -200, 200, 1)),
-					nameY = TargetText("nameShow", Range(12.8, "Nudge up / down", nil, "target", "nameY", -60, 60, 1)),
-					levelHeader = Header(13, "Level"),
-					levelShow = Toggle(13.1, "Show level", nil, "target", "levelShow"),
-					levelColor = TargetText("levelShow", Select(13.2, "Colour", "By difficulty: grey, green, yellow, orange or red against your level, as Blizzard colours it.", "target", "levelColor", { plain = "Plain", difficulty = "By difficulty" })),
-					levelPos = TargetText("levelShow", Select(13.4, "Position", "The plaque sits under the portrait frame, in its metal. With the portrait off, the level goes in the bar's left end.", "target", "levelPos", LEVEL_POSITIONS, LEVEL_ORDER)),
-					levelFont = TargetText("levelShow", Select(13.5, "Font", nil, "target", "levelFont", TEXT_FONTS)),
-					levelSize = TargetText("levelShow", Range(13.6, "Size", nil, "target", "levelSize", 6, 24, 1)),
-					levelX = TargetText("levelShow", Range(13.7, "Nudge left / right", nil, "target", "levelX", -200, 200, 1)),
-					levelY = TargetText("levelShow", Range(13.8, "Nudge up / down", nil, "target", "levelY", -60, 60, 1)),
-					auraLayoutHeader = Header(13.9, "Aura layout"),
-					auraLayout = {
-						type = "select", order = 13.95, name = "Arrange debuffs and buffs",
-						desc = "A starting point, for any style. It sets the position, alignment and icons per line below, and clears their nudges; change those for anything else. Turn on Buffs below to see them.",
-						values = AURA_LAYOUT_NAMES, sorting = AURA_LAYOUT_ORDER,
-						get = AuraLayoutKey,
+				}),
+				highlights = Card(4, "Skill highlights", {
+					procGlow = Toggle(1, "Proc highlight", "When a skill that needs a condition becomes available (Overpower, Revenge, Execute, Riposte, Hammer of Wrath), its socket flashes and sparks chase around it until it is used or lapses. /sanctuary proc shows it.", "buttons", "procGlow"),
+					activeGlow = Toggle(2, "Active skill glow", "While a skill's buff, channel or totem is up, its socket burns like D3's.", "buttons", "activeGlow"),
+					activeTimer = Toggle(3, "Active skill timer", "A tab in the socket with a yellow bar that drains until the effect ends.", "buttons", "activeTimer"),
+					activeEndless = Toggle(4, "Light buffs with no duration", "Stances, paladin auras, aspects and other buffs that never run out glow too. Tracking (Find Minerals, Find Herbs) never does.", "buttons", "activeEndless"),
+					activeTimerPos = Select(5, "Timer position", nil, "buttons", "activeTimerPos", { top = "Top of the socket", bottom = "Bottom of the socket" }),
+					activeGlowMax = Range(6, "Glow up to (seconds)", "Short effects (Bloodrage, trinkets) burn and show the timer. Longer buffs (Battle Shout) show just the timer tab. Channels, totems and buffs with no duration always glow.", "buttons", "activeGlowMax", 0, 600, 5),
+					activeMax = Range(7, "Longest buff to show (seconds)", "Buffs that last longer than this don't light their skill, so long buffs like Fortitude stay quiet. Channels and totems always show.", "buttons", "activeMax", 10, 600, 5),
+				}),
+			}),
+			main = Page(22, "Main bar", MainBarArgs()),
+			bars = Page(23, "Bars 2-9", {
+				intro = Note(0, "Bars stack above the console, bar 2 lowest, or dock into it. Bars that are off read grey on the tabs."),
+			}, "tab"),
+			stance = Page(24, "Stance & pet bars", {
+				intro = Note(1, "Stances, forms, auras, stealth: whatever your class has. Hidden for classes without any. Keybinds come from Blizzard's Stance Bar bindings, or use hover-binding."),
+				enabled = Toggle(2, "Enabled", nil, "stance", "enabled"),
+				size = Card(3, "Size and spacing", {
+					scale = Range(1, "Button size", "Relative to a main-bar socket.", "stance", "scale", 0.4, 1.2, 0.01, true),
+					spacing = Range(2, "Spacing", nil, "stance", "spacing", 0, 20, 1),
+					perLine = Range(3, "Buttons per line", "1 makes a vertical bar.", "stance", "perLine", 1, 10, 1),
+				}),
+				show = Card(4, "Visibility", {
+					alpha = Range(1, "Opacity", nil, "stance", "alpha", 0, 1, 0.05, true),
+					mouseover = Toggle(2, "Show on mouseover only", nil, "stance", "mouseover"),
+				}),
+				place = PositionCard(5, "Above the health globe by default. " .. UNLOCK, function() ns.Stance.ResetPosition() end, function() return not DB().stance.moved end),
+				pet = Card(6, "Pet bar", {
+					pets = Toggle(1, "Show the pet bar", "Pet actions above the bars when you have a pet.", nil, "pets"),
+				}),
+			}),
+			totems = Page(25, "Totem bar", {
+				intro = Note(1, "One socket per element, shown once you know a totem. A totem that is down lights its socket, and a round sweep runs out its time."),
+				enabled = Toggle(2, "Enabled", nil, "totems", "enabled"),
+				preview = Width({
+					type = "toggle",
+					order = 3,
+					name = "Preview",
+					desc = "Show the bar with every totem and two on timers, on any character. Nothing casts. Turns off on /reload.",
+					get = function() return ns.Totem.preview end,
+					set = function(_, value) ns.Totem.SetPreview(value) end,
+				}, HALF),
+				modeCard = Card(4, "Mode", {
+					mode = Width(Select(1, "Mode", nil, "totems", "mode", {
+						bar = "Totem bar: cast, pick each socket's totem from a flyout",
+						tracker = "Tracker: only show totems that are down",
+					}), 1),
+					modeNote = Note(2, "Bar mode: left-click casts, right-click dismisses. Shift + right-click a socket to fan out that element's totems: left-click one to put it in the socket, right-click to cast it once. Tracker mode: right-click dismisses. Keybinds are under Key Bindings > AddOns > SanctuaryUI, or use hover-binding."),
+				}),
+				ring = Card(5, "Globe", {
+					attach = Select(1, "Attach to", "Ring a globe's rim like the combo point pips, or stand free as a row you can drag anywhere.", "totems", "attach", {
+						none = "Nothing: a free row",
+						health = "Health globe",
+						resource = "Resource globe",
+					}),
+					arc = Width({
+						type = "range",
+						order = 2,
+						name = "Position on the rim",
+						desc = "Angle of the ring's centre, in degrees: 90 is the top of the globe, 180 its left side, 0 its right. Or unlock frames on the General page and drag the totems around the globe.",
+						min = 0,
+						max = 359,
+						step = 1,
+						get = function()
+							local opt = DB().totems
+							return opt.attach == "health" and opt.arcHealth or opt.arcResource
+						end,
 						set = function(_, value)
-							local layout = AURA_LAYOUTS[value]
-							if not layout then return end
-							local t = DB().target
-							for field, v in pairs(layout) do t[field] = v end
-							t.auraX, t.auraY, t.buffX, t.buffY = 0, 0, 0, 0
+							local opt = DB().totems
+							if opt.attach == "health" then opt.arcHealth = value else opt.arcResource = value end
 							Changed()
 						end,
-					},
-					debuffHeader = Header(14, "Debuffs"),
-					debuffs = Toggle(14.1, "Debuffs", "Every debuff on the target: yours first and bright, the rest greyed.", "target", "debuffs"),
-					maxDebuffs = TargetAura("debuffs", Range(14.2, "How many debuffs", nil, "target", "maxDebuffs", 1, 24, 1)),
-					auraPos = TargetAura("debuffs", Select(14.3, "Position", "Beside the frame, icons run down in columns (Icons per line sets how many in each).", "target", "auraPos", AURA_POSITIONS, AURA_POSITION_ORDER)),
-					auraAlign = TargetAura("debuffs", Select(14.4, "Align to", "Where each line starts: the bar's left end, centre or right end. Beside the frame: its top, middle or bottom.", "target", "auraAlign", AuraAlignValues("auraPos"))),
-					auraGrow = (function()
-						local option = TargetAura("debuffs", Select(14.5, "Grow", "From a left or right end, which way the icons run. Centred lines grow both ways.", "target", "auraGrow", { right = "To the right", left = "To the left" }))
-						local off = option.disabled
-						option.disabled = function() return off() or AuraSide("auraPos") end
-						return option
+						hidden = function() return DB().totems.attach == "none" end,
+					}, THIRD),
+					ringGap = (function()
+						local r = Range(3, "Distance from the rim", nil, "totems", "ringGap", -20, 40, 1)
+						r.hidden = function() return DB().totems.attach == "none" end
+						return r
 					end)(),
-					debuffSize = TargetAura("debuffs", Range(14.6, "Icon size", nil, "target", "debuffSize", 14, 48, 1)),
-					auraPerLine = TargetAura("debuffs", Range(14.7, "Icons per line", nil, "target", "auraPerLine", 1, 24, 1)),
-					auraSpacing = TargetAura("debuffs", Range(14.8, "Spacing", nil, "target", "auraSpacing", 0, 16, 1)),
-					auraX = TargetAura("debuffs", Range(14.9, "Nudge left / right", nil, "target", "auraX", -300, 300, 1)),
-					auraY = TargetAura("debuffs", Range(14.95, "Nudge up / down", nil, "target", "auraY", -200, 200, 1)),
-					buffHeader = Header(20, "Buffs"),
-					buffs = Toggle(20.1, "Buffs", "The target's buffs, laid out on their own.", "target", "buffs"),
-					maxBuffs = TargetAura("buffs", Range(20.2, "How many buffs", nil, "target", "maxBuffs", 1, 24, 1)),
-					buffPos = TargetAura("buffs", Select(20.3, "Position", "Laid out the same as the debuffs, the buffs start on the line (or column) after them.", "target", "buffPos", AURA_POSITIONS, AURA_POSITION_ORDER)),
-					buffAlign = TargetAura("buffs", Select(20.4, "Align to", "Where each line starts: the bar's left end, centre or right end. Beside the frame: its top, middle or bottom.", "target", "buffAlign", AuraAlignValues("buffPos"))),
-					buffGrow = (function()
-						local option = TargetAura("buffs", Select(20.5, "Grow", "From a left or right end, which way the icons run. Centred lines grow both ways.", "target", "buffGrow", { right = "To the right", left = "To the left" }))
-						local off = option.disabled
-						option.disabled = function() return off() or AuraSide("buffPos") end
-						return option
-					end)(),
-					buffSize = TargetAura("buffs", Range(20.6, "Icon size", nil, "target", "buffSize", 14, 48, 1)),
-					buffPerLine = TargetAura("buffs", Range(20.7, "Icons per line", nil, "target", "buffPerLine", 1, 24, 1)),
-					buffSpacing = TargetAura("buffs", Range(20.8, "Spacing", nil, "target", "buffSpacing", 0, 16, 1)),
-					buffX = TargetAura("buffs", Range(20.9, "Nudge left / right", nil, "target", "buffX", -300, 300, 1)),
-					buffY = TargetAura("buffs", Range(20.95, "Nudge up / down", "Laid out the same as the debuffs, this is from the end of the debuffs.", "target", "buffY", -200, 200, 1)),
-					place = Header(30, "Position"),
-					placeNote = Note(31, "Top centre by default. Turn off General > Lock frames and drag its mover to place it anywhere."),
-					reset = {
-						type = "execute",
-						order = 32,
-						name = "Reset position",
-						func = function() ns.TargetPlate.ResetPosition() end,
-						disabled = function() return not DB().target.moved end,
+					ringNote = {
+						type = "description",
+						order = 4,
+						name = Muted("Attached, the sockets sit on the rim like the pips and follow the console; each picker fans out on a wider arc. The picker direction and vertical settings apply to the free row only."),
+						hidden = function() return DB().totems.attach == "none" end,
 					},
-				},
-			},
-			portraits = {
-				type = "group",
-				order = 6.14,
-				name = "Portraits",
-				args = {
-					intro = Note(1, "D3 party portraits, top left: your pet, and you if you want it (no health bar on yours: the globe is your health). Left-click targets, right-click opens the unit menu (leave group, loot, raid markers). The frame turns gold on your target, and shows leader, combat, resting and raid marker icons. Turning it off brings back Blizzard's player frame."),
-					enabled = Toggle(2, "Enabled", nil, "portraits", "enabled"),
-					preview = {
-						type = "toggle",
-						order = 2.5,
-						name = "Preview",
-						desc = "Show both portraits (the pet's drawn from you when you have no pet) to judge them in game.",
-						get = function() return ns.Portraits.preview end,
-						set = function(_, value) ns.Portraits.SetPreview(value) end,
-						width = "full",
-					},
-					player = Toggle(3, "Your portrait", "Right-click it for your unit menu (leave group, loot, raid markers).", "portraits", "player"),
-					pet = Toggle(3.5, "Pet portrait", nil, "portraits", "pet"),
-					scale = Range(4, "Scale", "100% is D3's own size.", "portraits", "scale", 0.6, 2.5, 0.05, true),
-					place = Header(30, "Position"),
-					placeNote = Note(31, "Top left by default. Turn off General > Lock frames and drag its mover to place it anywhere."),
-					reset = {
-						type = "execute",
-						order = 32,
-						name = "Reset position",
-						func = function() ns.Portraits.ResetPosition() end,
-						disabled = function() return not DB().portraits.moved end,
-					},
-				},
-			},
-			party = {
-				type = "group",
-				order = 6.15,
-				name = "Party",
-				args = {
-					intro = Note(1, "Your party members under your portrait, each with their own portrait. Left-click targets, right-click opens the unit menu, and click-casting addons (Clique) work on them. In a raid they hide and Blizzard's raid frames take over."),
-					style = Select(2, "Style", "Globes: a small health globe of your own liquid for each member. Slab: a thin slab of D3 stone. None: Blizzard's party frames (or another addon's) instead.", "party", "style",
-						{ globes = "Globes", slab = "Slab", none = "None (Blizzard or another addon)" }, { "globes", "slab", "none" }),
-					preview = {
-						type = "toggle",
-						order = 2.5,
-						name = "Preview",
-						desc = "Show four stand-in members (drawn from you) in different states: leader with aggro, your target with heals, a shield and a debuff you can dispel, dead, out of range. Also shown while frames are unlocked, so you can place them.",
-						get = function() return ns.Party.preview end,
-						set = function(_, value) ns.Party.SetPreview(value) end,
-						disabled = function() return not ns.Party.Style() end,
-						width = "full",
-					},
-					scale = Range(3, "Scale", "100% is the art's own size.", "party", "scale", 0.5, 2, 0.05, true),
-					spacing = Range(3.5, "Spacing", "The space between party members. Lower squeezes them closer together; far enough in, they overlap.", "party", "spacing", -30, 20, 1),
-					stone = {
+				}),
+				size = Card(6, "Size and spacing", {
+					scale = Range(1, "Button size", "Relative to a main-bar socket.", "totems", "scale", 0.4, 1.2, 0.01, true),
+					spacing = Range(2, "Spacing", nil, "totems", "spacing", 0, 20, 1),
+					flyout = Select(3, "Picker opens", nil, "totems", "flyout", { up = "Up", down = "Down" }),
+					vertical = Toggle(4, "Vertical", "Stack the sockets instead of a row.", "totems", "vertical"),
+				}),
+				show = Card(7, "Visibility", {
+					alpha = Range(1, "Opacity", nil, "totems", "alpha", 0, 1, 0.05, true),
+					mouseover = Toggle(2, "Show on mouseover only", nil, "totems", "mouseover"),
+				}),
+				place = PositionCard(8, "Free row: above the resource globe by default. " .. UNLOCK, function() ns.Totem.ResetPosition() end, function() return not DB().totems.moved end),
+			}),
+			keybinding = Page(26, "Keybinds", {}),
+
+			gap30 = Gap(29),
+			sectionUnits = Section(30, "Unit frames"),
+			target = Page(31, "Target", {
+				intro = Note(1, "Your target's frame. Left-click targets, right-click opens the unit menu. Turning it off brings back Blizzard's target frame."),
+				enabled = Toggle(2, "Enabled", nil, "target", "enabled"),
+				preview = Width({
+					type = "toggle",
+					order = 3,
+					name = "Preview",
+					desc = "With no target, show a stand-in monster that cycles the normal, elite, rare and boss frames while its health drops, to judge the look in game.",
+					get = function() return ns.TargetPlate.preview end,
+					set = function(_, value) ns.TargetPlate.SetPreview(value) end,
+				}, HALF),
+				frame = Tab(1, "Frame", {
+					look = Card(1, "Style and size", {
+						style = Select(1, "Style", "The look of the frame. Monster bar is D3's own enemy bar. The others are rendered for SanctuaryUI: a portrait socket, one health bar and a resource bar.", "target", "style", TARGET_STYLES, TARGET_STYLE_ORDER),
+						scale = Range(2, "Scale", "100% is D3's own size: the art one-to-one at 1080p, the same share of the screen at any resolution.", "target", "scale", 0.5, 2, 0.05, true),
+						width = (function()
+							local option = Range(3, "Width", "Stretches the frame and bar between their ornaments. Monster bar style only.", "target", "width", 0.6, 2.5, 0.05, true)
+							option.disabled = StyledTarget
+							return option
+						end)(),
+						height = (function()
+							local option = Range(4, "Height", "Makes the bar taller or shorter; the frame's lips and ornaments keep their size. Monster bar style only.", "target", "height", 0.7, 3, 0.05, true)
+							option.disabled = StyledTarget
+							return option
+						end)(),
+						rankWidth = (function()
+							local option = Select(5, "Width by rank", "D3 draws bosses far wider than ordinary monsters. Same frame width keeps the frame, the portrait and the target of target still as you change targets; same bar width keeps the health bar one length and lets the ornaments differ. Monster bar style only.", "target", "rankWidth", { frame = "Same frame width", bar = "Same bar width", d3 = "Grows with rank (D3)" }, { "frame", "bar", "d3" })
+							option.disabled = StyledTarget
+							return option
+						end)(),
+					}),
+					shows = Card(2, "Shows", {
+						portrait = (function()
+							local option = Toggle(1, "Target portrait", "The target's moving WoW portrait in a D3 hero portrait frame, left of the bar: silver for ordinary monsters, gold for elites and rares, the winged demon for bosses. The rendered styles always show it, in their own socket.", "target", "portrait")
+							option.disabled = StyledTarget
+							return option
+						end)(),
+						cast = Toggle(2, "Cast bar", nil, "target", "cast"),
+						power = Toggle(3, "Resource bar", "The target's mana, rage or energy. In the Monster bar it runs along the bottom of the health bar; the other styles have a groove for it.", "target", "power"),
+						healPrediction = Toggle(4, "Heal prediction", "Heals on their way to your target show in green past the end of its health, damage shields in silver after them, and a silver glow lights the bar's end when the shield is bigger than the health missing.", "target", "healPrediction"),
+						raidIcon = Toggle(5, "Raid marker", "The skull, cross or other marker on the target, for anyone in your group who set one.", "target", "raidIcon"),
+						classColor = Toggle(6, "Class colour on player names", "A player's name in their class colour, instead of cream.", "target", "classColor"),
+						classIcon = Toggle(7, "Class icon on players", "The class crest at the portrait's corner. With no portrait, in a row left of the frame.", "target", "classIcon"),
+						factionIcon = Toggle(8, "Faction emblem on players", "Alliance or Horde, whether or not they are flagged for PvP.", "target", "factionIcon"),
+					}),
+					effects = Card(3, "Effects", {
+						liquid = Third(Toggle(1, "Liquid in the bar", "The globes' liquid drifting through the health bar.", "target", "liquid")),
+						edgeGlow = Third(Toggle(2, "Edge glow", "An ember burning at the health bar's leading edge.", "target", "edgeGlow")),
+						textGlow = Third(Toggle(3, "Soft glow behind text", "A soft dark glow around the name and numbers on the bars, so they stay easy to read on red, green or amber.", "target", "textGlow")),
+					}),
+					place = PositionCard(4, "Top centre by default. " .. UNLOCK, function() ns.TargetPlate.ResetPosition() end, function() return not DB().target.moved end),
+				}),
+				tot = Tab(2, "Target of target", {
+					card = Card(1, "Target of target", {
+						tot = Toggle(1, "Show target of target", "Who your target is attacking: a small monster bar with its portrait, right of the target's frame. Its name turns red when it's you. Left-click targets it, right-click opens its menu.", "target", "tot"),
+						totPortrait = (function()
+							local option = Toggle(2, "Portrait", "The target of target's portrait in its silver ring, left of its bar. Off, the bar alone sits beside the target's frame.", "target", "totPortrait")
+							option.disabled = function() return DB().target.tot == false or StyledTarget() end
+							return option
+						end)(),
+						totWidth = (function()
+							local option = Range(3, "Width", "Stretches its frame and bar between their ornaments. Monster bar style only.", "target", "totWidth", 0.6, 3, 0.05, true)
+							option.disabled = function() return DB().target.tot == false or StyledTarget() end
+							return option
+						end)(),
+						totHeight = (function()
+							local option = Range(4, "Height", "Makes its bar taller or shorter. Monster bar style only.", "target", "totHeight", 0.7, 3, 0.05, true)
+							option.disabled = function() return DB().target.tot == false or StyledTarget() end
+							return option
+						end)(),
+					}),
+				}),
+				text = Tab(3, "Text", {
+					health = Card(1, "Health", {
+						healthText = Select(1, "Show", "Works in combat too, where enemy health is hidden from addons: the client fills the numbers in.", "target", "healthText", HEALTH_TEXTS, HEALTH_ORDER),
+						healthNumbers = TargetText("healthText", Select(2, "Numbers", nil, "target", "healthNumbers", { short = "Short (2.48M)", full = "Full (2,480,000)", raw = "Plain (2480000)" })),
+						healthHideFull = TargetText("healthText", Third(Toggle(3, "Hide at full health", nil, "target", "healthHideFull"))),
+						healthPos = TargetText("healthText", Select(4, "Position", nil, "target", "healthPos", TEXT_POSITIONS, POS_ORDER)),
+						healthFont = TargetText("healthText", Select(5, "Font", nil, "target", "healthFont", TEXT_FONTS)),
+						healthSize = TargetText("healthText", Range(6, "Size", nil, "target", "healthSize", 6, 24, 1)),
+						healthX = TargetText("healthText", Range(7, "Nudge left / right", nil, "target", "healthX", -200, 200, 1)),
+						healthY = TargetText("healthText", Range(8, "Nudge up / down", nil, "target", "healthY", -60, 60, 1)),
+					}),
+					name = Card(2, "Name", {
+						nameShow = Third(Toggle(1, "Show name", nil, "target", "nameShow")),
+						namePos = TargetText("nameShow", Select(2, "Position", nil, "target", "namePos", TEXT_POSITIONS, POS_ORDER)),
+						nameFont = TargetText("nameShow", Select(3, "Font", nil, "target", "nameFont", TEXT_FONTS)),
+						nameSize = TargetText("nameShow", Range(4, "Size", nil, "target", "nameSize", 6, 24, 1)),
+						nameX = TargetText("nameShow", Range(5, "Nudge left / right", nil, "target", "nameX", -200, 200, 1)),
+						nameY = TargetText("nameShow", Range(6, "Nudge up / down", nil, "target", "nameY", -60, 60, 1)),
+					}),
+					level = Card(3, "Level", {
+						levelShow = Third(Toggle(1, "Show level", nil, "target", "levelShow")),
+						levelColor = TargetText("levelShow", Select(2, "Colour", "By difficulty: grey, green, yellow, orange or red against your level, as Blizzard colours it.", "target", "levelColor", { plain = "Plain", difficulty = "By difficulty" })),
+						levelPos = TargetText("levelShow", Select(3, "Position", "The plaque sits under the portrait frame, in its metal. With the portrait off, the level goes in the bar's left end.", "target", "levelPos", LEVEL_POSITIONS, LEVEL_ORDER)),
+						levelFont = TargetText("levelShow", Select(4, "Font", nil, "target", "levelFont", TEXT_FONTS)),
+						levelSize = TargetText("levelShow", Range(5, "Size", nil, "target", "levelSize", 6, 24, 1)),
+						levelX = TargetText("levelShow", Range(6, "Nudge left / right", nil, "target", "levelX", -200, 200, 1)),
+						levelY = TargetText("levelShow", Range(7, "Nudge up / down", nil, "target", "levelY", -60, 60, 1)),
+					}),
+				}),
+				auras = Tab(4, "Auras", {
+					arrange = Card(1, "Arrangement", {
+						auraLayout = Width({
+							type = "select", order = 1, name = "Arrange debuffs and buffs",
+							desc = "A starting point, for any style. It sets the position, alignment and icons per line below, and clears their nudges; change those for anything else. Turn on Buffs below to see them.",
+							values = AURA_LAYOUT_NAMES, sorting = AURA_LAYOUT_ORDER,
+							get = AuraLayoutKey,
+							set = function(_, value)
+								local layout = AURA_LAYOUTS[value]
+								if not layout then return end
+								local t = DB().target
+								for field, v in pairs(layout) do t[field] = v end
+								t.auraX, t.auraY, t.buffX, t.buffY = 0, 0, 0, 0
+								Changed()
+							end,
+						}, HALF),
+					}),
+					debuffs = Card(2, "Debuffs", {
+						debuffs = Third(Toggle(1, "Show debuffs", "Every debuff on the target: yours first and bright, the rest greyed.", "target", "debuffs")),
+						maxDebuffs = TargetAura("debuffs", Range(2, "How many", nil, "target", "maxDebuffs", 1, 24, 1)),
+						auraSize = TargetAura("debuffs", Range(3, "Icon size", nil, "target", "debuffSize", 14, 48, 1)),
+						auraPos = TargetAura("debuffs", Select(4, "Position", "Beside the frame, icons run down in columns (Icons per line sets how many in each).", "target", "auraPos", AURA_POSITIONS, AURA_POSITION_ORDER)),
+						auraAlign = TargetAura("debuffs", Select(5, "Align to", "Where each line starts: the bar's left end, centre or right end. Beside the frame: its top, middle or bottom.", "target", "auraAlign", AuraAlignValues("auraPos"))),
+						auraGrow = (function()
+							local option = TargetAura("debuffs", Select(6, "Grow", "From a left or right end, which way the icons run. Centred lines grow both ways.", "target", "auraGrow", { right = "To the right", left = "To the left" }))
+							local off = option.disabled
+							option.disabled = function() return off() or AuraSide("auraPos") end
+							return option
+						end)(),
+						auraPerLine = TargetAura("debuffs", Range(7, "Icons per line", nil, "target", "auraPerLine", 1, 24, 1)),
+						auraSpacing = TargetAura("debuffs", Range(8, "Spacing", nil, "target", "auraSpacing", 0, 16, 1)),
+						auraSpacer = Note(8.5, ""),
+						auraX = TargetAura("debuffs", Range(9, "Nudge left / right", nil, "target", "auraX", -300, 300, 1)),
+						auraY = TargetAura("debuffs", Range(10, "Nudge up / down", nil, "target", "auraY", -200, 200, 1)),
+					}),
+					buffs = Card(3, "Buffs", {
+						buffs = Third(Toggle(1, "Show buffs", "The target's buffs, laid out on their own.", "target", "buffs")),
+						maxBuffs = TargetAura("buffs", Range(2, "How many", nil, "target", "maxBuffs", 1, 24, 1)),
+						buffSize = TargetAura("buffs", Range(3, "Icon size", nil, "target", "buffSize", 14, 48, 1)),
+						buffPos = TargetAura("buffs", Select(4, "Position", "Laid out the same as the debuffs, the buffs start on the line (or column) after them.", "target", "buffPos", AURA_POSITIONS, AURA_POSITION_ORDER)),
+						buffAlign = TargetAura("buffs", Select(5, "Align to", "Where each line starts: the bar's left end, centre or right end. Beside the frame: its top, middle or bottom.", "target", "buffAlign", AuraAlignValues("buffPos"))),
+						buffGrow = (function()
+							local option = TargetAura("buffs", Select(6, "Grow", "From a left or right end, which way the icons run. Centred lines grow both ways.", "target", "buffGrow", { right = "To the right", left = "To the left" }))
+							local off = option.disabled
+							option.disabled = function() return off() or AuraSide("buffPos") end
+							return option
+						end)(),
+						buffPerLine = TargetAura("buffs", Range(7, "Icons per line", nil, "target", "buffPerLine", 1, 24, 1)),
+						buffSpacing = TargetAura("buffs", Range(8, "Spacing", nil, "target", "buffSpacing", 0, 16, 1)),
+						buffSpacer = Note(8.5, ""),
+						buffX = TargetAura("buffs", Range(9, "Nudge left / right", nil, "target", "buffX", -300, 300, 1)),
+						buffY = TargetAura("buffs", Range(10, "Nudge up / down", "Laid out the same as the debuffs, this is from the end of the debuffs.", "target", "buffY", -200, 200, 1)),
+					}),
+				}),
+			}, "tab"),
+			portraits = Page(32, "Portraits", {
+				intro = Note(1, "D3 portraits, top left: your pet, and you if you want it. Left-click targets, right-click opens the unit menu. Turning it off brings back Blizzard's player frame."),
+				enabled = Toggle(2, "Enabled", nil, "portraits", "enabled"),
+				preview = Width({
+					type = "toggle",
+					order = 3,
+					name = "Preview",
+					desc = "Show both portraits (the pet's drawn from you when you have no pet) to judge them in game.",
+					get = function() return ns.Portraits.preview end,
+					set = function(_, value) ns.Portraits.SetPreview(value) end,
+				}, HALF),
+				shows = Card(4, "Shows", {
+					player = Third(Toggle(1, "Your portrait", "Right-click it for your unit menu (leave group, loot, raid markers).", "portraits", "player")),
+					pet = Third(Toggle(2, "Pet portrait", nil, "portraits", "pet")),
+					scale = Range(3, "Scale", "100% is D3's own size.", "portraits", "scale", 0.6, 2.5, 0.05, true),
+				}),
+				place = PositionCard(5, "Top left by default. " .. UNLOCK, function() ns.Portraits.ResetPosition() end, function() return not DB().portraits.moved end),
+			}),
+			party = Page(33, "Party", {
+				intro = Note(1, "Your party under your portrait. Left-click targets, right-click opens the unit menu, and click-casting addons (Clique) work on them. In a raid they hide and Blizzard's raid frames take over."),
+				style = Select(2, "Style", "Globes: a small health globe of your own liquid for each member. Slab: a thin slab of D3 stone. None: Blizzard's party frames (or another addon's) instead.", "party", "style",
+					{ globes = "Globes", slab = "Slab", none = "None (Blizzard or another addon)" }, { "globes", "slab", "none" }),
+				preview = Width({
+					type = "toggle",
+					order = 3,
+					name = "Preview",
+					desc = "Show four stand-in members (drawn from you) in different states: leader with aggro, your target with heals, a shield and a debuff you can dispel, dead, out of range. Also shown while frames are unlocked, so you can place them.",
+					get = function() return ns.Party.preview end,
+					set = function(_, value) ns.Party.SetPreview(value) end,
+					disabled = function() return not ns.Party.Style() end,
+				}, HALF),
+				size = Card(4, "Size and spacing", {
+					scale = Range(1, "Scale", "100% is the art's own size.", "party", "scale", 0.5, 2, 0.05, true),
+					spacing = Range(2, "Spacing", "The space between party members. Lower squeezes them closer together; far enough in, they overlap.", "party", "spacing", -30, 20, 1),
+					stone = Width({
 						type = "range",
-						order = 3.5,
+						order = 3,
 						name = "Stone opacity",
 						desc = "The slab's stone. Turn it down to let the world show through; the metal stays solid.",
 						min = 0.2, max = 1, step = 0.05, isPercent = true,
 						get = function() return DB().party.stone end,
 						set = function(_, value) DB().party.stone = value Changed() end,
 						disabled = function() return DB().party.style ~= "slab" end,
-					},
-					shows = Header(10, "Shows"),
-					pets = Toggle(11, "Pets", "Party pets, by their owner.", "party", "pets"),
-					portrait3d = {
+					}, THIRD),
+				}),
+				shows = Card(5, "Shows", {
+					healthText = Select(1, "Health text", nil, "party", "healthText",
+						{ none = "Nothing", percent = "Percent (62%)", current = "Hitpoints (15.4K)", missing = "Missing hitpoints (-9.4K)" },
+						{ "none", "percent", "current", "missing" }),
+					spacer = Note(1.5, ""),
+					pets = Toggle(2, "Pets", "Party pets, by their owner.", "party", "pets"),
+					portrait3d = Width({
 						type = "toggle",
-						order = 12,
+						order = 3,
 						name = "3D portraits",
 						desc = "Slab: the member's moving 3D bust in the socket while they're in view (their 2D portrait otherwise). Globes always use the 2D portrait in the round medallion.",
 						get = function() return DB().party.portrait3d end,
 						set = function(_, value) DB().party.portrait3d = value Changed() end,
 						disabled = function() return DB().party.style ~= "slab" end,
-						width = "full",
-					},
-					healthText = Select(13, "Health text", nil, "party", "healthText",
-						{ none = "Nothing", percent = "Percent (62%)", current = "Hitpoints (15.4K)", missing = "Missing hitpoints (-9.4K)" },
-						{ "none", "percent", "current", "missing" }),
-					healPrediction = Toggle(14, "Incoming heals and shields", "Heals on the way and damage shields poured on top of their health, as on your globe.", "party", "healPrediction"),
-					threat = Toggle(15, "Threat halo", "A red halo on a member with aggro (orange as they near it).", "party", "threat"),
-					rangeFade = Toggle(16, "Fade out of range", nil, "party", "rangeFade"),
-					auras = Header(20, "Auras"),
-					debuffs = Toggle(21, "Debuffs", "Their debuffs in D3's debuff frame, coloured by type: blue magic, purple curse, brown disease, green poison.", "party", "debuffs"),
-					maxDebuffs = Range(22, "Most debuffs", nil, "party", "maxDebuffs", 1, 8, 1),
-					buffs = Toggle(23, "Your buffs on them", "Your heals over time, shields and buffs on each member, in D3's gold frame.", "party", "buffs"),
-					maxBuffs = Range(24, "Most buffs", nil, "party", "maxBuffs", 1, 6, 1),
-					dispelGlow = Toggle(25, "Dispel halo", "A pulsing halo in the debuff's colour while a member has one you can remove.", "party", "dispelGlow"),
-					place = Header(30, "Position"),
-					placeNote = Note(31, "Under your portrait by default. Turn off General > Lock frames (stand-ins show while unlocked) and drag its mover to place it anywhere. Changes wait for the end of combat."),
-					reset = {
-						type = "execute",
-						order = 32,
-						name = "Reset position",
-						func = function() ns.Party.ResetPosition() end,
-						disabled = function() return not DB().party.moved end,
-					},
+					}, HALF),
+					healPrediction = Toggle(4, "Incoming heals and shields", "Heals on the way and damage shields poured on top of their health, as on your globe.", "party", "healPrediction"),
+					threat = Toggle(5, "Threat halo", "A red halo on a member with aggro (orange as they near it).", "party", "threat"),
+					rangeFade = Toggle(6, "Fade out of range", nil, "party", "rangeFade"),
+				}),
+				auras = Card(6, "Auras", {
+					debuffs = Toggle(1, "Debuffs", "Their debuffs in D3's debuff frame, coloured by type: blue magic, purple curse, brown disease, green poison.", "party", "debuffs"),
+					maxDebuffs = Range(2, "Most debuffs", nil, "party", "maxDebuffs", 1, 8, 1),
+					buffs = Toggle(3, "Your buffs on them", "Your heals over time, shields and buffs on each member, in D3's gold frame.", "party", "buffs"),
+					maxBuffs = Range(4, "Most buffs", nil, "party", "maxBuffs", 1, 6, 1),
+					dispelGlow = Toggle(5, "Dispel halo", "A pulsing halo in the debuff's colour while a member has one you can remove.", "party", "dispelGlow"),
+				}),
+				place = PositionCard(7, "Under your portrait by default. Stand-ins show while frames are unlocked. " .. UNLOCK .. " Changes wait for the end of combat.", function() ns.Party.ResetPosition() end, function() return not DB().party.moved end),
+			}),
+			auras = Page(34, "Your buffs", {
+				intro = Note(1, "Blizzard's buff and debuff frames set in stone sockets, because this client lets only Blizzard read your buffs in combat. Right-click a buff to cancel it. Turning this off gives Blizzard's look back."),
+				enabled = Toggle(2, "Enabled", nil, "auras", "enabled"),
+				shows = Card(3, "Shows", {
+					duration = Toggle(1, "Time left under each icon", nil, "auras", "duration"),
+					bars = Toggle(2, "Countdown bars", "A bar under each timed buff and debuff that runs down, turning red in its last 10 seconds. In combat it shows only while the client lets addons read the time left.", "auras", "bars"),
+				}),
+				editMode = Card(4, "Position and size", {
+					note = Note(1, "Position, icon size, icons per row, how many and wrap direction are Edit Mode's (Esc > Edit Mode, then drag or click the Buff Frame and Debuff Frame). For the D3 look, place them just above the bars with Icon Wrap set to Up."),
+				}),
+			}),
+
+			gap40 = Gap(39),
+			sectionInventory = Section(40, "Inventory"),
+			bags = Page(41, "Bags", {
+				enabled = Width(Toggle(1, "Use the SanctuaryUI bag window", "Replaces Blizzard's bags. Turning it off needs a /reload to bring Blizzard's back.", "bags", "enabled"), 1),
+				layout = Card(2, "Layout", {
+					columns = Range(1, "Columns", nil, "bags", "columns", 6, 20, 1),
+					slotSize = Range(2, "Slot size", nil, "bags", "slotSize", 28, 52, 1),
+					spacing = Range(3, "Spacing", nil, "bags", "spacing", 0, 8, 1),
+					scale = Range(4, "Scale", nil, "bags", "scale", 0.5, 1.6, 0.01, true),
+					backpackPos = Select(5, "Backpack", "Where the backpack's slots sit among your bags. At the bottom, the bags run last to first and the backpack ends in the bottom-right corner.", "bags", "backpackPos", { top = "Top of the grid", bottom = "Bottom of the grid" }, { "top", "bottom" }),
+					slotRowPos = Select(6, "Bag slots and search", nil, "bags", "slotRowPos", { top = "Above the items", bottom = "Below the items" }, { "top", "bottom" }),
+					dividers = Toggle(7, "Divide bags", "Start each bag on its own line, with a divider between bags. Off: one combined grid.", "bags", "dividers"),
+				}),
+				look = Card(3, "Look and behaviour", {
+					quality = Toggle(1, "Quality backgrounds", "D3's colored cell backgrounds for uncommon, rare, epic, legendary and heirloom items.", "bags", "quality"),
+					bagSlots = Toggle(2, "Show bag slots", "Your backpack and bag slots in a line beside the search box: drag bags on to equip or swap them.", "bags", "bagSlots"),
+					autoSellJunk = Toggle(3, "Sell junk automatically", "Sell grey items whenever a vendor opens. Off: use the Sell Junk button on the bag window.", "bags", "autoSellJunk"),
+				}),
+				place = PositionCard(4, "Drag the window by its stone to move it.", function()
+					local opt = DB().bags
+					opt.point, opt.x, opt.y = "BOTTOMRIGHT", -60, 260
+					Changed()
+				end),
+			}),
+			bank = Page(42, "Bank", {
+				enabled = Width(Toggle(1, "Use the SanctuaryUI bank window", "D3's stash in place of Blizzard's bank. Needs the bag window on. Turning it off needs a /reload.", "bank", "enabled"), 1),
+				layout = Card(2, "Layout", {
+					columns = Range(1, "Columns", nil, "bank", "columns", 6, 24, 1),
+					slotSize = Range(2, "Slot size", nil, "bank", "slotSize", 28, 52, 1),
+					spacing = Range(3, "Spacing", nil, "bank", "spacing", 0, 8, 1),
+					scale = Range(4, "Scale", nil, "bank", "scale", 0.5, 1.6, 0.01, true),
+					dividers = Width(Toggle(5, "Divide bank tabs", "Each bank tab on its own lines, with a divider between them.", "bank", "dividers"), 0.666),
+				}),
+				look = Card(3, "Look", {
+					quality = Toggle(1, "Quality backgrounds", nil, "bank", "quality"),
+					bagSlots = Toggle(2, "Show bank bag slots", "The base bank and your bank bag slots across the top: drag bags on to equip them.", "bank", "bagSlots"),
+				}),
+				place = PositionCard(4, "Drag the window by its stone to move it.", function()
+					local opt = DB().bank
+					opt.point, opt.x, opt.y = "TOPLEFT", 40, -120
+					Changed()
+				end),
+			}),
+
+			feedback = Page(3, "Feedback", {
+				note = Note(1, "Each of these gives you a link to paste into a browser. Nothing is sent until you submit it on GitHub."),
+				request = {
+					type = "execute",
+					order = 2,
+					name = "Suggest a feature",
+					func = function()
+						LibStub("AceConfigDialog-3.0"):Close(APP)
+						ns.ShowRequest()
+					end,
 				},
-			},
-			bank = {
-				type = "group",
-				order = 6.6,
-				name = "Bank",
-				args = {
-					enabled = Toggle(1, "Use the SanctuaryUI bank window", "D3's stash in place of Blizzard's bank. Needs the bag window on. Turning it off needs a /reload.", "bank", "enabled"),
-					layout = Header(10, "Layout"),
-					dividers = Toggle(11, "Divide bank tabs", "Each bank tab on its own lines, with a divider between them.", "bank", "dividers"),
-					columns = Range(12, "Columns", nil, "bank", "columns", 6, 24, 1),
-					slotSize = Range(13, "Slot size", nil, "bank", "slotSize", 28, 52, 1),
-					spacing = Range(14, "Spacing", nil, "bank", "spacing", 0, 8, 1),
-					scale = Range(15, "Scale", nil, "bank", "scale", 0.5, 1.6, 0.01, true),
-					look = Header(20, "Look"),
-					quality = Toggle(21, "Quality backgrounds", nil, "bank", "quality"),
-					bagSlots = Toggle(22, "Show bank bag slots", "The base bank and your bank bag slots across the top: drag bags on to equip them.", "bank", "bagSlots"),
-					place = Header(30, "Position"),
-					placeNote = Note(31, "Drag the window by its stone to move it."),
-					reset = {
-						type = "execute",
-						order = 32,
-						name = "Reset position",
-						func = function()
-							local opt = DB().bank
-							opt.point, opt.x, opt.y = "TOPLEFT", 40, -120
-							Changed()
-						end,
-					},
+				report = {
+					type = "execute",
+					order = 3,
+					name = "Report a bug",
+					desc = "Makes a report from the errors SanctuaryUI has recorded on this version.",
+					func = function()
+						LibStub("AceConfigDialog-3.0"):Close(APP)
+						ns.ShowReport()
+					end,
 				},
-			},
-			bags = {
-				type = "group",
-				order = 6.5,
-				name = "Bags",
-				args = {
-					enabled = Toggle(1, "Use the SanctuaryUI bag window", "Replaces Blizzard's bags. Turning it off needs a /reload to bring Blizzard's back.", "bags", "enabled"),
-					layout = Header(10, "Layout"),
-					dividers = Toggle(11, "Divide bags", "Start each bag on its own line, with a divider between bags. Off: one combined grid.", "bags", "dividers"),
-					columns = Range(12, "Columns", nil, "bags", "columns", 6, 20, 1),
-					slotSize = Range(13, "Slot size", nil, "bags", "slotSize", 28, 52, 1),
-					spacing = Range(14, "Spacing", nil, "bags", "spacing", 0, 8, 1),
-					scale = Range(15, "Scale", nil, "bags", "scale", 0.5, 1.6, 0.01, true),
-					backpackPos = Select(16, "Backpack", "Where the backpack's slots sit among your bags. At the bottom, the bags run last to first and the backpack ends in the bottom-right corner.", "bags", "backpackPos", { top = "Top of the grid", bottom = "Bottom of the grid" }, { "top", "bottom" }),
-					slotRowPos = Select(17, "Bag slots and search", nil, "bags", "slotRowPos", { top = "Above the items", bottom = "Below the items" }, { "top", "bottom" }),
-					look = Header(20, "Look"),
-					quality = Toggle(21, "Quality backgrounds", "D3's colored cell backgrounds for uncommon, rare, epic, legendary and heirloom items.", "bags", "quality"),
-					bagSlots = Toggle(23, "Show bag slots", "Your backpack and bag slots in a line beside the search box: drag bags on to equip or swap them.", "bags", "bagSlots"),
-					autoSellJunk = Toggle(22, "Sell junk automatically", "Sell grey items whenever a vendor opens. Off: use the Sell Junk button on the bag window.", "bags", "autoSellJunk"),
-					place = Header(30, "Position"),
-					placeNote = Note(31, "Drag the window by its stone to move it."),
-					reset = {
-						type = "execute",
-						order = 32,
-						name = "Reset position",
-						func = function()
-							local opt = DB().bags
-							opt.point, opt.x, opt.y = "BOTTOMRIGHT", -60, 260
-							Changed()
-						end,
-					},
-				},
-			},
-			feedback = {
-				type = "group",
-				order = 99,
-				name = "Feedback",
-				args = {
-					note = Note(1, "Each of these gives you a link to paste into a browser. Nothing is sent until you submit it on GitHub."),
-					request = {
-						type = "execute",
-						order = 2,
-						name = "Suggest a feature",
-						func = function()
-							LibStub("AceConfigDialog-3.0"):Close(APP)
-							ns.ShowRequest()
-						end,
-					},
-					report = {
-						type = "execute",
-						order = 3,
-						name = "Report a bug",
-						desc = "Makes a report from the errors SanctuaryUI has recorded on this version.",
-						func = function()
-							LibStub("AceConfigDialog-3.0"):Close(APP)
-							ns.ShowReport()
-						end,
-					},
-				},
-			},
+			}),
 		},
 	}
 	for i, n in ipairs(ns.ActionBar.ROW_IDS) do
-		options.args.bars.args["row" .. n] = RowGroup(n, 10 + i)
+		options.args.bars.args["row" .. n] = RowGroup(n, i)
 	end
-	options.args.profiles = LibStub("AceDBOptions-3.0"):GetOptionsTable(ns.db)
-	options.args.profiles.order = 100
+	local profiles = LibStub("AceDBOptions-3.0"):GetOptionsTable(ns.db)
+	profiles.order = 2
+	profiles.name = TreeRow(profiles.name)
+	options.args.profiles = profiles
 	return options
 end
 
@@ -1427,7 +1442,7 @@ end
 local function Table()
 	local options = ns.Options.table or Build()
 	ns.Options.table = options
-	options.args.bars.args.keybinding.args = KeybindArgs()
+	options.args.keybinding.args = KeybindArgs()
 	return options
 end
 
@@ -1435,7 +1450,7 @@ function ns.Options.Init()
 	local AceConfig = LibStub("AceConfig-3.0")
 	local Dialog = LibStub("AceConfigDialog-3.0")
 	AceConfig:RegisterOptionsTable(APP, Table)
-	Dialog:SetDefaultSize(APP, 860, 640)
+	Dialog:SetDefaultSize(APP, 900, 680)
 	Dialog:AddToBlizOptions(APP, "SanctuaryUI")
 end
 

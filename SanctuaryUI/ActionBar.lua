@@ -56,7 +56,7 @@ local PLAQUE_OFFSET = -8.5 * 1100 / 1416
 ns.ActionBar.PLAQUE_OFFSET = PLAQUE_OFFSET
 local SOCKET_H = 67 * 1100 / 1416 -- a console socket's height, in console units
 
--- Console skill icons as a share of their socket (Bars > Main bar > Icon size): smaller icons
+-- Console skill icons as a share of their socket (Main bar > Icon size): smaller icons
 -- sit centred in the socket with its stone around them, independent of the console's scale.
 local function IconSize()
 	local k = tonumber(ns.DB().iconSize) or 1
@@ -187,7 +187,7 @@ function ns.ActionBar.PageDriver()
 	return table.concat(parts, ";")
 end
 
--- Does this bar change page with the player's stance or form? (Bars > Bar n)
+-- Does this bar change page with the player's stance or form? (Bars 2-9 > Bar n)
 local function RowFollowsForms(n)
 	local opt = ns.DB().rows[n]
 	if not opt.followForms or opt.source == "main" then return false end
@@ -888,7 +888,7 @@ function ns.MakeMover(anchor, label, opt, hint)
 end
 
 local function MakeMover(n, row)
-	return ns.MakeMover(row.anchor, "Bar " .. n, function() return ns.DB().rows[n] end, "Reset its position in /sanctuary > Bars.")
+	return ns.MakeMover(row.anchor, "Bar " .. n, function() return ns.DB().rows[n] end, "Reset its position in /sanctuary > Bars 2-9.")
 end
 
 -- While frames are unlocked, a panel at the top of the screen says so and locks them again.
@@ -1217,7 +1217,7 @@ function ns.ActionBar.StyleCountdowns()
 		if GetCVarBool and not GetCVarBool("countdownForCooldowns") and not InCombatLockdown() then
 			ns.ActionBar.countdownAsked = true
 			ns.Log("cooldown numbers: countdownForCooldowns is off, asking")
-			ns.AskCVarReload("countdownForCooldowns", "1", "SanctuaryUI shows cooldown numbers on your buttons, and the game only draws them with Blizzard's \"Show Numbers for Cooldowns\" on. Turn it on?\n\n(To keep it off, set Action Bars > Cooldown numbers to Hide or Blizzard setting.)")
+			ns.AskCVarReload("countdownForCooldowns", "1", "SanctuaryUI shows cooldown numbers on your buttons, and the game only draws them with Blizzard's \"Show Numbers for Cooldowns\" on. Turn it on?\n\n(To keep it off, set Buttons > Cooldown numbers to Hide or Blizzard setting.)")
 		end
 	end
 	ns.ActionBar.ForEachButton(function(button) StyleCountdown(button, nil) end)
