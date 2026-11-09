@@ -453,6 +453,7 @@ function ns.Check()
 	if ns.Liquid and ns.Liquid.Status then
 		ns.Print(ns.Liquid.Status())
 		if ns.Pollution then ns.Print(ns.Pollution.Status()) end
+		if ns.Party and ns.Party.DispelStatus then ns.Print(ns.Party.DispelStatus()) end
 	end
 	local key = GetBindingKey("ACTIONBUTTON1")
 	ns.Print("ACTIONBUTTON1 is bound to " .. (key or "nothing"))

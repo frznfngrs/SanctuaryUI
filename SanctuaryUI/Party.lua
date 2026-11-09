@@ -23,6 +23,7 @@ local GAP = { globes = 4, slab = 6 } -- between members
 local RANGE_ALPHA = 0.45
 local RANGE_EVERY = 0.2 -- seconds between range checks (there is no event for it)
 local READY_LINGER = 6 -- seconds the ready check's answers stay up after it ends
+local DISPEL_PULSE, DISPEL_PULSE_LOW = 0.55, 0.3 -- the dispel halo's pulse: seconds each way, and how far it dims
 local AURA_SIZE = { globes = 18, slab = 20 }
 local AURA_GAP = 2
 local DRIVER = "[group:raid] hide; [group:party] show; hide"
@@ -58,9 +59,9 @@ end
 local PREVIEW = {
 	{ name = "Thrall", class = "SHAMAN", level = 60, health = 0.92, power = 0.7, powerToken = "MANA", leader = true, role = "TANK", threat = 3, ready = "ready",
 		cast = { name = "Chain Heal", icon = "Interface\\Icons\\Spell_Nature_HealingWaveGreater", seconds = 2.5 } },
-	{ name = "Jaina", class = "MAGE", level = 58, health = 0.48, heal = 0.18, absorb = 0.1, power = 0.42, powerToken = "MANA", role = "HEALER", mark = 1, dispel = true, target = true,
+	{ name = "Jaina", class = "MAGE", level = 58, health = 0.48, heal = 0.18, absorb = 0.1, power = 0.42, powerToken = "MANA", role = "HEALER", mark = 1, dispel = true,
 		cast = { name = "Blizzard", icon = "Interface\\Icons\\Spell_Frost_IceStorm", seconds = 4, channel = true } },
-	{ name = "Grom", class = "WARRIOR", level = 60, health = 0, power = 0, powerToken = "RAGE", state = "dead", role = "DAMAGER" },
+	{ name = "Grom", class = "WARRIOR", level = 60, health = 0, power = 0, powerToken = "RAGE", state = "dead", role = "DAMAGER", target = true },
 	{ name = "Sylvanas", class = "HUNTER", level = 42, health = 0.76, power = 0.9, powerToken = "MANA", far = true, ready = "waiting", role = "DAMAGER" },
 }
 local PREVIEW_PET = { name = "Wolf", health = 0.8 }
@@ -797,30 +798,47 @@ local function SortArgs()
 		AuraContainerSortDirection and AuraContainerSortDirection.Normal or 0
 end
 
--- The halo's texture, in the client's aura slot: the active style's halo art.
+-- The halo, in the client's aura slot: the active style's halo art drawn twice for strength, in
+-- the debuff's colour, pulsing. The client shows it and runs the pulse, so it works in combat.
 local function DressDispel(b, slot)
 	slot:EnableMouse(false)
-	slot:ClearAllPoints()
-	slot:SetAllPoints()
-	local glow = slot:CreateTexture(nil, "OVERLAY")
-	glow:SetAllPoints()
-	glow:SetBlendMode("ADD")
-	b.dispelTex = glow
-	if b.v then P.DispelArt(b) end
-	if slot.AddDispelTypeTexture then
-		pcall(slot.AddDispelTypeTexture, slot, glow, {
-			style = PRESERVE, showWhenHarmful = true, showWithoutDispelType = false, customDispelColorMap = ColorMap(),
-		})
+	b.dispelSlot = slot
+	b.dispelTex = {}
+	if b.v then -- else ConfigureAuras places it, once the button has a view
+		slot:ClearAllPoints()
+		slot:SetAllPoints(b.v.glowBox)
 	end
+	local pulse = slot:CreateAnimationGroup()
+	pulse:SetLooping("BOUNCE")
+	for i = 1, 2 do
+		local glow = slot:CreateTexture(nil, "OVERLAY")
+		glow:SetAllPoints()
+		glow:SetBlendMode("ADD")
+		b.dispelTex[i] = glow
+		if slot.AddDispelTypeTexture then
+			pcall(slot.AddDispelTypeTexture, slot, glow, {
+				style = PRESERVE, showWhenHarmful = true, showWithoutDispelType = false, customDispelColorMap = ColorMap(),
+			})
+		end
+		local fade = pulse:CreateAnimation("Alpha")
+		fade:SetTarget(glow)
+		fade:SetFromAlpha(1)
+		fade:SetToAlpha(DISPEL_PULSE_LOW)
+		fade:SetDuration(DISPEL_PULSE)
+	end
+	if b.v then P.DispelArt(b) end
+	if slot.AddAuraShownAnimation then pcall(slot.AddAuraShownAnimation, slot, pulse) end
 end
 
 function P.DispelArt(b)
-	local tex, v = b.dispelTex, b.v
-	if not (tex and v and v.glowRect) then return end
+	local v = b.v
+	if not (b.dispelTex and v and v.glowRect) then return end
 	local g = v.glowRect
-	if ns.Art.Apply(tex, g.slot) then
-		tex:SetTexCoord(ns.Art.PartyCoord(g.style, g.rect))
-		tex:SetBlendMode("ADD")
+	for _, tex in ipairs(b.dispelTex) do
+		if ns.Art.Apply(tex, g.slot) then
+			tex:SetTexCoord(ns.Art.PartyCoord(g.style, g.rect))
+			tex:SetBlendMode("ADD")
+		end
 	end
 end
 
@@ -919,6 +937,10 @@ local function ConfigureAuras(b)
 			b.dispelBox:SetAuraSlotEnabled("dispel", on)
 			b.dispelBox:ClearAllPoints()
 			b.dispelBox:SetAllPoints(v.glowBox)
+			if b.dispelSlot then
+				b.dispelSlot:ClearAllPoints()
+				b.dispelSlot:SetAllPoints(v.glowBox) -- not the container: its size is secret
+			end
 			b.dispelBox:SetUnit(b.unit)
 			b.dispelBox:SetShown(on)
 			b.dispelBox:UpdateAllAuras()
@@ -1199,6 +1221,25 @@ local function OnUpdate(_, elapsed)
 		end
 		ns.PartyStyles.AnimateGrooves(P.liquidClock or 0)
 	end
+	-- The stand-in for the client's pulsing dispel halo, which only a real debuff can show.
+	if P.Previewing() then
+		local t = (GetTime() / DISPEL_PULSE) % 2
+		local k = 1 - (1 - DISPEL_PULSE_LOW) * (t < 1 and t or 2 - t)
+		for _, b in ipairs(P.members) do
+			local pv = PV(b)
+			if pv and pv.dispel and b.v and b.v.glow then b.v.glow:SetAlpha(k) end
+		end
+	end
+end
+
+-- One line for /sanctuary check: what the dispel halo will light for on this character.
+function P.DispelStatus()
+	local types, any = MyDispelTypes()
+	if not any then return "party dispel halo: nothing your class can remove has been learned" end
+	local list = {}
+	for kind in pairs(types) do list[#list + 1] = kind end
+	table.sort(list)
+	return "party dispel halo: lights for " .. table.concat(list, ", ")
 end
 
 function P.Init()
