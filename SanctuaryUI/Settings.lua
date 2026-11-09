@@ -46,6 +46,7 @@ ns.DEFAULTS = {
 			renderedBreak = true, -- shields crack and shatter with the Blender render (GlobeAura.lua BREAK)
 			effects = { ["*"] = true, innerFire = false }, -- by Watch.lua effect key
 			looks = {}, -- by effect key, what that skill shows; unset: its default (GlobeAura.lua LookOf)
+			breaks = {}, -- by effect key, how that shield breaks; unset: its default (GlobeAura.lua BreakOf)
 			hotTint = "default", -- healing over time: a GlobeAura.lua colour, or each skill's own
 			hotStrength = 1, -- healing over time: brightness against the skill's own
 		},

@@ -2182,6 +2182,43 @@ def surge_art() -> None:
     save(np.clip(art.streak() * 255 + 0.5, 0, 255).astype(np.uint8), "surge-streak.png")
 
 
+def heal_art() -> None:
+    """The heal looks' sheets (GlobeAura.lua HEAL_ART and its sprites), drawn by tools/blender/globe_heal_art.py."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "blender"))
+    import globe_heal_art  # noqa: PLC0415
+
+    globe_heal_art.build(str(OUT))
+
+
+def rendered_shields() -> None:
+    """The shield looks and breaks beyond the Crystal shell and Shatter (GlobeAura.lua SHIELD_LOOKS,
+    SHIELD_BREAKS). Renders are made if missing under SHIELD_WORK, Blender for the metal looks and
+    numpy for the rest, then graded and packed by tools/blender/globe_shields_compare.py."""
+    import os  # noqa: PLC0415
+    import subprocess  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+
+    here = Path(__file__).resolve().parent / "blender"
+    sys.path.insert(0, str(here))
+    import globe_shields_compare as gsc  # noqa: PLC0415
+
+    blender = os.environ.get("BLENDER", str(Path.home() / "opt/blender-4.5.15-linux-x64/blender"))
+    work = Path(os.environ.get("SHIELD_WORK") or tempfile.mkdtemp(prefix="shield-art-"))
+    for name, (count, *_rest) in gsc.SPECS.items():
+        if name in gsc.FROM_BLENDER:
+            out = work / "bl" / name
+            subs = gsc.SUBS.get(name, 1)
+            last = out / (f"f{count - 1:03d}_{subs - 1}.png" if subs > 1 else f"f{count - 1:03d}.png")
+            if not last.exists():
+                subprocess.run([blender, "-b", "--factory-startup", "-P", str(here / "globe_shields.py"), "--", "--mode", name,
+                                "--out", str(out), "--size", "512"], check=True, stdout=subprocess.DEVNULL)
+        elif not (work / "np" / f"{name}.npy").exists():
+            subprocess.run([sys.executable, str(here / "globe_shields_fx.py"), name, str(work / "np")], check=True, stdout=subprocess.DEVNULL)
+        frames = gsc.grade(name, gsc.load_frames(str(work), name))
+        gsc.pack(name, frames).save(OUT / f"shield-{name.replace('_', '-')}.png", optimize=True)
+    print("rendered shields: renders in", work)
+
+
 def rendered_storm() -> None:
     """Lightning Shield's flipbooks (GlobeAura.lua STORM), drawn by tools/blender/globe_storm.py."""
     import re  # noqa: PLC0415
@@ -2202,7 +2239,7 @@ def rendered_storm() -> None:
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     only = set(sys.argv[1:])
-    for step in (frame_and_glass, console_tiers, liquid, liquid_halves, animated_liquid, hotline, xp_fills, menu, glow, blade, socket_glow, bag_frame, bank_frame, bag_cells, d3_button, pips, pip_frames, shimmer, socket, skill_timer, icon, unit_frames, menu_flyout, target_rings, globe_aura, globe_shell, globe_surge, globe_storm, party, rendered_liquid, pollution_art, rendered_break, surge_art, rendered_storm):
+    for step in (frame_and_glass, console_tiers, liquid, liquid_halves, animated_liquid, hotline, xp_fills, menu, glow, blade, socket_glow, bag_frame, bank_frame, bag_cells, d3_button, pips, pip_frames, shimmer, socket, skill_timer, icon, unit_frames, menu_flyout, target_rings, globe_aura, globe_shell, globe_surge, globe_storm, party, rendered_liquid, pollution_art, rendered_break, surge_art, rendered_storm, heal_art, rendered_shields):
         if only and step.__name__ not in only:
             continue
         step()

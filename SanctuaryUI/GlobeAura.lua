@@ -33,6 +33,10 @@ ns.GlobeAura = ns.GlobeAura or {}
 --     sheen    a glint band sweeping across every few seconds
 --     moments  formed: it swells into place with a ring; broken: it shatters, shards flying
 --              off and a ring thrown outward; otherwise it fades
+--     looks    (WatchEffects.lua shell, or the options) besides the Crystal shell, each one flipbook
+--              on the glass with its own hit: aegis, rime, hex ward, bulwark (SHIELD_LOOKS)
+--     breaks   (shellBreak, or the options) besides the Shatter, each one flipbook over the console:
+--              shockwave, dissolve, crumble, melt (SHIELD_BREAKS). Any break goes with any look
 --     Damage shields hang on the game's absorb amount (Watch.AbsorbMode "live"): drawn inside
 --     a clip frame whose top rides an invisible status bar fed the hidden amount, clamped to
 --     0..1, so the shell shows exactly while any absorb holds and is gone the moment it breaks.
@@ -54,9 +58,24 @@ ns.GlobeAura = ns.GlobeAura or {}
 --              fading down the sides: the console hides one side of a globe and the gargoyle
 --              or angel the other low corner, and an even ring would show as a lopsided wedge
 --     bloom    the glass lit from inside, and motes spiralling in
+--     Healing looks (surge styles too; the options list them with the rest):
+--     vines    two vines climbing the glass from the sides as the buff runs, meeting at the crown
+--     halo     a ring of light over the crown, its back arc behind the glass and its front on it
+--     bloom    (leaves) glowing leaves tumbling up off the rim
+--     veil     aurora curtains rising off the top of the rim
+--     rain     drops falling through the glass and rippling on the surface
+--     pulse    a wave of light rising through the liquid each tick, the surface flashing to it
+--     embers   slow sparks rising from the bottom of the glass, with their trails
+--     Vines and pulse time themselves from your own cast and the buff's length and tick period
+--     (the state's castAt), restarting when it is recast; with no cast to go on (someone else's
+--     buff, up since before a reload) vines are fully grown and pulse keeps a plain cadence.
 --
 --   flare    a one-off burst (Life Tap, potions): a ring and a flash, out from the globe or
---            in to it
+--            in to it. An effect's "in" parts can instead play a heal (LookOf's second value):
+--     mend        a dome of light swelling off the surface, sparks lifting from it
+--     benediction a short beam striking the surface, a ring spreading on it and one off the rim
+--     mound       (shown as Surge) the liquid heaving up over the surface and slumping back
+--     All three ride the fill guide, so nothing reads a level.
 --
 -- Behind-the-globe layers sit under the globe stack and the console art, so the gargoyle and
 -- angel stand in silhouette against them; glass layers sit with the glass, under the console
@@ -80,6 +99,43 @@ local BREAK = {
 }
 local BREAK_WARM = 2.5 -- seconds the sheets are kept drawing at login, so the first break doesn't hitch
 
+-- Shield looks besides the Crystal shell and breaks besides the Shatter (tools/blender/
+-- globe_shields*.py, packed by rendered_shields in tools/build_hud_art.py). White art, the
+-- luminance in the alpha, drawn ADD and tinted here. A look: an idle loop crossfaded like the
+-- surge sheets (the colour weighted, the alpha the strength) and a stepped hit; both sized
+-- SHIELD_SIZE, gated with the shell. tk: where its colour sits between the tint's two. idle, halo:
+-- gains, graded for how long these stay up (globe_shields_compare.py OPTIONS). The hits' blow is
+-- painted upper right; texcoords mirror it toward the blow.
+local SHIELD_SIZE = 1.08
+local SHIELD_FORM = 0.35 -- seconds a look takes to swell into place
+local SHIELD_HIT_TK = 0.75 -- the hit's colour, between the tint's two
+local SHIELD_BREAK_SIZE = 2.1
+local SHIELD_LOOKS = {
+	aegis = { tk = 0.55, idle = 0.72, halo = 0.42,
+		loop = { slot = "shieldAegis", w = 2048, h = 2048, cw = 256, ch = 256, cols = 8, frames = 64, seconds = 8, row = 0 },
+		hit = { slot = "shieldAegisHit", frames = 16, cols = 4, cell = 256, sheet = 1024 } },
+	rime = { tk = 0.5, idle = 1.0, halo = 0.18,
+		loop = { slot = "shieldRime", w = 2048, h = 1024, cw = 256, ch = 256, cols = 8, frames = 32, seconds = 5, row = 0 },
+		hit = { slot = "shieldRimeHit", frames = 16, cols = 4, cell = 256, sheet = 1024 } },
+	hex = { tk = 0.45, idle = 1.0, halo = 0,
+		loop = { slot = "shieldHex", w = 2048, h = 1024, cw = 256, ch = 256, cols = 8, frames = 32, seconds = 6, row = 0 },
+		hit = { slot = "shieldHexHit", frames = 16, cols = 4, cell = 256, sheet = 1024 } },
+	bulwark = { tk = 0.6, idle = 0.8, halo = 0,
+		loop = { slot = "shieldBulwark", w = 2048, h = 1024, cw = 256, ch = 256, cols = 8, frames = 32, seconds = 5, row = 0 },
+		hit = { slot = "shieldBulwarkHit", frames = 16, cols = 4, cell = 256, sheet = 1024 } },
+}
+-- Breaks fly free of the gate, over the console: one-shot flipbooks stepped frame by frame, with
+-- no blending. tk and gain: its colour and strength. Named after their sheets.
+local SHIELD_BREAKS = {
+	dissolve = { slot = "shieldDissolve", frames = 25, cols = 5, cell = 409, sheet = 2048, seconds = 1.3, gain = 1.0, tk = 0.5 },
+	melt = { slot = "shieldMelt", frames = 25, cols = 5, cell = 409, sheet = 2048, seconds = 1.5, gain = 1.2, tk = 0.5 },
+	shockwave = { slot = "shieldShockwave", frames = 16, cols = 4, cell = 256, sheet = 1024, seconds = 0.7, gain = 1.0, tk = 0.55 },
+	crumble = { slot = "shieldCrumble", frames = 25, cols = 5, cell = 409, sheet = 2048, seconds = 1.2, gain = 1.05, tk = 0.6 },
+}
+local SHIELD_SLOTS = {}
+for name, look in pairs(SHIELD_LOOKS) do SHIELD_SLOTS[name] = { look.loop.slot, look.hit.slot } end
+for name, spec in pairs(SHIELD_BREAKS) do SHIELD_SLOTS[name] = { spec.slot } end
+
 -- The surge styles' flipbooks. White art, the luminance in the alpha, ADD. row: where this
 -- layer starts on its sheet. A style's other pieces are sprites. Sized for the 180 px globe.
 local SURGE_ART = {
@@ -95,7 +151,27 @@ local STYLE_SLOTS = {
 	pour = { "surgePourColumn", "surgePourUnder" },
 	upwell = { "surgeUpwellBody", "surgeUpwellCore" },
 }
-local RIDES_LEVEL = { pour = true, upwell = true }
+-- Healing looks and one-off heals: flipbooks here, single sheets by slot name below.
+local HEAL_ART = {
+	vines = { slot = "healVines", w = 1024, h = 1024, cw = 256, ch = 256, cols = 4, frames = 16, row = 0 },
+	leaf = { slot = "healLeaf", w = 512, h = 512, cw = 128, ch = 128, cols = 4, frames = 16, row = 0 },
+	veil = { slot = "healVeil", w = 2048, h = 512, cw = 256, ch = 128, cols = 8, frames = 32, seconds = 7.5, row = 0 },
+	moundBody = { slot = "healMound", w = 2048, h = 512, cw = 256, ch = 128, cols = 8, frames = 16, row = 0 },
+	moundEdge = { slot = "healMound", w = 2048, h = 512, cw = 256, ch = 128, cols = 8, frames = 16, row = 2 },
+}
+STYLE_SLOTS.vines = { "healVines" }
+STYLE_SLOTS.halo = { "healHalo" }
+STYLE_SLOTS.bloom = { "healLeaf" }
+STYLE_SLOTS.veil = { "healVeil" }
+STYLE_SLOTS.rain = { "healRings", "healDrop" }
+STYLE_SLOTS.pulse = { "healRings", "healDome" }
+STYLE_SLOTS.embers = { "healDrop" }
+-- The one-off heals; if a sheet won't load the skill plays the plain burst.
+local HEAL_SLOTS = { mend = { "healDome" }, benediction = { "healBeam", "healRings" }, mound = { "healMound" } }
+local HEAL_SECONDS = { mend = 1.25, benediction = 1.15, mound = 1.15 }
+local RIDES_LEVEL = { pour = true, upwell = true, rain = true, pulse = true }
+local KICKS_POOL = { pour = true, upwell = true } -- lighting one sets the liquid rocking
+local NEW_STYLE = { vines = true, halo = true, bloom = true, veil = true, rain = true, pulse = true, embers = true }
 local STREAKS = 24 -- inhale: streaks rushing in
 local STREAK_CYCLE = 3 -- seconds for one
 local STREAK_SPAN = 0.78 -- of the sprite's height, the streak's length in the art
@@ -210,18 +286,32 @@ local function BreakCell(tex, spec, i, flipU, flipV)
 	tex:SetTexCoord(l, r, t, b)
 end
 
--- What a skill shows: its look, and the surge style if the look is a surge. Everything that
+-- What a skill shows: its look, and the surge style or flare heal it uses. Everything that
 -- draws goes through here; what is about the game (is it a real shield) uses effect.look.
 local function LookOf(effect)
-	if effect.look == "flare" then return "flare" end
 	local looks = Opt().looks
 	local choice = looks and looks[effect.key]
+	if effect.look == "flare" then
+		if choice == "burst" or (choice and HEAL_SLOTS[choice]) then return "flare", choice end
+		return "flare", effect.heal or "burst"
+	end
 	if choice == "radiate" or choice == "shell" then return choice end
+	if choice and SHIELD_LOOKS[choice] then return "shell", choice end
 	if choice == "swirl" or (choice and STYLE_SLOTS[choice]) then return "surge", choice end
 	if effect.look == "surge" then return "surge", effect.surge or "swirl" end
+	if effect.look == "shell" then return "shell", effect.shell end
 	return effect.look
 end
 ns.GlobeAura.LookOf = LookOf
+
+-- How a shield breaks: the skill's choice, else its default, else the Shatter.
+local function BreakOf(effect)
+	local breaks = Opt().breaks
+	local choice = breaks and breaks[effect.key]
+	if choice == "shatter" or (choice and SHIELD_BREAKS[choice]) then return choice end
+	return effect.shellBreak or "shatter"
+end
+ns.GlobeAura.BreakOf = BreakOf
 
 local function Lerp(color, to, k)
 	for i = 1, 3 do
@@ -664,6 +754,9 @@ end
 ---------------------------------------------------------------------------
 -- Shell.
 
+local DrawShieldLook -- draws a look on its shell; set once the flipbook helpers are defined
+local shieldArt = {} -- look or break -> whether its sheets loaded (ShieldArt); once only
+
 local function BuildShell(g)
 	local s = NewInstance("shell")
 	-- The gate: everything but the shatter lives in a clip frame whose top follows the fill of
@@ -733,8 +826,52 @@ local function FeedGate(s)
 	s.bar:SetValue(1)
 end
 
+local function ShieldArt(name)
+	if shieldArt[name] == nil then
+		local ok = true
+		for _, slot in ipairs(SHIELD_SLOTS[name]) do
+			if not ns.Art.Require(slot) then ok = false end
+		end
+		if not ok and ns.Log then ns.Log("globe auras: " .. name .. " art failed to load, falling back") end
+		shieldArt[name] = ok
+	end
+	return shieldArt[name]
+end
+
+-- What this shell draws: a look's name, or nil for the Crystal shell (its default, and the
+-- fallback if a look's sheets won't load).
+local function ActiveShieldLook(s)
+	local effect = s.effect or s.lastEffect
+	if not effect then return nil end
+	local look, style = LookOf(effect)
+	if look ~= "shell" or not SHIELD_LOOKS[style] or not ShieldArt(style) then return nil end
+	return style
+end
+
+-- The rendered looks are graded at their own gains, so a skill's strength stays out of them;
+-- the shared healing brightness still applies.
+local function ShieldStrength(s)
+	local effect = s.effect or s.lastEffect
+	return effect and effect.hot and (tonumber(Opt().hotStrength) or 1) or 1
+end
+
+local function HideShieldLook(s)
+	local r = s.drawnLook and s.shieldLooks[s.drawnLook]
+	if r then
+		r.idle.a:SetAlpha(0)
+		r.idle.b:SetAlpha(0)
+		r.hit:SetAlpha(0)
+	end
+	s.drawnLook = nil
+end
+
+local function ClearCrystal(s)
+	for _, tex in ipairs({ s.rim, s.facets, s.sheen, s.ripple, s.rippleHot, s.impact, s.formRing }) do tex:SetAlpha(0) end
+	if s.fx then s.fx.hit:SetAlpha(0) end
+end
+
 local function AnimateShell(g, s, now, dt)
-	local shattering = s.shatter and now - s.shatter < SHATTER
+	local shattering = s.shatter and now - s.shatter < (s.shatterSeconds or SHATTER)
 	if not s.ok or not Ease(s, now, dt, shattering) then
 		s.clip:Hide()
 		s.levelFrames.shatterBehind:Hide()
@@ -762,63 +899,78 @@ local function AnimateShell(g, s, now, dt)
 	local swell = (1 - 0.08 * form ^ 2) * (1 - 0.035 * hit)
 	local breath = 0.9 + 0.1 * math.sin(now * 2 * math.pi / 3.2)
 	local base = e * intensity * Strength(s) * flicker
-	Size(s.halo, g.size * SCALE * 0.96 * s.scale)
-	Paint(s.halo, sat, 0.7 * breath * base * (1 + 0.8 * hit))
-	Size(s.rim, size * swell)
-	Paint(s.rim, sat, base * (1 + 0.5 * form + hit))
-	Size(s.facets, size * swell)
-	Spin(s.facets, now * 0.03 + s.rank * 0.9)
-	Paint(s.facets, hot, 0.65 * base * (0.85 + 0.15 * math.sin(now * 1.7)) * (1 + 1.5 * form + 2.5 * hit))
-	if hitT and s.fx then
-		-- Light running along the crystal's seams, mirrored toward the blow.
-		local spec = BREAK.hit
-		local i = math.min(spec.frames - 1, math.floor(hitT * spec.frames))
-		BreakCell(s.fx.hit, spec, i, math.cos(s.hitAngle) > 0, math.sin(s.hitAngle) < 0)
-		Size(s.fx.hit, g.size * spec.size * s.scale * swell)
-		Paint(s.fx.hit, hot, 1.15 * intensity)
-		Paint(s.ripple, sat, 0)
-		Paint(s.rippleHot, hot, 0)
-		Paint(s.impact, hot, 0)
-	elseif hitT then
-		local r = size / 2
-		local x, y = math.cos(s.hitAngle) * r * 0.5, math.sin(s.hitAngle) * r * 0.5
-		-- The ripple's ring sits at a quarter of its sprite: grown to 2.6x the shell it has
-		-- crossed the whole globe from the blow.
-		local spread = size * (0.2 + 2.4 * Out(hitT))
-		for _, tex in ipairs({ s.ripple, s.rippleHot, s.impact }) do
-			tex:ClearAllPoints()
-			tex:SetPoint("CENTER", s.levelFrames.front, "CENTER", x, y)
-		end
-		Size(s.ripple, spread)
-		Paint(s.ripple, sat, 1.6 * (1 - hitT) ^ 1.2 * intensity)
-		Size(s.rippleHot, spread * 0.92) -- a second ring just behind the first
-		Paint(s.rippleHot, hot, 1.3 * (1 - hitT) ^ 1.2 * intensity)
-		Size(s.impact, size * (0.35 + 0.25 * hitT))
-		Paint(s.impact, hot, 1.5 * (1 - hitT) ^ 2.5 * intensity)
+	local shieldLook = ActiveShieldLook(s)
+	s.style = shieldLook or "shell"
+	if shieldLook then
+		DrawShieldLook(g, s, shieldLook, now, e * intensity * ShieldStrength(s) * flicker, intensity, sat, hot, hit, hitT)
 	else
-		Paint(s.ripple, sat, 0)
-		Paint(s.rippleHot, hot, 0)
-		Paint(s.impact, hot, 0)
-		if s.fx then Paint(s.fx.hit, hot, 0) end
+		if s.drawnLook then HideShieldLook(s) end
+		Size(s.halo, g.size * SCALE * 0.96 * s.scale)
+		Paint(s.halo, sat, 0.7 * breath * base * (1 + 0.8 * hit))
+		Size(s.rim, size * swell)
+		Paint(s.rim, sat, base * (1 + 0.5 * form + hit))
+		Size(s.facets, size * swell)
+		Spin(s.facets, now * 0.03 + s.rank * 0.9)
+		Paint(s.facets, hot, 0.65 * base * (0.85 + 0.15 * math.sin(now * 1.7)) * (1 + 1.5 * form + 2.5 * hit))
+		if hitT and s.fx then
+			-- Light running along the crystal's seams, mirrored toward the blow.
+			local spec = BREAK.hit
+			local i = math.min(spec.frames - 1, math.floor(hitT * spec.frames))
+			BreakCell(s.fx.hit, spec, i, math.cos(s.hitAngle) > 0, math.sin(s.hitAngle) < 0)
+			Size(s.fx.hit, g.size * spec.size * s.scale * swell)
+			Paint(s.fx.hit, hot, 1.15 * intensity)
+			Paint(s.ripple, sat, 0)
+			Paint(s.rippleHot, hot, 0)
+			Paint(s.impact, hot, 0)
+		elseif hitT then
+			local r = size / 2
+			local x, y = math.cos(s.hitAngle) * r * 0.5, math.sin(s.hitAngle) * r * 0.5
+			-- The ripple's ring sits at a quarter of its sprite: grown to 2.6x the shell it has
+			-- crossed the whole globe from the blow.
+			local spread = size * (0.2 + 2.4 * Out(hitT))
+			for _, tex in ipairs({ s.ripple, s.rippleHot, s.impact }) do
+				tex:ClearAllPoints()
+				tex:SetPoint("CENTER", s.levelFrames.front, "CENTER", x, y)
+			end
+			Size(s.ripple, spread)
+			Paint(s.ripple, sat, 1.6 * (1 - hitT) ^ 1.2 * intensity)
+			Size(s.rippleHot, spread * 0.92) -- a second ring just behind the first
+			Paint(s.rippleHot, hot, 1.3 * (1 - hitT) ^ 1.2 * intensity)
+			Size(s.impact, size * (0.35 + 0.25 * hitT))
+			Paint(s.impact, hot, 1.5 * (1 - hitT) ^ 2.5 * intensity)
+		else
+			Paint(s.ripple, sat, 0)
+			Paint(s.rippleHot, hot, 0)
+			Paint(s.impact, hot, 0)
+			if s.fx then Paint(s.fx.hit, hot, 0) end
+		end
+		-- The sheen sweeps from top left to bottom right every 3 s, under the globe mask.
+		if s.sheen then
+			local p = (now % 3) / 3
+			local off = (p - 0.5) * size * 0.8
+			Size(s.sheen, size * 1.6)
+			s.sheen:ClearAllPoints()
+			s.sheen:SetPoint("CENTER", s.levelFrames.front, "CENTER", off, -off)
+			if s.mask then s.mask:SetSize(size, size) end
+			Paint(s.sheen, hot, 0.55 * base * math.sin(p * math.pi))
+		end
+		Size(s.formRing, g.size * SCALE * s.scale * (1 + 0.4 * Out(1 - form)))
+		Paint(s.formRing, hot, form > 0 and 0.8 * form ^ 1.5 * intensity or 0)
 	end
-	-- The sheen sweeps from top left to bottom right every 3 s, under the globe mask.
-	if s.sheen then
-		local p = (now % 3) / 3
-		local off = (p - 0.5) * size * 0.8
-		Size(s.sheen, size * 1.6)
-		s.sheen:ClearAllPoints()
-		s.sheen:SetPoint("CENTER", s.levelFrames.front, "CENTER", off, -off)
-		if s.mask then s.mask:SetSize(size, size) end
-		Paint(s.sheen, hot, 0.55 * base * math.sin(p * math.pi))
-	end
-	Size(s.formRing, g.size * SCALE * s.scale * (1 + 0.4 * Out(1 - form)))
-	Paint(s.formRing, hot, form > 0 and 0.8 * form ^ 1.5 * intensity or 0)
 
 	-- Shatter: shards thrown off the upper half, tumbling and falling, a ring blown outward.
 	local shown = shattering and true or false
 	s.levelFrames.shatterBehind:SetShown(shown)
 	s.levelFrames.shards:SetShown(shown)
-	if shattering and s.fx then
+	if shattering and s.breakFx then
+		-- A chosen break: one flipbook of the dome coming apart, stepped; no ring of its own.
+		local fx = s.breakFx
+		local spec = fx.spec
+		local t = (now - s.shatter) / spec.seconds
+		BreakCell(fx.tex, spec, math.min(spec.frames - 1, math.floor(t * spec.frames)))
+		Size(fx.tex, g.size * SHIELD_BREAK_SIZE)
+		Paint(fx.tex, s.shatterMix, spec.gain * intensity)
+	elseif shattering and s.fx then
 		-- The dome you were looking at, cracking along its seams and flying apart; a dimmer ring.
 		local t = (now - s.shatter) / SHATTER
 		local spec = BREAK.shatter
@@ -1080,6 +1232,9 @@ local function Reattach(s)
 		local path = ns.Art.Path("surgeStreak")
 		for _, tex in ipairs(s.streakSheet) do tex:SetTexture(path, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE") end
 	end
+	for _, own in ipairs(s.bound or {}) do
+		own[1]:SetTexture(ns.Art.Path(own[2]), "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	end
 	s.released = nil
 end
 
@@ -1091,7 +1246,78 @@ local function Release(s)
 	if s.streakSheet then
 		for _, tex in ipairs(s.streakSheet) do tex:SetTexture(nil) end
 	end
+	for _, own in ipairs(s.bound or {}) do own[1]:SetTexture(nil) end
 	s.released = true
+end
+
+-- One shield look's sprites on one shell instance, built the first time it shows.
+local function EnsureShieldLook(s, name)
+	s.shieldLooks = s.shieldLooks or {}
+	local r = s.shieldLooks[name]
+	if not r then
+		local look = SHIELD_LOOKS[name]
+		local idle = Pair(s.levelFrames.front, look.loop, 0)
+		local hit = Sprite(s.levelFrames.front, look.hit.slot, 6)
+		r = { idle = idle, hit = hit, sheets = { idle }, bound = { { hit, look.hit.slot } } }
+		s.shieldLooks[name] = r
+	elseif r.released then
+		Reattach(r)
+	end
+	return r
+end
+
+-- One break's sprite on one shell instance; nil if its sheet won't load (the caller shatters).
+local function EnsureShieldBreak(s, name)
+	s.shieldBreaks = s.shieldBreaks or {}
+	local b = s.shieldBreaks[name]
+	if not b then
+		local spec = SHIELD_BREAKS[name]
+		local tex = Sprite(s.levelFrames.shards, spec.slot, 3)
+		if not tex then return nil end
+		b = { spec = spec, tex = tex, sheets = {}, bound = { { tex, spec.slot } } }
+		s.shieldBreaks[name] = b
+	elseif b.released then
+		Reattach(b)
+	end
+	return b
+end
+
+local function Blend(into, sat, hot, k)
+	for i = 1, 3 do into[i] = sat[i] + (hot[i] - sat[i]) * k end
+end
+
+-- The look: its loop, the halo behind the globe (the Crystal shell's sprite, at the look's own
+-- gain), and a hit stepped and mirrored toward the blow. base: strength, for the idle and halo.
+-- Painted as the crossfaded surge sheets are: colour with three arguments, the alpha last.
+DrawShieldLook = function(g, s, name, now, base, intensity, sat, hot, hit, hitT)
+	local look = SHIELD_LOOKS[name]
+	local r = EnsureShieldLook(s, name)
+	if s.drawnLook ~= name then
+		if s.drawnLook then HideShieldLook(s) else ClearCrystal(s) end
+		s.drawnLook = name
+	end
+	local form = 0
+	if s.ignite and now - s.ignite < SHIELD_FORM then form = 1 - (now - s.ignite) / SHIELD_FORM end
+	local swell = (1 - 0.05 * form ^ 2) * (1 - 0.015 * hit)
+	local size = g.size * SHIELD_SIZE * s.scale
+	Size(r.idle.a, size * swell)
+	Size(r.idle.b, size * swell)
+	s.lookColor = s.lookColor or {}
+	Blend(s.lookColor, sat, hot, look.tk)
+	DrawPair(r.idle, now, s.lookColor, look.idle * base * (1 + 0.35 * hit + 0.6 * form))
+	Size(s.halo, g.size * SCALE * 0.96 * s.scale)
+	Paint(s.halo, sat, look.halo * (0.9 + 0.1 * math.sin(now * 2 * math.pi / 3.2)) * base * (1 + 0.7 * hit))
+	if hitT then
+		local spec = look.hit
+		local i = math.min(spec.frames - 1, math.floor(hitT * spec.frames))
+		BreakCell(r.hit, spec, i, math.cos(s.hitAngle) < 0, math.sin(s.hitAngle) < 0)
+		Size(r.hit, size)
+		s.hitColor = s.hitColor or {}
+		Blend(s.hitColor, sat, hot, SHIELD_HIT_TK)
+		Paint(r.hit, s.hitColor, intensity)
+	else
+		Paint(r.hit, hot, 0)
+	end
 end
 
 local function StyleLevels(s)
@@ -1261,11 +1487,560 @@ function DRAW.upwell(g, u, s, now, base, sat, hot, rush)
 	Paint(s.crestH, hot, pulse * 1.15 * k)
 end
 
+---------------------------------------------------------------------------
+-- The healing looks, each a surge style: lit, tinted, stacked, settled and blinked out by
+-- AnimateSurge with the rest. What lands on the surface is anchored to the pool's fill guide,
+-- so the level is never read. Sized for the 180 px globe.
+
+-- A sprite a style owns: it shows and hides with the style and lets go of its sheet when released.
+local function Own(s, frame, slot, sublevel)
+	local tex = Sprite(frame, slot, sublevel)
+	if not tex then return nil end
+	s.parts[#s.parts + 1] = tex
+	if ns.Art.slots[slot].lazy then s.bound[#s.bound + 1] = { tex, slot } end
+	return tex
+end
+
+local function OwnPair(s, frame, spec, sublevel)
+	local p = Pair(frame, spec, sublevel)
+	s.sheets[#s.sheets + 1] = p
+	s.parts[#s.parts + 1] = p.a
+	s.parts[#s.parts + 1] = p.b
+	return p
+end
+
+-- A flipbook layer at a position in frames that doesn't wrap (growth). As DrawPair: the crossfade
+-- in the colour, the strength in the alpha set last.
+local function DrawStage(p, pos, color, strength)
+	local spec = p.spec
+	local last = spec.frames - 1
+	pos = math.max(0, math.min(last, pos))
+	local i = math.floor(pos)
+	local f = pos - i
+	if i ~= p.i then
+		p.i = i
+		Cell(p.a, spec, i)
+		Cell(p.b, spec, math.min(i + 1, last))
+	end
+	local r, g, b = color[1], color[2], color[3]
+	p.a:SetVertexColor(r * (1 - f), g * (1 - f), b * (1 - f))
+	p.b:SetVertexColor(r * f, g * f, b * f)
+	local k = math.max(0, math.min(1, strength))
+	p.a:SetAlpha(k)
+	p.b:SetAlpha(k)
+end
+
+-- Texcoords for one flipbook cell, turned by angle about the cell's middle. The art keeps to the
+-- middle 70% of its cell, so turning stays inside (tools/blender/globe_heal_art.py LEAF_KEEP).
+local CELL_TURN = 0.354
+local function SpinCell(tex, spec, i, angle)
+	local row = math.floor(i / spec.cols)
+	local col = i - row * spec.cols
+	local cu, cv = (col + 0.5) * spec.cw / spec.w, (row + spec.row + 0.5) * spec.ch / spec.h
+	local h = CELL_TURN * spec.cw / spec.w
+	local c, sn = math.cos(angle) * h, math.sin(angle) * h
+	local function P(dx, dy) return cu + dx * c - dy * sn, cv + dx * sn + dy * c end
+	local ulx, uly = P(-1, -1)
+	local llx, lly = P(-1, 1)
+	local urx, ury = P(1, -1)
+	local lrx, lry = P(1, 1)
+	tex:SetTexCoord(ulx, uly, llx, lly, urx, ury, lrx, lry)
+end
+
+local function DrawSpun(p, pos, angle, color, strength)
+	local spec = p.spec
+	pos = (pos % 1) * spec.frames
+	local i = math.floor(pos)
+	local f = pos - i
+	SpinCell(p.a, spec, i, angle)
+	SpinCell(p.b, spec, (i + 1) % spec.frames, angle)
+	local r, g, b = color[1], color[2], color[3]
+	p.a:SetVertexColor(r * (1 - f), g * (1 - f), b * (1 - f))
+	p.b:SetVertexColor(r * f, g * f, b * f)
+	local k = math.max(0, math.min(1, strength))
+	p.a:SetAlpha(k)
+	p.b:SetAlpha(k)
+end
+
+-- When this look was cast, and how long it runs, for looks that time themselves from your own
+-- cast (Watch.lua castAt). Nil: no cast to go on, or the instance is fading out. A skill's Preview
+-- shows the whole life of a long buff in its few seconds.
+local PREVIEW_LENGTH = 9
+local function TimedBy(inst)
+	local effect, st = inst.effect, inst.st
+	if not (effect and st and st.castAt and st.length and st.length > 0) then return nil end
+	local length = st.length
+	if ns.GlobeAura.previewKey == effect.key then length = math.min(length, PREVIEW_LENGTH) end
+	return st.castAt, length
+end
+
+-- Vines.
+local VINE_SPAN = 0.85 -- of the buff's length to grow to the crown, then a quiet wreath
+local VINE_RETRACT = 0.35 -- seconds to draw back when recast
+local function VineTip(q, side)
+	local sgn = side == 0 and -1 or 1
+	local th = (math.rad(74 - 69 * q) + math.rad(2.2) * math.sin(q * 11 + side * 1.7) * (1 - q) ^ 0.3) * sgn
+	local rad = 0.858 + 0.016 * math.sin(q * 15 + side * 2.1)
+	return math.sin(th) * rad, math.cos(th) * rad
+end
+
+local function VineGrowth(u, s, now, dt)
+	-- Fading out: stays as it is.
+	if u.effect then
+		local from, length = TimedBy(u)
+		local target = from and math.max(0, math.min(1, (now - from) / (length * VINE_SPAN))) or 1
+		if s.effect ~= u.effect or not s.grow then
+			s.effect, s.grow = u.effect, target
+		elseif target >= s.grow then
+			s.grow = target
+		else
+			s.grow = math.max(target, s.grow - (dt or 0) / VINE_RETRACT)
+		end
+	end
+	return s.grow or 1
+end
+
+function BUILD.vines(g, u)
+	local s = { parts = {}, sheets = {}, bound = {} }
+	s.mask = GlobeMask(u.front, g.frame)
+	s.vine = OwnPair(s, u.front, HEAL_ART.vines, 3)
+	PairCall(s.vine, "AddMaskTexture", s.mask)
+	s.tips = {}
+	for side = 1, 2 do
+		local tex = Own(s, u.front, "mote", 4)
+		tex:AddMaskTexture(s.mask)
+		s.tips[side] = tex
+	end
+	return s
+end
+
+function DRAW.vines(g, u, s, now, base, sat, hot, rush, calm, dt)
+	local size = g.size
+	local k = base * (RANK_WEIGHT[u.rank + 1] or 0.4) * (1 - 0.3 * calm)
+	if s.size ~= size then
+		s.size = size
+		PairCall(s.vine, "SetSize", size, size)
+	end
+	local grow = VineGrowth(u, s, now, dt)
+	DrawStage(s.vine, grow * (HEAL_ART.vines.frames - 1), Mix(sat, hot, 0.62, 0.51), k)
+	-- The bud of light at the growing tip, gone once it has reached the crown.
+	local bud = 1 - Smoothstep((grow - 0.9) / 0.1)
+	for side, tex in ipairs(s.tips) do
+		local x, y = VineTip(math.min(0.995, grow), side - 1)
+		tex:ClearAllPoints()
+		tex:SetPoint("CENTER", u.front, "CENTER", x * size / 2, y * size / 2)
+		Size(tex, size * 0.13)
+		Paint(tex, hot, 0.85 * (0.75 + 0.25 * math.sin(now * 2.8)) * bud * k)
+	end
+end
+
+-- Halo: the ring of one sprite, its back arc behind the globe and its front arc on the glass.
+function BUILD.halo(g, u)
+	local s = { parts = {}, sheets = {}, bound = {} }
+	s.backGlow = Own(s, u.behind, "healHalo", 5)
+	s.backCore = Own(s, u.behind, "healHalo", 6)
+	s.backGlow:SetTexCoord(0, 1, 0.5, 0.75)
+	s.backCore:SetTexCoord(0, 1, 0, 0.25)
+	s.mask = GlobeMask(u.front, g.frame)
+	s.glass = Own(s, u.front, "auraCorona", 0)
+	s.glass:AddMaskTexture(s.mask)
+	s.frontGlow = Own(s, u.front, "healHalo", 1)
+	s.frontCore = Own(s, u.front, "healHalo", 2)
+	s.frontGlow:SetTexCoord(0, 1, 0.75, 1)
+	s.frontCore:SetTexCoord(0, 1, 0.25, 0.5)
+	s.glints = {}
+	for k = 1, 2 do s.glints[k] = Own(s, u.front, "mote", 3) end
+	s.motes = {}
+	for k = 1, 5 do
+		local tex = Own(s, u.front, "mote", 4)
+		tex:AddMaskTexture(s.mask)
+		s.motes[k] = tex
+	end
+	return s
+end
+
+function DRAW.halo(g, u, s, now, base, sat, hot, rush, calm)
+	local size = g.size
+	local r = size / 2
+	local clock = now + u.rank * 1.3
+	local k = base * (RANK_WEIGHT[u.rank + 1] or 0.4) * (1 - 0.35 * calm)
+	local breath = 0.88 + 0.12 * math.sin(clock * 2 * math.pi / 4.2)
+	local w = 2.8 * r * u.scale
+	local h = w / 2
+	local y = 1.09 * r
+	if s.size ~= w then
+		s.size = w
+		for _, tex in ipairs({ s.backGlow, s.backCore }) do
+			Stretch(tex, w, h / 2)
+			tex:ClearAllPoints()
+			tex:SetPoint("CENTER", u.behind, "CENTER", 0, y + h / 4)
+		end
+		for _, tex in ipairs({ s.frontGlow, s.frontCore }) do
+			Stretch(tex, w, h / 2)
+			tex:ClearAllPoints()
+			tex:SetPoint("CENTER", u.front, "CENTER", 0, y - h / 4)
+		end
+		Size(s.glass, size * 1.1)
+		s.glass:ClearAllPoints()
+		s.glass:SetPoint("CENTER", u.front, "CENTER", 0, r * 0.97)
+	end
+	local lit = breath * k * (1 + 0.35 * rush)
+	Paint(s.backGlow, sat, 0.62 * lit)
+	Paint(s.backCore, hot, 0.7 * lit)
+	Paint(s.glass, sat, 0.22 * breath * k)
+	Paint(s.frontGlow, sat, 0.78 * lit)
+	Paint(s.frontCore, hot, 0.95 * lit)
+	-- Two glints walking the ring, in no hurry; brighter on its front half.
+	for i, tex in ipairs(s.glints) do
+		local a = clock * 0.5 * (i == 1 and 1 or -1) + (i - 1) * math.pi * 0.8
+		tex:ClearAllPoints()
+		tex:SetPoint("CENTER", u.front, "CENTER", math.cos(a) * w * 0.31, y - math.sin(a) * w * 0.0961)
+		Size(tex, r * 0.42)
+		Paint(tex, hot, 0.7 * (0.5 + 0.5 * math.max(0, math.sin(a))) * k)
+	end
+	-- Motes of its light drifting down onto the glass, spread evenly over the top.
+	for i, tex in ipairs(s.motes) do
+		local q = (clock / 7.5 + i / 5) % 1
+		local x = (Hash(i * 3.7) - 0.5) * r * 0.8 + math.sin(q * 5 + i) * r * 0.05
+		tex:ClearAllPoints()
+		tex:SetPoint("CENTER", u.front, "CENTER", x, r * 0.82 - q * r * 0.72)
+		Size(tex, r * (0.1 + 0.05 * Hash(i * 7.1)))
+		Paint(tex, hot, 0.55 * Smoothstep(q / 0.2) * (1 - Smoothstep((q - 0.45) / 0.55)) * k)
+	end
+end
+
+-- Bloom: leaves off the top of the rim, each with its own soft glow behind it.
+local BLOOM_LEAVES = 12
+local BLOOM_PERIOD = 9.5
+
+function BUILD.bloom(g, u)
+	local s = { parts = {}, sheets = {}, bound = {} }
+	s.leaves = {}
+	for i = 1, BLOOM_LEAVES do
+		s.leaves[i] = { glow = Own(s, u.behind, "mote", 4), leaf = OwnPair(s, u.behind, HEAL_ART.leaf, 5) }
+		PairCall(s.leaves[i].leaf, "ClearAllPoints")
+	end
+	return s
+end
+
+function DRAW.bloom(g, u, s, now, base, sat, hot, rush, calm)
+	local r = g.size / 2
+	local clock = now + u.rank * 1.3
+	local k = base * (RANK_WEIGHT[u.rank + 1] or 0.4) * (1 - 0.4 * calm)
+	local tint = Mix(sat, hot, 0.9, 0.22)
+	for j = 0, BLOOM_LEAVES - 1 do
+		local item = s.leaves[j + 1]
+		local q = (clock / BLOOM_PERIOD + j / BLOOM_LEAVES + Hash(j * 5.3) * 0.08) % 1
+		-- Rim positions spread evenly over the top, mirrored in pairs, so it can't lean.
+		local a0 = math.rad(40 + 100 * (math.floor(j / 2) + 0.5) / (BLOOM_LEAVES / 2))
+		if j % 2 == 0 then a0 = math.pi - a0 end
+		local d0 = r * (0.96 + 0.03 * Hash(j * 2.2))
+		-- Rises up and away, slower the further out, swaying.
+		local rise = 1 - (1 - q) ^ 1.6
+		local x = math.cos(a0) * d0 + math.cos(a0) * rise * r * 0.42 + math.sin(q * 4.2 + j * 2.1) * r * 0.09 * (1 + q)
+		local y = math.sin(a0) * d0 + (0.42 + 0.46 * Hash(j * 3.3)) * rise * r * 1.05
+		local fade = Smoothstep(q / 0.14) * (1 - Smoothstep((q - 0.52) / 0.48))
+		local sz = r * (0.27 + 0.13 * Hash(j * 9.9)) * (0.85 + 0.15 * q)
+		item.glow:ClearAllPoints()
+		item.glow:SetPoint("CENTER", u.behind, "CENTER", x, y)
+		Size(item.glow, sz * 1.7)
+		Paint(item.glow, sat, 0.34 * fade * k)
+		local leaf = item.leaf
+		PairCall(leaf, "ClearAllPoints")
+		PairCall(leaf, "SetPoint", "CENTER", u.behind, "CENTER", x, y)
+		PairCall(leaf, "SetSize", sz, sz)
+		local pos = clock / (2.8 + 1.5 * Hash(j * 1.1)) + Hash(j)
+		DrawSpun(leaf, pos, q * 2.6 + Hash(j * 4.4) * 6.28, tint, 0.8 * fade * k)
+	end
+end
+
+-- Veil: one loop over the top of the rim, under the top-weighted mask.
+function BUILD.veil(g, u)
+	local s = { parts = {}, sheets = {}, bound = {} }
+	s.veil = OwnPair(s, u.behind, HEAL_ART.veil, 4)
+	if u.weight then PairCall(s.veil, "AddMaskTexture", u.weight) end
+	return s
+end
+
+function DRAW.veil(g, u, s, now, base, sat, hot, rush, calm)
+	local r = g.size / 2
+	local clock = now + u.rank * 1.3
+	local k = base * (RANK_WEIGHT[u.rank + 1] or 0.4) * (1 - 0.4 * calm)
+	local breath = 0.9 + 0.1 * math.sin(clock * 2 * math.pi / 5)
+	local w, h = 3.4 * r, 1.7 * r
+	if s.size ~= r then
+		s.size = r
+		PairCall(s.veil, "SetSize", w, h)
+		for _, tex in ipairs({ s.veil.a, s.veil.b }) do
+			tex:ClearAllPoints()
+			tex:SetPoint("CENTER", u.behind, "CENTER", 0, h / 2)
+		end
+	end
+	DrawPair(s.veil, clock, Mix(sat, hot, 1, 0.32), breath * k)
+end
+
+-- Rain: a few drops falling to the fill guide, each with its ripple where it lands.
+local RAIN_LANES = { -0.62, 0.18, -0.25, 0.62, 0.42, -0.5, 0.05, -0.08 }
+local RAIN_PERIOD, RAIN_FALL = 5.2, 0.36
+
+function BUILD.rain(g, u)
+	local guide = g.frame.pool:Anchors()
+	local s = { parts = {}, sheets = {}, bound = {}, guide = guide }
+	local over = Layer(g.parent)
+	over:SetAllPoints(g.frame)
+	local mask = GlobeMask(over, g.frame)
+	local function Masked(slot, sublevel)
+		local tex = Own(s, over, slot, sublevel)
+		tex:AddMaskTexture(mask)
+		return tex
+	end
+	s.line = Masked("mote", 0)
+	s.lanes = {}
+	for i = 1, #RAIN_LANES do
+		local lane = { drop = Masked("healDrop", 3), glow = Masked("mote", 2), band = Masked("healRings", 1),
+			ring = Masked("healRings", 2), echo = Masked("healRings", 2), splash = Masked("mote", 3) }
+		lane.ring:SetTexCoord(0, 1, 0.008, 0.492)
+		lane.echo:SetTexCoord(0, 1, 0.008, 0.492)
+		lane.band:SetTexCoord(0, 1, 0.508, 0.992)
+		s.lanes[i] = lane
+	end
+	s.frames, s.glass = { over }, { over }
+	return s
+end
+
+function DRAW.rain(g, u, s, now, base, sat, hot, rush, calm)
+	local size = g.size
+	local clock = now + u.rank * 1.7
+	local k = base * (RANK_WEIGHT[u.rank + 1] or 0.4) * (1 - 0.45 * calm)
+	if s.size ~= size then
+		s.size = size
+		s.line:ClearAllPoints()
+		s.line:SetPoint("CENTER", s.guide, "TOP")
+		Stretch(s.line, size, size * 0.08)
+	end
+	-- Kept faint: a saturated glow on the liquid tints it (blue over red reads pink).
+	Paint(s.line, sat, 0.1 * k)
+	for i, lane in ipairs(s.lanes) do
+		local q = (clock / RAIN_PERIOD + (i - 1) / #RAIN_LANES + Hash((i - 1) * 4.1) * 0.05) % 1
+		local x = RAIN_LANES[i] * size * 0.34
+		local parts = { lane.drop, lane.glow, lane.band, lane.ring, lane.echo, lane.splash }
+		if q < RAIN_FALL then
+			local f = q / RAIN_FALL
+			local y = size * 0.58 * (1 - f ^ 1.45)
+			local a = Smoothstep(f / 0.3) * k
+			lane.drop:ClearAllPoints()
+			lane.drop:SetPoint("CENTER", s.guide, "TOP", x, y + size * 0.035)
+			Stretch(lane.drop, size * 0.04, size * 0.08)
+			Paint(lane.drop, hot, 0.95 * a)
+			lane.glow:ClearAllPoints()
+			lane.glow:SetPoint("CENTER", s.guide, "TOP", x, y)
+			Size(lane.glow, size * 0.1)
+			Paint(lane.glow, sat, 0.45 * a)
+			for _, tex in ipairs({ lane.band, lane.ring, lane.echo, lane.splash }) do tex:SetAlpha(0) end
+		else
+			local rq = (q - RAIN_FALL) / (1 - RAIN_FALL)
+			local w = size * (0.08 + 0.72 * (1 - (1 - rq) ^ 2.2))
+			local a = (1 - rq) ^ 1.6 * k
+			for _, tex in ipairs({ lane.band, lane.ring, lane.echo, lane.splash }) do
+				tex:ClearAllPoints()
+				tex:SetPoint("CENTER", s.guide, "TOP", x, 0)
+			end
+			Stretch(lane.band, w, w * 0.25)
+			Paint(lane.band, sat, 0.22 * a)
+			Stretch(lane.ring, w, w * 0.25)
+			Paint(lane.ring, hot, 0.62 * a)
+			if rq > 0.12 then
+				Stretch(lane.echo, w * 0.55, w * 0.1375)
+				Paint(lane.echo, hot, 0.34 * (1 - rq) ^ 2 * k)
+			else
+				lane.echo:SetAlpha(0)
+			end
+			if rq < 0.25 then
+				Size(lane.splash, size * 0.14)
+				Paint(lane.splash, hot, 0.8 * (1 - rq / 0.25) ^ 1.4 * k)
+			else
+				lane.splash:SetAlpha(0)
+			end
+			lane.drop:SetAlpha(0)
+			lane.glow:SetAlpha(0)
+		end
+	end
+end
+
+-- Pulse: the beat. Rising 0..1 while a wave climbs to the surface, flashing 0..1 after it lands,
+-- and how strong: from your own cast and the skill's tick period, or a plain slow cadence.
+local PULSE_RISE, PULSE_FLASH, PULSE_PLAIN = 1.15, 0.9, 4.5
+local function PulseBeat(u, now)
+	local effect = u.effect
+	local from, length = TimedBy(u)
+	if from and effect and effect.tick then
+		local period = effect.tick
+		local rise = math.min(PULSE_RISE, period * 0.55)
+		local flash = math.min(PULSE_FLASH, period * 0.45)
+		local elapsed = now - from
+		local ticks = math.floor(length / period + 0.001)
+		local done = math.floor(elapsed / period)
+		local since = elapsed - done * period
+		local rising, flashing
+		if done + 1 <= ticks and period - since <= rise then rising = 1 - (period - since) / rise end
+		if done >= 1 and done <= ticks and since < flash then flashing = since / flash end
+		return rising, flashing, 1
+	end
+	local clock = now + u.rank * 1.7
+	local since = clock % PULSE_PLAIN
+	local rising = since > PULSE_PLAIN - PULSE_RISE and (since - (PULSE_PLAIN - PULSE_RISE)) / PULSE_RISE or nil
+	local flashing = since < PULSE_FLASH and since / PULSE_FLASH or nil
+	return rising, flashing, 0.6
+end
+
+function BUILD.pulse(g, u)
+	local guide, inside = g.frame.pool:Anchors()
+	local s = { parts = {}, sheets = {}, bound = {}, guide = guide }
+	-- Inside the liquid's clip: the wave, wide and soft, so it reads as light moving, not a ring.
+	local liquid = Layer(inside)
+	liquid:SetAllPoints(g.frame)
+	local liquidMask = GlobeMask(liquid, g.frame)
+	s.waveWide = Own(s, liquid, "mote", 0)
+	s.waveCrest = Own(s, liquid, "mote", 1)
+	s.waveWide:AddMaskTexture(liquidMask)
+	s.waveCrest:AddMaskTexture(liquidMask)
+	-- Over the surface: its answer, riding the fill guide.
+	local over = Layer(g.parent)
+	over:SetAllPoints(g.frame)
+	local mask = GlobeMask(over, g.frame)
+	local function Masked(slot, sublevel)
+		local tex = Own(s, over, slot, sublevel)
+		tex:AddMaskTexture(mask)
+		tex:ClearAllPoints()
+		tex:SetPoint("CENTER", guide, "TOP")
+		return tex
+	end
+	s.flash = Masked("mote", 0)
+	s.flashHot = Masked("mote", 1)
+	s.ripple = Masked("healRings", 2)
+	s.rippleHot = Masked("healRings", 3)
+	s.ripple:SetTexCoord(0, 1, 0.508, 0.992)
+	s.rippleHot:SetTexCoord(0, 1, 0.008, 0.492)
+	s.dome = Masked("healDome", 2)
+	s.frames, s.glass, s.liquid = { liquid, over }, { over }, liquid
+	return s
+end
+
+function DRAW.pulse(g, u, s, now, base, sat, hot, rush, calm)
+	local size = g.size
+	local rising, flashing, soft = PulseBeat(u, now)
+	local k = base * (RANK_WEIGHT[u.rank + 1] or 0.4) * (1 - 0.3 * calm) * soft
+	if rising then
+		local fade = Smoothstep(rising / 0.25)
+		local y = -size * 0.62 * (1 - rising)
+		for _, tex in ipairs({ s.waveWide, s.waveCrest }) do
+			tex:ClearAllPoints()
+			tex:SetPoint("CENTER", s.guide, "TOP", 0, y)
+		end
+		Stretch(s.waveWide, size * 1.35, size * 0.42)
+		Paint(s.waveWide, sat, 0.75 * fade * k)
+		Stretch(s.waveCrest, size * 1.1, size * 0.16)
+		Paint(s.waveCrest, hot, 0.55 * fade * k)
+	else
+		s.waveWide:SetAlpha(0)
+		s.waveCrest:SetAlpha(0)
+	end
+	if flashing then
+		local ca = (1 - flashing) ^ 1.4
+		local ww = size * (0.55 + 0.45 * flashing)
+		Stretch(s.flash, ww, ww * 0.09)
+		Paint(s.flash, sat, 0.9 * ca * k)
+		Stretch(s.flashHot, ww * 0.65, ww * 0.65 * 0.04)
+		Paint(s.flashHot, hot, 1.1 * ca * k)
+		Size(s.dome, size * 0.8)
+		s.dome:ClearAllPoints()
+		s.dome:SetPoint("CENTER", s.guide, "TOP", 0, size * 0.05)
+		Paint(s.dome, sat, 0.42 * ca * (1 - flashing) * k)
+		-- A ripple spreading from the middle, in place of the thin ring's rise.
+		local rw = size * (0.25 + 0.7 * (1 - (1 - flashing) ^ 2))
+		Stretch(s.ripple, rw, rw * 0.25)
+		Paint(s.ripple, sat, 0.4 * ca * k)
+		Stretch(s.rippleHot, rw * 0.98, rw * 0.245)
+		Paint(s.rippleHot, hot, 0.65 * ca * k)
+		if u.bloomTop then
+			u.bloomTop:SetVertexColor(hot[1], hot[2], hot[3])
+			u.bloomTop:SetAlpha(math.min(1, (0.1 + 0.28 * ca) * k))
+		end
+	else
+		s.flash:SetAlpha(0)
+		s.flashHot:SetAlpha(0)
+		s.dome:SetAlpha(0)
+		s.ripple:SetAlpha(0)
+		s.rippleHot:SetAlpha(0)
+	end
+end
+
+-- Embers: slow sparks with a trail, rising through the glass.
+local EMBER_LANES = { -0.15, 0.3, -0.5, 0.05, 0.62, -0.32, 0.45, -0.7, 0.18, -0.05, 0.75, -0.6, 0 }
+
+function BUILD.embers(g, u)
+	local s = { parts = {}, sheets = {}, bound = {} }
+	s.mask = GlobeMask(u.front, g.frame)
+	s.embers = {}
+	for i = 1, #EMBER_LANES do
+		local tail = Own(s, u.front, "healDrop", 2)
+		local glow = Own(s, u.front, "mote", 1)
+		local core = Own(s, u.front, "mote", 3)
+		tail:AddMaskTexture(s.mask)
+		glow:AddMaskTexture(s.mask)
+		core:AddMaskTexture(s.mask)
+		-- The drop's art falls with its tail above it; flipped, the spark rises trailing.
+		tail:SetTexCoord(0, 1, 1, 0)
+		s.embers[i] = { tail = tail, glow = glow, core = core }
+	end
+	return s
+end
+
+function DRAW.embers(g, u, s, now, base, sat, hot, rush, calm)
+	local size = g.size
+	local r = size / 2
+	local clock = now + u.rank * 1.3
+	local k = base * (RANK_WEIGHT[u.rank + 1] or 0.4) * (1 - 0.35 * calm)
+	for i, ember in ipairs(s.embers) do
+		local speed = 1 + (i % 3 == 0 and 0.35 or 0)
+		local q = (clock * speed / 10 + Hash(i * 5.7)) % 1
+		local y = -r * 0.86 + q * r * 1.74
+		local chord = math.sqrt(math.max(0.03, 1 - (y / r) ^ 2))
+		local x = EMBER_LANES[i] * 0.72 * r * chord + math.sin(q * 9 + i * 1.9) * r * 0.06
+		-- Each one gutters on its own and dies somewhere on the way up.
+		local die = 0.55 + 0.4 * Hash(i * 2.9)
+		local fade = Smoothstep(q / 0.14) * (1 - Smoothstep((q - die) / (1 - die)))
+		local gutter = 0.72 + 0.28 * math.sin(clock * (1.1 + Hash(i)) * 3 + i) * math.sin(clock * 5 + i * 3)
+		local sz = size * (0.07 + 0.04 * Hash(i * 2.1))
+		local lit = fade * gutter * k
+		ember.tail:ClearAllPoints()
+		ember.tail:SetPoint("CENTER", u.front, "CENTER", x, y - sz * 1.15)
+		Stretch(ember.tail, sz * 0.4, sz * 3.1)
+		Paint(ember.tail, Mix(sat, hot, 0.6, 0.4), 0.7 * lit)
+		ember.glow:ClearAllPoints()
+		ember.glow:SetPoint("CENTER", u.front, "CENTER", x, y)
+		Size(ember.glow, sz * 3)
+		Paint(ember.glow, sat, 0.34 * lit)
+		ember.core:ClearAllPoints()
+		ember.core:SetPoint("CENTER", u.front, "CENTER", x, y)
+		Size(ember.core, sz * 1.05)
+		Paint(ember.core, hot, 0.9 * lit)
+	end
+end
+
 -- What each style keeps of the swirl's shared light: corona size and strength, glass bloom.
 local STYLE_LIGHT = {
 	inhale = { corona = 0.98, glow = 0.42, top = 0.42 },
 	pour = { corona = 0.7, glow = 0.22, top = 0.22 },
 	upwell = { corona = 0.9, glow = 0.34, top = 0.4 },
+	-- Healing looks: quiet, and quieter still when a long buff settles.
+	vines = { corona = 0.7, glow = 0.14, top = 0.1, settle = 0.4 },
+	halo = { corona = 0.9, glow = 0, top = 0.22, settle = 0.4 },
+	bloom = { corona = 0.775, glow = 0.22, top = 0.22, settle = 0.4 },
+	veil = { corona = 0.65, glow = 0.2, top = 0.3, settle = 0.4 },
+	rain = { corona = 0.8, glow = 0, top = 0.14, settle = 0.5 },
+	pulse = { corona = 0.8, glow = 0, top = 0.1, settle = 0.4 },
+	embers = { corona = 0.8, glow = 0, top = 0.14, settle = 0.4 },
 }
 
 local function BuildSurge(g)
@@ -1357,17 +2132,17 @@ local function AnimateSurge(g, u, now, dt)
 		local light = STYLE_LIGHT[style]
 		Size(u.corona, size * light.corona)
 		local breath = 0.86 + 0.14 * math.sin(now * 2 * math.pi / 2.2)
-		Paint(u.corona, sat, light.glow * breath * base)
+		Paint(u.corona, sat, light.glow * breath * base * (1 - (light.settle or 0) * calm))
 		if u.bloomLow then
 			u.bloomLow:SetAlpha(0)
 			u.bloomTop:SetVertexColor(hot[1], hot[2], hot[3])
-			u.bloomTop:SetAlpha(math.min(1, light.top * breath * base * (1 + rush)))
+			u.bloomTop:SetAlpha(math.min(1, light.top * breath * base * (1 + rush) * (1 - (light.settle or 0) * calm)))
 		end
-		if RIDES_LEVEL[style] and u.ignite and u.kicked ~= u.ignite then
+		if KICKS_POOL[style] and u.ignite and u.kicked ~= u.ignite then
 			u.kicked = u.ignite
 			g.frame.pool:Kick(0.06)
 		end
-		DRAW[style](g, u, s, now, base, sat, hot, rush, calm)
+		DRAW[style](g, u, s, now, base, sat, hot, rush, calm, dt)
 		return true
 	end
 	HideStyles(u)
@@ -1477,6 +2252,289 @@ local function AnimateFlare(g, f, now)
 end
 
 ---------------------------------------------------------------------------
+-- One-off heals: what a flare skill's "in" parts play instead of the burst (LookOf's second
+-- value). One of each per globe, built when first wanted; a recast restarts it. Everything on
+-- the surface is anchored to the fill guide; the level is never read.
+
+local HEAL_BUILD, HEAL_DRAW = {}, {}
+
+local healArt = {} -- heal -> whether its sheets loaded; once only
+
+local function HealArt(name)
+	if healArt[name] == nil then
+		local ok = true
+		for _, slot in ipairs(HEAL_SLOTS[name]) do
+			if not ns.Art.Require(slot) then ok = false end
+		end
+		if not ok and ns.Log then ns.Log("globe auras: " .. name .. " art failed to load, using burst") end
+		healArt[name] = ok
+	end
+	return healArt[name]
+end
+
+local function CanDrawHeal(g, name)
+	if not HEAL_SLOTS[name] or not HealArt(name) then return false end
+	local pool = g.frame.pool
+	if not (pool and pool.Anchors) then return false end
+	-- A split globe has two levels side by side, so nothing can ride "the" level.
+	if g.frame == ns.ResourceGlobe and ns.Globes.IsSplit and ns.Globes.IsSplit() then return false end
+	return true
+end
+
+local function HealLevels(g, h)
+	h.behind:SetFrameLevel(LevelOf("aura"))
+	h.over:SetFrameLevel(LevelOf("glass"))
+	h.liquid:SetFrameLevel(g.frame.pool.frame:GetFrameLevel() + 1)
+end
+
+local function NewHeal(g)
+	local h = { parts = {}, sheets = {}, bound = {} }
+	local guide, inside = g.frame.pool:Anchors()
+	h.guide = guide
+	h.behind = Layer(g.parent)
+	h.behind:SetAllPoints(g.frame)
+	h.over = Layer(g.parent)
+	h.over:SetAllPoints(g.frame)
+	h.overMask = GlobeMask(h.over, g.frame)
+	h.liquid = Layer(inside)
+	h.liquid:SetAllPoints(g.frame)
+	h.liquidMask = GlobeMask(h.liquid, g.frame)
+	if ns.Art.Path("auraTopWeight") then
+		h.weight = h.behind:CreateMaskTexture()
+		h.weight:SetTexture(ns.Art.Path("auraTopWeight"), "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+		h.weight:SetPoint("CENTER")
+	end
+	if ns.Art.Path("globeRim") then
+		h.bloom = h.over:CreateTexture(nil, "ARTWORK", nil, 0)
+		h.bloom:SetTexture(ns.Art.Path("globeRim"))
+		h.bloom:SetBlendMode("ADD")
+		h.bloom:SetAllPoints()
+		h.bloom:SetTexCoord(0, 1, 1, 0)
+		h.bloom:SetAlpha(0)
+	end
+	h.frames = { h.behind, h.over, h.liquid }
+	for _, frame in ipairs(h.frames) do frame:Hide() end
+	return h
+end
+
+-- A heal sprite: masked to the globe if over, and to the top-weighted mask behind.
+local function HealOver(h, slot, sublevel)
+	local tex = Own(h, h.over, slot, sublevel)
+	tex:AddMaskTexture(h.overMask)
+	return tex
+end
+
+local function HealBehind(h, slot, sublevel)
+	local tex = Own(h, h.behind, slot, sublevel)
+	if h.weight then tex:AddMaskTexture(h.weight) end
+	return tex
+end
+
+local function HealLiquid(h, slot, sublevel)
+	local tex = Own(h, h.liquid, slot, sublevel)
+	tex:AddMaskTexture(h.liquidMask)
+	return tex
+end
+
+local function HealBloom(h, hot, alpha)
+	if h.bloom then
+		h.bloom:SetVertexColor(hot[1], hot[2], hot[3])
+		h.bloom:SetAlpha(math.max(0, math.min(1, alpha)))
+	end
+end
+
+local function OnSurface(tex, guide, x, y)
+	tex:ClearAllPoints()
+	tex:SetPoint("CENTER", guide, "TOP", x or 0, y or 0)
+end
+
+local MEND_MOTES = 8
+
+function HEAL_BUILD.mend(g, h)
+	h.corona = HealBehind(h, "auraCorona", 0)
+	h.domeSat = HealOver(h, "healDome", 1)
+	h.domeHot = HealOver(h, "healDome", 2)
+	h.line = HealOver(h, "mote", 3)
+	h.under = HealLiquid(h, "healDome", 0)
+	h.under:SetTexCoord(0, 1, 1, 0)
+	h.motes = {}
+	for i = 1, MEND_MOTES do h.motes[i] = HealOver(h, "mote", 4) end
+end
+
+function HEAL_DRAW.mend(g, h, t, k, sat, hot)
+	local size = g.size
+	local q = math.min(1, t / HEAL_SECONDS.mend)
+	local glow = math.sin(math.min(1, q / 0.32) * math.pi * 0.5) * (1 - Smoothstep((q - 0.25) / 0.75))
+	local dome = size * (0.55 + 0.9 * (1 - (1 - q) ^ 2))
+	Size(h.corona, size * 1.45)
+	Paint(h.corona, sat, 0.5 * glow * k)
+	for _, tex in ipairs({ h.domeSat, h.domeHot, h.line, h.under }) do OnSurface(tex, h.guide) end
+	Size(h.domeSat, dome)
+	Paint(h.domeSat, sat, 0.95 * glow * k)
+	Size(h.domeHot, dome * 0.72)
+	Paint(h.domeHot, hot, 0.7 * glow * k)
+	Stretch(h.line, size * 1.05, size * 0.0735)
+	Paint(h.line, hot, 0.85 * glow * k)
+	Size(h.under, dome * 0.55)
+	Paint(h.under, sat, 0.42 * glow * k)
+	HealBloom(h, hot, 0.42 * glow * k)
+	for i, tex in ipairs(h.motes) do
+		local mq = q * 1.25 - Hash(i * 3.1) * 0.25
+		if mq > 0 and mq < 1 then
+			local x = (Hash(i * 6.7) - 0.5) * size * 0.7
+			local y = size * (0.08 + 0.46 * (1 - (1 - mq) ^ 2)) * (0.6 + 0.8 * Hash(i * 2.3))
+			OnSurface(tex, h.guide, x, y)
+			Size(tex, size * 0.07)
+			Paint(tex, hot, (1 - mq) ^ 1.2 * 0.9 * k)
+		else
+			tex:SetAlpha(0)
+		end
+	end
+end
+
+function HEAL_BUILD.benediction(g, h)
+	h.corona = HealBehind(h, "auraCorona", 0)
+	h.ring = HealBehind(h, "auraRing", 1)
+	h.ringHot = HealBehind(h, "auraRing", 2)
+	h.beamGlow = Own(h, h.over, "healBeam", 1)
+	h.beamCore = Own(h, h.over, "healBeam", 2)
+	h.beamGlow:SetTexCoord(0.5, 1, 0, 1)
+	h.beamCore:SetTexCoord(0, 0.5, 0, 1)
+	h.spot = HealOver(h, "mote", 3)
+	h.rippleBand = HealOver(h, "healRings", 3)
+	h.rippleCore = HealOver(h, "healRings", 4)
+	h.rippleBand:SetTexCoord(0, 1, 0.508, 0.992)
+	h.rippleCore:SetTexCoord(0, 1, 0.008, 0.492)
+end
+
+function HEAL_DRAW.benediction(g, h, t, k, sat, hot)
+	local size = g.size
+	local r = size / 2
+	local q = math.min(1, t / HEAL_SECONDS.benediction)
+	local beam = Smoothstep(q / 0.1) * (1 - Smoothstep((q - 0.32) / 0.4))
+	local ringQ = math.min(1, t / 1)
+	local ringAlpha = math.sin(math.min(1, ringQ * 1.2) * math.pi) * (1 - ringQ) ^ 0.3
+	local big = size * SCALE
+	if h.weight then h.weight:SetSize(big * 1.35, big * 1.35) end
+	Size(h.ring, big * (1.05 + 0.32 * Out(ringQ)))
+	Paint(h.ring, sat, 1.05 * ringAlpha * k)
+	Size(h.ringHot, big * (1.04 + 0.3 * Out(ringQ)))
+	Paint(h.ringHot, hot, 0.7 * ringAlpha * k)
+	Size(h.corona, size * 1.5)
+	Paint(h.corona, sat, 0.42 * beam * k)
+	-- The beam runs from above the crown down to the level: its bottom is the fill guide's top.
+	if h.beamSize ~= size then
+		h.beamSize = size
+		for _, tex in ipairs({ h.beamGlow, h.beamCore }) do
+			tex:ClearAllPoints()
+			tex:SetPoint("TOP", g.frame, "TOP", 0, r * 0.85)
+			tex:SetPoint("BOTTOM", h.guide, "TOP")
+		end
+		h.beamGlow:SetWidth(size * 0.72)
+		h.beamCore:SetWidth(size * 0.5)
+	end
+	Paint(h.beamGlow, sat, 0.95 * beam * k)
+	Paint(h.beamCore, hot, 0.72 * beam * k)
+	-- Where it lands.
+	local spot = 1 - Smoothstep((q - 0.05) / 0.5)
+	OnSurface(h.spot, h.guide)
+	Size(h.spot, size * 0.4)
+	Paint(h.spot, hot, spot * beam * k)
+	local rq = math.min(1, t / 0.75)
+	local w = size * (0.12 + 0.9 * (1 - (1 - rq) ^ 2.4))
+	OnSurface(h.rippleBand, h.guide)
+	Stretch(h.rippleBand, w, w * 0.25)
+	Paint(h.rippleBand, sat, 0.7 * (1 - rq) ^ 1.2 * k)
+	OnSurface(h.rippleCore, h.guide)
+	Stretch(h.rippleCore, w, w * 0.25)
+	Paint(h.rippleCore, hot, (1 - rq) ^ 1.3 * k)
+	HealBloom(h, hot, 0.32 * beam * k)
+end
+
+local MOUND_U = 0.42 -- the swell's art runs this much of the globe above the surface
+local MOUND_BELOW = 0.12 -- and this much of that below it, covering the surface's own wave
+
+-- The swell's shape over its life, as in the art (globe_heal_art.py gen_mound).
+local function MoundRise(q)
+	return math.sin(math.min(1, q / 0.7) * math.pi * 0.5) ^ 0.75 * (1 - Smoothstep((q - 0.55) / 0.45))
+end
+
+function HEAL_BUILD.mound(g, h)
+	-- One opaque layer in the liquid's colour, stepped frame by frame: two "over" layers must
+	-- never crossfade, it flashes under any parent alpha.
+	h.body = HealOver(h, "healMound", 0)
+	h.body:SetBlendMode("BLEND")
+	h.edge = HealOver(h, "healMound", 1)
+	h.glow = HealLiquid(h, "mote", 0)
+	h.corona = HealOver(h, "auraCorona", 2)
+end
+
+function HEAL_DRAW.mound(g, h, t, k, sat, hot)
+	local size = g.size
+	local q = math.min(0.999, t / HEAL_SECONDS.mound)
+	local u = size * MOUND_U
+	local frames = HEAL_ART.moundBody.frames
+	local i = math.floor(q * frames)
+	-- Between stepped frames the height keeps moving, so the rise doesn't stutter.
+	local at, here = MoundRise((i + 0.5) / frames), MoundRise(q)
+	local keep = at > 0.02 and math.max(0.8, math.min(1.25, here / at)) or 1
+	if i ~= h.cell then
+		h.cell = i
+		Cell(h.body, HEAL_ART.moundBody, i)
+		Cell(h.edge, HEAL_ART.moundEdge, i)
+	end
+	for _, tex in ipairs({ h.body, h.edge }) do
+		tex:ClearAllPoints()
+		tex:SetPoint("BOTTOM", h.guide, "TOP", 0, -MOUND_BELOW * u)
+		Stretch(tex, size * 1.15, u * (1 + MOUND_BELOW) * keep)
+	end
+	local c = g.frame.pool.color or { 1, 1, 1 }
+	Paint(h.body, c, k)
+	Paint(h.edge, Mix(sat, hot, 0.8, 0.3), 0.42 * k)
+	local rise = math.sin(math.min(1, q / 0.45) * math.pi * 0.5)
+	local fall = 1 - Smoothstep((q - 0.3) / 0.7)
+	HealBloom(h, hot, 0.26 * rise * fall * k)
+	OnSurface(h.corona, h.guide, 0, u * 0.3)
+	Size(h.corona, size * 0.9)
+	Paint(h.corona, sat, 0.12 * rise * fall * k)
+	OnSurface(h.glow, h.guide)
+	Stretch(h.glow, size * 1.05 * 0.85, size * 1.05 * 0.5)
+	Paint(h.glow, sat, 0.22 * rise * (1 - Smoothstep((q - 0.25) / 0.6)) * k)
+end
+
+local function EnsureHeal(g, name)
+	local h = g.heals[name]
+	if not h then
+		h = NewHeal(g)
+		HEAL_BUILD[name](g, h)
+		g.heals[name] = h
+		HealLevels(g, h)
+	elseif h.released then
+		Reattach(h)
+		h.cell = nil
+	end
+	return h
+end
+
+local function AnimateHeals(g, now)
+	local busy = false
+	for name, h in pairs(g.heals) do
+		if h.started and now - h.started < HEAL_SECONDS[name] then
+			busy = true
+			for _, frame in ipairs(h.frames) do frame:Show() end
+			local tint = TINTS[h.tint] or TINTS.holy
+			local k = (tonumber(Opt().intensity) or 1) * (h.strength or 1)
+			if h.weight then h.weight:SetSize(g.size * SCALE * 1.35, g.size * SCALE * 1.35) end
+			HEAL_DRAW[name](g, h, now - h.started, k, tint.sat, tint.hot)
+		elseif h.started then
+			h.started = nil
+			for _, frame in ipairs(h.frames) do frame:Hide() end
+		end
+	end
+	return busy
+end
+
+---------------------------------------------------------------------------
 -- Globes and their layout.
 
 local function GlobeFor(kind)
@@ -1579,6 +2637,7 @@ function ns.GlobeAura.Layout()
 			f.front:SetAllPoints(g.frame)
 			f.front:SetFrameLevel(LevelOf("glass"))
 		end
+		for _, h in pairs(g.heals) do HealLevels(g, h) end
 	end
 end
 
@@ -1618,7 +2677,21 @@ local function Shatter(inst, was, now)
 	local tint = TINTS[TintOf(was)] or TINTS.holy
 	inst.shatter, inst.shatterSeed = now, math.floor(now * 7) % 97
 	inst.shatterSat, inst.shatterHot = tint.sat, tint.hot
-	local k = 0.65 -- the rendered shards sit between the tint's two colours
+	-- A shield break of its own, if the skill has one and its sheet loaded; else the Shatter.
+	local name = BreakOf(was)
+	local spec = SHIELD_BREAKS[name]
+	local fx = spec and ShieldArt(name) and EnsureShieldBreak(inst, name) or nil
+	inst.breakFx, inst.breakName = fx, fx and name or "shatter"
+	inst.shatterSeconds = fx and spec.seconds or SHATTER
+	-- Whatever the last break left painted stays out of this one.
+	if inst.fx then inst.fx.shatter:SetAlpha(0) end
+	for _, tex in ipairs({ inst.ring, inst.ringHot }) do tex:SetAlpha(0) end
+	for _, shard in ipairs(inst.shards) do
+		shard.tex:SetAlpha(0)
+		shard.hot:SetAlpha(0)
+	end
+	for _, b in pairs(inst.shieldBreaks or {}) do b.tex:SetAlpha(0) end
+	local k = fx and spec.tk or 0.65 -- the rendered shards sit between the tint's two colours
 	inst.shatterMix = {
 		tint.sat[1] + (tint.hot[1] - tint.sat[1]) * k,
 		tint.sat[2] + (tint.hot[2] - tint.sat[2]) * k,
@@ -1711,9 +2784,16 @@ local function Evaluate(reason)
 	end
 end
 
-local function PlayFlare(part, tint)
+local function PlayFlare(part, tint, style, strength)
 	local g = GlobeFor(part.globe)
 	if not g then return end
+	-- A heal takes the place of an "in" burst; going out, or if it can't draw here, the burst.
+	if style and style ~= "burst" and part.dir == "in" and CanDrawHeal(g, style) then
+		local h = EnsureHeal(g, style)
+		h.started, h.tint, h.strength = GetTime(), tint or part.tint, strength
+		Wake()
+		return
+	end
 	local slot
 	for _, f in ipairs(g.flares) do
 		if not f.started then slot = f break end
@@ -1883,20 +2963,23 @@ function ns.GlobeAura.Inspect()
 		out[name] = {}
 		for _, look in ipairs(LOOKS) do
 			-- The first lit instance (the strongest), plus every lit key in rank order.
-			local first, keys, shatter = nil, {}, nil
+			local first, keys, shatter, breakName = nil, {}, nil, nil
 			for _, inst in ipairs(g.looks[look]) do
 				if inst.effect then keys[inst.rank + 1] = inst.effect.key end
-				if inst.shatter then shatter = inst.shatter end
+				if inst.shatter then shatter, breakName = inst.shatter, inst.breakName end
 			end
 			for _, inst in ipairs(g.looks[look]) do
 				if inst.effect and inst.rank == 0 then first = inst end
 			end
 			out[name][look] = { key = first and first.effect.key, level = first and first.level or 0, shatter = shatter, keys = keys,
-				calm = first and first.calm or 0, style = first and first.style }
+				calm = first and first.calm or 0, style = first and first.style, breakName = breakName }
 		end
 		local flares = 0
 		for _, f in ipairs(g.flares) do if f.started then flares = flares + 1 end end
 		out[name].flares = flares
+		local heals = {}
+		for heal, h in pairs(g.heals) do if h.started then heals[heal] = true end end
+		out[name].heals = heals
 	end
 	return out
 end
@@ -1922,6 +3005,7 @@ function ns.GlobeAura.Step()
 		for _, f in ipairs(g.flares) do
 			if AnimateFlare(g, f, now) then busy = true end
 		end
+		if AnimateHeals(g, now) then busy = true end
 	end
 	if not busy then
 		last = nil
@@ -2034,6 +3118,19 @@ local function WarmSheets(slots)
 	end
 end
 
+-- Let go of warmed-up copies of sheets nothing uses any more.
+local function ForgetWarm(slots)
+	if not warmStyles then return end
+	for i, tex in pairs(warmStyles.tex) do
+		for _, slot in ipairs(slots) do
+			if warmStyles.slotOf[i] == slot then
+				tex:SetTexture(nil)
+				warmStyles.slotOf[i] = nil
+			end
+		end
+	end
+end
+
 -- Rendered lightning, for characters who can have a storm effect showing as a radiance: the
 -- sheets to warm now, if they aren't yet. Test mode loads them on first use instead. Let go of
 -- them when nothing wants them, unless a storm is on the globe right now.
@@ -2104,11 +3201,70 @@ local function PrepareStyles()
 	local slots = {}
 	for style, onGlobes in pairs(want) do
 		for g in pairs(onGlobes) do
-			for _, u in ipairs(g.looks.surge) do EnsureStyle(g, u, style) end
+			for i, u in ipairs(g.looks.surge) do
+				-- The healing looks have many sprites; a second or third of one builds when it first shows.
+				if i == 1 or not NEW_STYLE[style] then EnsureStyle(g, u, style) end
+			end
 		end
 		if not warmed[style] then
 			warmed[style] = true
 			for _, slot in ipairs(STYLE_SLOTS[style]) do slots[#slots + 1] = slot end
+		end
+	end
+	-- The same for one-off heals.
+	local healWant = {}
+	for _, effect in ipairs(ns.Watch.EFFECTS) do
+		if effect.look == "flare" and Enabled(effect) and (effect.class == class or effect.class == "ANY") then
+			local _, heal = LookOf(effect)
+			if heal ~= "burst" then
+				for _, part in ipairs(effect.flare or {}) do
+					local g = part.dir == "in" and GlobeFor(part.globe)
+					if g and CanDrawHeal(g, heal) then
+						healWant[heal] = healWant[heal] or {}
+						healWant[heal][g] = true
+					end
+				end
+			end
+		end
+	end
+	for heal, onGlobes in pairs(healWant) do
+		for g in pairs(onGlobes) do EnsureHeal(g, heal) end
+		if not warmed[heal] then
+			warmed[heal] = true
+			for _, slot in ipairs(HEAL_SLOTS[heal]) do slots[#slots + 1] = slot end
+		end
+	end
+	-- The same for shield looks and breaks. A break is only wanted by a shield that can really break.
+	local shieldWant = {}
+	local function WantShield(name, g)
+		if SHIELD_SLOTS[name] and ShieldArt(name) then
+			shieldWant[name] = shieldWant[name] or {}
+			shieldWant[name][g] = true
+		end
+	end
+	for _, effect in ipairs(ns.Watch.EFFECTS) do
+		if Enabled(effect) and (effect.class == class or effect.class == "ANY") then
+			local look, style = LookOf(effect)
+			local g = look == "shell" and GlobeFor(effect.globe)
+			if g then
+				if style then WantShield(style, g) end
+				if effect.absorb or effect.kind == "absorb" then WantShield(BreakOf(effect), g) end
+			end
+		end
+	end
+	for name, onGlobes in pairs(shieldWant) do
+		for g in pairs(onGlobes) do
+			for i, s in ipairs(g.looks.shell) do
+				if SHIELD_BREAKS[name] then
+					EnsureShieldBreak(s, name)
+				elseif i == 1 then -- a second or third of the look builds when it first shows
+					EnsureShieldLook(s, name)
+				end
+			end
+		end
+		if not warmed[name] then
+			warmed[name] = true
+			for _, slot in ipairs(SHIELD_SLOTS[name]) do slots[#slots + 1] = slot end
 		end
 	end
 	for _, slot in ipairs(PrepareStorm()) do slots[#slots + 1] = slot end
@@ -2122,6 +3278,33 @@ local function PrepareStyles()
 					warmed[style] = nil
 				end
 			end
+		end
+		for heal, h in pairs(g.heals) do
+			if not (healWant[heal] and healWant[heal][g]) and not h.started and not h.released then
+				Release(h)
+				warmed[heal] = nil
+			end
+		end
+		-- Shield art nothing wants: let go of it, unless it is on the glass or mid-break now.
+		for _, s in ipairs(g.looks.shell) do
+			for name, r in pairs(s.shieldLooks or {}) do
+				local showing = s.drawnLook == name and s.level > 0
+				if not (shieldWant[name] and shieldWant[name][g]) and not showing and not r.released then
+					Release(r)
+				end
+			end
+			for name, b in pairs(s.shieldBreaks or {}) do
+				local breaking = s.breakName == name and s.shatter and GetTime() - s.shatter < (s.shatterSeconds or SHATTER)
+				if not (shieldWant[name] and shieldWant[name][g]) and not breaking and not b.released then
+					Release(b)
+				end
+			end
+		end
+	end
+	for name, slots in pairs(SHIELD_SLOTS) do
+		if not shieldWant[name] and warmed[name] then
+			warmed[name] = nil
+			ForgetWarm(slots)
 		end
 	end
 end
@@ -2144,6 +3327,7 @@ local function BuildGlobe(frame)
 		g.looks.surge[i] = BuildSurge(g)
 	end
 	g.flares = { BuildFlare(g), BuildFlare(g), BuildFlare(g) }
+	g.heals = {}
 	return g
 end
 
@@ -2177,7 +3361,12 @@ function ns.GlobeAura.Init()
 		if reason == "flare" then
 			if Enabled(effect) then
 				local tint = effect.hot and TintOf(effect) or nil
-				for _, part in ipairs(effect.flare or {}) do PlayFlare(part, tint) end
+				local style
+				if effect.look == "flare" then
+					local _, chosen = LookOf(effect)
+					style = chosen
+				end
+				for _, part in ipairs(effect.flare or {}) do PlayFlare(part, tint, style, effect.strength) end
 			end
 			return
 		end

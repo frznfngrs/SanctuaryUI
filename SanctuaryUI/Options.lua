@@ -162,7 +162,20 @@ local function GlobeAuraArgs()
 		if registry then registry:NotifyChange(APP) end
 	end
 	local function off() return not DB().globeAuras.enabled end
-	local LOOK_NAMES = { radiate = "Radiance", shell = "Crystal shell", pour = "Pour", inhale = "Inhale", upwell = "Upwell", swirl = "Swirl" }
+	local LOOK_NAMES = DATA.LOOK_NAMES -- one table for every list below (WatchEffects.lua)
+	-- A look dropdown's values and order: its own first entries, then the given choices.
+	local function LookChoices(order, first)
+		local values, sorting = {}, {}
+		for _, entry in ipairs(first) do
+			values[entry[1]] = entry[2]
+			sorting[#sorting + 1] = entry[1]
+		end
+		for _, key in ipairs(order) do
+			values[key] = LOOK_NAMES[key]
+			sorting[#sorting + 1] = key
+		end
+		return values, sorting
+	end
 
 	-- A skill's Preview: its whole life on the globe, on its own, then back to your real buffs.
 	local function PreviewButton(order, key, isDisabled)
@@ -187,6 +200,7 @@ local function GlobeAuraArgs()
 		end
 		return look
 	end
+	local HOT_LOOKS, HOT_LOOK_SORTING = LookChoices(DATA.LOOK_ORDER, { { "default", "Each skill's default" }, { "mixed", "Set per skill" } })
 	-- Red tints are left out: they'd vanish against the health globe.
 	local HOT_TINTS = {
 		default = "Each skill's own", nature = "Nature green", fel = "Fel green", innervate = "Teal", water = "Blue",
@@ -204,42 +218,37 @@ local function GlobeAuraArgs()
 		catch = Toggle(14, "Light on the glass", "Radiance wraps round onto the top of the globe's glass.", "globeAuras", "catch"),
 		settleLong = Toggle(15, "Long buffs settle down", "Buffs kept up for minutes (Lightning Shield, Inner Fire) light up in full when cast, then calm to a quiet glow after a few seconds. They still flare when recast, discharge when their charges are spent and blink in their last seconds.", "globeAuras", "settleLong"),
 		renderedStorm = Toggle(16.5, "Rendered lightning", "Lightning Shield's arcs branch and strike round the rim, crawl over the glass, and spending its charges flings bolts off the whole rim. Off, it uses the older static and bolts. Uses about 20 MB of video memory, only for characters who can have it.", "globeAuras", "renderedStorm"),
-		renderedBreak = Toggle(16, "Rendered shield break", "Shields crack along their seams and shatter with a 3D render, and blows run light along the crystal. Off, they use the drawn shards and ripple. The art uses about 20 MB of video memory, only while this is on.", "globeAuras", "renderedBreak"),
-		hotHeader = Header(17, "Healing over time"),
-		hotNote = Note(17.1, "Renew, Rejuvenation, Regrowth and Frenzied Regeneration on your health globe. The look can also be set one skill at a time on the class pages."),
-		hotLook = {
-			type = "select", order = 17.2, name = "Look",
-			desc = "What healing over time shows on the health globe.",
+		renderedBreak = Toggle(16, "Rendered shield break", "The Shatter break cracks along its seams and flies apart with a 3D render, and blows run light along the Crystal shell. Off, they use the drawn shards and ripple. The art uses about 20 MB of video memory, only while this is on. The other shield looks and breaks are set per skill on the class pages.", "globeAuras", "renderedBreak"),
+		healing = {
+			type = "group",
+			order = 18,
+			name = "Healing over time",
 			disabled = off,
-			values = {
-				default = "Default (Upwell)", mixed = "Set per skill",
-				radiate = "Radiance", shell = "Crystal shell", pour = "Pour", inhale = "Inhale", upwell = "Upwell", swirl = "Swirl",
+			args = {
+				note = Note(1, "Renew, Rejuvenation, Regrowth and Frenzied Regeneration on your health globe. The look can also be set one skill at a time on the class pages."),
+				look = {
+					type = "select", order = 2, name = "Look",
+					desc = "What healing over time shows on the health globe.",
+					values = HOT_LOOKS,
+					sorting = HOT_LOOK_SORTING,
+					get = HotLook,
+					set = function(_, value)
+						if value == "mixed" then return end
+						for _, effect in ipairs(hots) do
+							DB().globeAuras.looks[effect.key] = value ~= "default" and value or nil
+						end
+						Changed()
+						-- A preview running shows the new look from its start.
+						local key = ns.GlobeAura.previewKey
+						local effect = key and ns.Watch.Effect(key)
+						if effect and effect.hot then ns.GlobeAura.PreviewSkill(key) end
+					end,
+				},
+				tint = Select(3, "Colour", nil, "globeAuras", "hotTint", HOT_TINTS, HOT_TINT_ORDER),
+				strength = Range(4, "Brightness", "On top of the overall brightness on the Globe auras page.", "globeAuras", "hotStrength", 0.25, 2, 0.05, true),
+				preview = PreviewButton(5, myClass == "PRIEST" and "renew" or "rejuvenation"),
 			},
-			sorting = { "default", "mixed", "radiate", "shell", "pour", "inhale", "upwell", "swirl" },
-			get = HotLook,
-			set = function(_, value)
-				if value == "mixed" then return end
-				for _, effect in ipairs(hots) do
-					DB().globeAuras.looks[effect.key] = value ~= "default" and value or nil
-				end
-				Changed()
-				-- A preview running shows the new look from its start.
-				local key = ns.GlobeAura.previewKey
-				local effect = key and ns.Watch.Effect(key)
-				if effect and effect.hot then ns.GlobeAura.PreviewSkill(key) end
-			end,
 		},
-		hotTint = (function()
-			local option = Select(17.3, "Colour", nil, "globeAuras", "hotTint", HOT_TINTS, HOT_TINT_ORDER)
-			option.disabled = off
-			return option
-		end)(),
-		hotStrength = (function()
-			local option = Range(17.4, "Brightness", "On top of the overall brightness above.", "globeAuras", "hotStrength", 0.25, 2, 0.05, true)
-			option.disabled = off
-			return option
-		end)(),
-		hotPreview = PreviewButton(17.5, myClass == "PRIEST" and "renew" or "rejuvenation", off),
 	}
 
 	-- One page per class, with your class first.
@@ -271,28 +280,52 @@ local function GlobeAuraArgs()
 				page.args[effect.key .. "Preview"] = PreviewButton(n + 0.7, effect.key, function()
 					return not DB().globeAuras.effects[effect.key]
 				end)
-				if flareOnly then
-					-- Keeps the Preview buttons in one column.
-					page.args[effect.key .. "Gap"] = { type = "description", order = n + 0.5, name = " ", width = 1 }
-				else
-					local native = effect.look == "surge" and (effect.surge or "swirl") or effect.look
-					page.args[effect.key .. "Look"] = {
+				local native = flareOnly and (effect.heal or "burst") or effect.look == "surge" and (effect.surge or "swirl")
+					or effect.look == "shell" and (effect.shell or "shell") or effect.look
+				local lookValues, lookSorting = LookChoices(flareOnly and DATA.FLARE_ORDER or DATA.LOOK_ORDER,
+					{ { "default", "Default (" .. LOOK_NAMES[native] .. ")" } })
+				page.args[effect.key .. "Look"] = {
+					type = "select",
+					order = n + 0.5,
+					name = "",
+					desc = "What this skill shows on the globe. Default is " .. LOOK_NAMES[native] .. "." ..
+						(flareOnly and " A part going out of a globe (Life Tap's cost) stays a burst." or ""),
+					width = 1,
+					values = lookValues,
+					sorting = lookSorting,
+					disabled = function() return not DB().globeAuras.effects[effect.key] end,
+					get = function() return DB().globeAuras.looks[effect.key] or "default" end,
+					set = function(_, value)
+						DB().globeAuras.looks[effect.key] = value ~= "default" and value or nil
+						Changed()
+						-- A preview of this skill running shows the new look from its start.
+						if ns.GlobeAura.previewKey == effect.key then ns.GlobeAura.PreviewSkill(effect.key) end
+					end,
+				}
+				-- Only damage shields break (Watch.lua IconLost), so only they choose how.
+				if effect.absorb or effect.kind == "absorb" then
+					local BREAK_NAMES = DATA.BREAK_NAMES
+					local nativeBreak = effect.shellBreak or "shatter"
+					local breakValues, breakSorting = { default = "Break: Default (" .. BREAK_NAMES[nativeBreak] .. ")" }, { "default" }
+					for _, key in ipairs(DATA.BREAK_ORDER) do
+						breakValues[key] = "Break: " .. BREAK_NAMES[key]
+						breakSorting[#breakSorting + 1] = key
+					end
+					page.args[effect.key .. "Break"] = {
 						type = "select",
-						order = n + 0.5,
+						order = n + 0.6,
 						name = "",
-						desc = "What this skill shows on the globe. Default is " .. LOOK_NAMES[native] .. ".",
+						desc = "How this shield goes when it breaks. Default is " .. BREAK_NAMES[nativeBreak] .. ".",
 						width = 1,
-						values = {
-							default = "Default (" .. LOOK_NAMES[native] .. ")",
-							radiate = "Radiance", shell = "Crystal shell", pour = "Pour", inhale = "Inhale", upwell = "Upwell", swirl = "Swirl",
-						},
-						sorting = { "default", "radiate", "shell", "pour", "inhale", "upwell", "swirl" },
+						values = breakValues,
+						sorting = breakSorting,
 						disabled = function() return not DB().globeAuras.effects[effect.key] end,
-						get = function() return DB().globeAuras.looks[effect.key] or "default" end,
+						-- Shown as anything but a shell it just fades when it breaks.
+						hidden = function() return ns.GlobeAura.LookOf(effect) ~= "shell" end,
+						get = function() return DB().globeAuras.breaks[effect.key] or "default" end,
 						set = function(_, value)
-							DB().globeAuras.looks[effect.key] = value ~= "default" and value or nil
+							DB().globeAuras.breaks[effect.key] = value ~= "default" and value or nil
 							Changed()
-							-- A preview of this skill running shows the new look from its start.
 							if ns.GlobeAura.previewKey == effect.key then ns.GlobeAura.PreviewSkill(effect.key) end
 						end,
 					}
@@ -334,7 +367,7 @@ local function GlobeAuraArgs()
 	for i, effect in ipairs(DATA.EFFECTS) do
 		testArgs["cast" .. effect.key] = {
 			type = "execute", order = 10 + i / 100, name = effect.label,
-			desc = effect.look == "flare" and "Plays the burst." or "Casts it on you. Cast it again while it is up to recast it.",
+			desc = effect.look == "flare" and "Plays it once." or "Casts it on you. Cast it again while it is up to recast it.",
 			hidden = function() return effect.class ~= testClass end,
 			func = function()
 				ns.Watch.Test(effect.key)

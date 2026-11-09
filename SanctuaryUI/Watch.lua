@@ -146,7 +146,9 @@ end
 
 ---------------------------------------------------------------------------
 -- State. One entry per kept effect: up, start, expires (nil: no timer known), length, source
--- ("reading", "cast", "channel", "test"), and since (when it last went up or down).
+-- ("reading", "cast", "channel", "test"), since (when it last went up or down), and castAt: when
+-- your own cast (or a test cast) put it up, which readings don't change. Nil for a buff you only
+-- ever read (someone else's), and for anything that was up before a reload.
 
 local state = {}
 local listeners = {}
@@ -195,6 +197,7 @@ local function Up(effect, start, expires, length, source, reason)
 	local was = st.up
 	local moved = not was or math.abs((st.expires or 0) - (expires or 0)) > 0.25 or st.source ~= source
 	st.up, st.start, st.expires, st.length, st.source = true, start, expires, length, source
+	if source ~= "reading" then st.castAt = start end
 	if not was then st.since = GetTime() end
 	if moved then
 		ns.Log("watch: %s up (%s, %s)", effect.key, reason,
@@ -218,7 +221,7 @@ end
 local function Down(effect, reason)
 	local st = state[effect.key]
 	if not st or not st.up then return end
-	st.up, st.start, st.expires, st.length, st.source = false, nil, nil, nil, nil
+	st.up, st.start, st.expires, st.length, st.source, st.castAt = false, nil, nil, nil, nil, nil
 	st.since = GetTime()
 	ns.Log("watch: %s down (%s)", effect.key, reason)
 	if EARLY[reason] then ForgetSkill(effect) end
@@ -563,8 +566,9 @@ local function OnCast(spellID, now, castGUID)
 		if effect.kind ~= "channel" and effect.kind ~= "reading" and effect.kind ~= "absorb" then
 			if effect.target ~= "any" or aimed == true or test then
 				Land(effect, spellID, name, now)
-			elseif aimed == nil then
-				-- Can't tell where it went: it is yours if a buff icon turns up with it.
+			elseif aimed == nil and Kept(effect) then
+				-- Can't tell where it went: it is yours if a buff icon turns up with it. A direct
+				-- heal leaves no buff, so it stays silent rather than guess.
 				table.insert(landing, { effect = effect, id = spellID, name = name, at = now, icons = ns.BuffIcons() })
 			end
 		end
