@@ -181,7 +181,8 @@ end
 -- readable, so their length is never learned. Two things we can still see stand in:
 -- Blizzard's buff frame (untainted, it shows them) gains an icon right around the cast,
 -- which says the cast put a buff on you, and the spell's own text says how long it lasts.
--- Target debuffs (Rend, Hamstring) add no icon there, so they don't light.
+-- Target debuffs (Rend, Hamstring) add no icon of their own, but a proc's icon can land on the
+-- same moment, so spells that only hit enemies are never taken for a buff (ns.OnlyHitsEnemies).
 local BUFF_WINDOW = 0.6 -- seconds between a cast and a new buff icon, either way round
 local DescribedLength = ns.DescribedLength
 local BuffIcons = ns.BuffIcons
@@ -221,7 +222,7 @@ local function OnCast(spellID, name, now)
 	end
 	if Predict(spellID, name, now) then return true end
 	local length = DescribedLength(spellID)
-	if length and length > 0 then
+	if length and length > 0 and not ns.OnlyHitsEnemies(spellID) then
 		pending = { id = spellID, name = name, time = now, length = length }
 		WatchIcons(now)
 	end
@@ -684,8 +685,9 @@ function ns.ActiveSkill.Init()
 				casts[spellID] = now
 				if name then casts[name] = now end
 				local predicted = (refused or InCombatLockdown()) and OnCast(spellID, name, now)
+				local lit = auraBySpell[spellID] or (name and auraByName[name])
 				ns.Log("active: cast %s (%s)%s", tostring(name), tostring(spellID),
-					predicted and (", predicted %ss"):format(tostring(Length(spellID, name))) or "")
+					predicted and (", predicted %ss"):format(tostring(lit and lit.duration)) or "")
 			else
 				ns.Log("active: cast with a %s spell ID", Secret(spellID) and "secret" or "missing")
 			end

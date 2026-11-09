@@ -555,7 +555,9 @@ end
 -- Icons, sweeps, which totems are down: safe any time.
 function ns.Totem.Update()
 	local bar = ns.Totem.bar
-	if not bar then return end
+	-- No totem spells (most classes) and no preview: nothing to show, and this runs on every
+	-- cooldown event. Learning one re-runs Configure, which brings the bar back.
+	if not bar or not ns.Totem.HasTotems() then return end
 	ScanDown()
 	local tracker = Opt().mode == "tracker"
 	for i = 1, #ELEMENTS do

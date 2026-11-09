@@ -128,13 +128,40 @@ end
 local GetDescription = (C_Spell and C_Spell.GetSpellDescription) or GetSpellDescription
 local UNITS = { sec = 1, secs = 1, second = 1, seconds = 1, min = 60, mins = 60, minute = 60, minutes = 60, hour = 3600, hours = 3600 }
 
--- How long a spell's effect lasts, from its text: "This effect lasts 8 sec." / "Lasts 2 min."
--- first, else the last duration in the text. Nil when the text is hidden or names none.
-function ns.DescribedLength(spellID)
+-- A spell's description in lower case; nil when it is hidden or there is none.
+local function SpellText(spellID)
 	if not GetDescription then return end
 	local ok, text = pcall(GetDescription, spellID)
 	if not ok or ns.Secret(text) or type(text) ~= "string" then return end
-	text = text:lower()
+	return text:lower()
+end
+
+-- Does this spell only do something to enemies, so it can't have put a buff on you? Asks the
+-- client, then the spell's text: the client may not count untargeted attacks (Thunder Clap,
+-- Demoralizing Shout) as harmful. Bloodthirst is an attack that also buffs you.
+local BLOODTHIRST = 23881
+
+function ns.OnlyHitsEnemies(spellID)
+	local getName = C_Spell and C_Spell.GetSpellName
+	if spellID == BLOODTHIRST then return false end
+	if getName then
+		local name, base = getName(spellID), getName(BLOODTHIRST)
+		if not ns.Secret(name) and name ~= nil and name == base then return false end
+	end
+	if C_Spell and C_Spell.IsSpellHarmful then
+		local ok, harmful = pcall(C_Spell.IsSpellHarmful, spellID)
+		if ok and not ns.Secret(harmful) and harmful then return true end
+	end
+	local text = SpellText(spellID)
+	if not text or text:find("your next", 1, true) then return false end
+	return (text:find("enem", 1, true) or text:find("target", 1, true)) and true or false
+end
+
+-- How long a spell's effect lasts, from its text: "This effect lasts 8 sec." / "Lasts 2 min."
+-- first, else the last duration in the text. Nil when the text is hidden or names none.
+function ns.DescribedLength(spellID)
+	local text = SpellText(spellID)
+	if not text then return end
 	local n, unit = text:match("lasts (%d+%.?%d*) (%a+)")
 	if n and UNITS[unit] then return tonumber(n) * UNITS[unit] end
 	local last
