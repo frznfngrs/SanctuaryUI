@@ -480,6 +480,7 @@ function ns.Check()
 	if ns.Liquid and ns.Liquid.Status then
 		ns.Print(ns.Liquid.Status())
 		if ns.Pollution then ns.Print(ns.Pollution.Status()) end
+		if ns.StatueEyes then ns.Print(ns.StatueEyes.Status()) end
 		if ns.Party and ns.Party.DispelStatus then ns.Print(ns.Party.DispelStatus()) end
 	end
 	local key = GetBindingKey("ACTIONBUTTON1")
@@ -708,6 +709,17 @@ local function Slash(msg)
 		ns.Check()
 	elseif cmd == "proc" then
 		if ns.ProcGlow and ns.ProcGlow.Test then ns.ProcGlow.Test() end
+	elseif cmd == "radiance" then
+		if ns.AngelRadiance and ns.AngelRadiance.Test then ns.AngelRadiance.Test() end
+	elseif cmd == "eyes" then
+		-- /sanctuary eyes [angel|gargoyle|off]: the statues' eye glow, without needing the buff.
+		local key = (rest or ""):lower()
+		local keys = key == "" and ns.StatueEyes.ORDER or { key }
+		for _, one in ipairs(keys) do
+			local ok, why = ns.StatueEyes.Preview(one)
+			if not ok then ns.Print("Eye glow preview failed: " .. tostring(why)) end
+		end
+		ns.Print("Eye glow preview toggled. /sanctuary eyes off to stop.")
 	elseif cmd == "cooldowns" then
 		-- Run while a skill on the main bar is cooling down.
 		ns.forceLog = true
@@ -802,6 +814,7 @@ loader:SetScript("OnEvent", function(_, event)
 		Safe("portraits", ns.Portraits and ns.Portraits.Init)
 		Safe("party", ns.Party and ns.Party.Init)
 		Safe("pollution", ns.Pollution and ns.Pollution.Init)
+		Safe("statue eyes", ns.StatueEyes and ns.StatueEyes.Init)
 		Safe("experience", ns.Experience and ns.Experience.Init)
 		Safe("layout", ns.Layout)
 		Safe("position", ns.ApplyPosition)

@@ -33,6 +33,8 @@ Menu.lua
 ActionBar.lua
 ActiveSkill.lua
 ProcGlow.lua
+AngelRadiance.lua
+StatueEyes.lua
 WatchEffects.lua
 Watch.lua
 GlobeAura.lua

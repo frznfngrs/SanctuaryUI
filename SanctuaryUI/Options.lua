@@ -119,6 +119,39 @@ local function PositionCard(order, note, reset, notMoved)
 	})
 end
 
+-- A statue's card on the Statues page (StatueEyes.lua): the buff that lights its eyes.
+local function StatueEyesCard(order, key, title, what)
+	local path = "statueEyes." .. key
+	local function cfg() return ns.DB().statueEyes[key] end
+	local function off() return not cfg().enabled end
+	local get, set = Field(path, "spells")
+	return Card(order, title, {
+		enabled = Toggle(1, "Eyes glow under a buff", what, path, "enabled"),
+		color = Width({
+			type = "color", order = 2, name = "Colour", disabled = off,
+			get = function() local c = cfg().color return c[1], c[2], c[3] end,
+			set = function(_, r, g, b)
+				cfg().color = { r, g, b }
+				Changed()
+			end,
+		}, 0.25),
+		preview = {
+			type = "execute", order = 3, width = "relative", relWidth = 0.2,
+			name = function() return ns.StatueEyes.Previewing(key) and "Stop preview" or "Preview" end,
+			desc = "Shows the glow without the buff.",
+			func = function() ns.StatueEyes.Preview(key) end,
+		},
+		spells = {
+			type = "input", order = 4, width = "full", disabled = off,
+			name = "Buff name or spell ID",
+			desc = "The buff that lights the eyes while it is on you: its exact name (every rank counts) or a spell ID. Commas between several, e.g. Blessing of Might, Greater Blessing of Might.",
+			get = get,
+			set = function(info, value) set(info, (value or ""):gsub("^%s+", ""):gsub("%s+$", "")) end,
+		},
+		status = Note(5, function() return ns.StatueEyes.Describe(key) end),
+	})
+end
+
 -- Greys a target aura setting out while its buffs / debuffs are off.
 local function TargetAura(key, option)
 	option.disabled = function() return not ns.DB().target[key] end
@@ -978,6 +1011,12 @@ local function Build()
 					levelPlaque = Toggle(3, "Your level on the console", "Your level in a D3 medallion resting on the skull at the console's top centre.", nil, "levelPlaque"),
 					note = Note(4, "Reputation is tinted with your resource colour. Watch a faction from the Reputation panel."),
 				}),
+			}),
+
+			statues = Page(14, "Statues", {
+				note = Note(0, "The console's statues can show a buff of yours: their eyes glow while it is on you, in combat too. Only buffs on you count, not debuffs or cooldowns. A change made in combat applies when it ends."),
+				angel = StatueEyesCard(1, "angel", "Angel", "Wisps of light stream from under the angel's hood while the buff below is on you."),
+				gargoyle = StatueEyesCard(2, "gargoyle", "Gargoyle", "The gargoyle's eye burns, trailing wisps, while the buff below is on you."),
 			}),
 
 			gap20 = Gap(19),

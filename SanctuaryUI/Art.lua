@@ -56,6 +56,14 @@ ns.Art.slots = {
 	surgePourUnder = { file = "surge-pour-under.png", lazy = true },
 	surgeUpwellBody = { file = "surge-upwell-body.png", lazy = true },
 	surgeUpwellCore = { file = "surge-upwell-core.png", lazy = true },
+	-- Golden light on the console's angel (AngelRadiance.lua).
+	angelRadiance = { file = "angel-radiance.png", lazy = true },
+	angelRadianceFx = { file = "angel-radiance-fx.png", lazy = true },
+	-- Wisps from the statues' eyes (StatueEyes.lua): the wisp and its hot centre.
+	eyesAngelBody = { file = "eyes-angel-body.png", lazy = true },
+	eyesAngelCore = { file = "eyes-angel-core.png", lazy = true },
+	eyesGargoyleBody = { file = "eyes-gargoyle-body.png", lazy = true },
+	eyesGargoyleCore = { file = "eyes-gargoyle-core.png", lazy = true },
 	-- Heal looks (GlobeAura.lua HEAL_ART and its sprites): lazy too, loaded only for looks in use.
 	healVines = { file = "heal-vines.png", lazy = true },
 	healLeaf = { file = "heal-leaf.png", lazy = true },
