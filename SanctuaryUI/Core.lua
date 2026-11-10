@@ -234,11 +234,19 @@ local function ClampScale(value)
 	return value
 end
 
--- The globes' size against the console's: 1 unless they are scaled separately (General >
--- Globe scale), when they keep their own scale whatever the console's.
+-- Bar scale and globe scale used to be one Scale, with the globes optionally on their own. A
+-- profile from then whose globes followed the console gives them its scale, so nothing moves.
+local function SplitScales(db)
+	if db.scalesSplit then return end
+	if not db.globesSeparate then db.globeScale = db.scale end
+	db.scalesSplit = true
+end
+
+-- The globes' size against the bars' (General > Bar scale, Globe scale). The cluster takes the
+-- bar scale; the globes' pods this ratio on top of it.
 function ns.GlobeRatio()
 	local db = ns.DB()
-	if not db.globesSeparate then return 1 end
+	SplitScales(db)
 	return ClampScale(db.globeScale) / ClampScale(db.scale)
 end
 
@@ -260,6 +268,7 @@ end
 
 local function ApplyScale()
 	local db = ns.DB()
+	SplitScales(db)
 	db.scale = ClampScale(db.scale)
 	db.globeScale = ClampScale(db.globeScale)
 	if ns.Cluster then
@@ -503,7 +512,7 @@ local function Slash(msg)
 			ns.Options.Open()
 		end
 	elseif cmd == "help" then
-		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n>, globes <n>|off, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, proc (preview the proc highlight), aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), debug on|off, log, report [on|off], request (suggest a feature)")
+		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n> (bars), globes <n>|match, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, proc (preview the proc highlight), aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), debug on|off, log, report [on|off], request (suggest a feature)")
 	elseif cmd == "grid" then
 		-- grid: toggle; grid on|off; grid <spacing>. The grid only shows while frames are
 		-- unlocked, so showing it unlocks them.
@@ -541,35 +550,33 @@ local function Slash(msg)
 	elseif cmd == "unlock" then
 		ns.SetLocked(false)
 	elseif cmd == "scale" then
+		-- scale <n>: the bars (the globes keep theirs; "globes match" sizes them to the bars).
 		local value = tonumber(rest)
+		ns.GlobeRatio() -- converts an old profile's scales first
 		if not value then
-			ns.Print(("scale is %.2f"):format(db.scale or 1))
+			ns.Print(("bar scale is %.2f, globe scale %.2f"):format(db.scale or 1, db.globeScale or 1))
 		elseif InCombatLockdown() then
 			ns.Print("cannot change scale in combat")
 		else
 			db.scale = value
 			ns.Refresh()
-			ns.Print(("scale set to %.2f"):format(db.scale))
+			ns.Print(("bar scale set to %.2f"):format(db.scale))
 		end
 	elseif cmd == "globes" then
-		-- globes <n>: scale the globes on their own; globes off: back with the console's scale.
+		-- globes <n>: the globes' scale; globes match: the same as the bars'.
 		local arg = rest:lower()
 		local value = tonumber(arg)
+		ns.GlobeRatio()
 		if arg == "" then
-			ns.Print(db.globesSeparate and ("globe scale is %.2f"):format(db.globeScale or 1) or "globes follow the console scale")
+			ns.Print(("globe scale is %.2f"):format(db.globeScale or 1))
 		elseif InCombatLockdown() then
 			ns.Print("cannot change scale in combat")
-		elseif value or arg == "on" then
-			db.globesSeparate = true
-			if value then db.globeScale = value end
+		elseif value or arg == "match" or arg == "off" then
+			db.globeScale = value or db.scale
 			ns.Refresh()
 			ns.Print(("globe scale set to %.2f"):format(db.globeScale))
-		elseif arg == "off" then
-			db.globesSeparate = false
-			ns.Refresh()
-			ns.Print("globes follow the console scale")
 		else
-			ns.Print("globes <scale>|on|off")
+			ns.Print("globes <scale>|match")
 		end
 	elseif cmd == "bar" or cmd == "row" then -- "row" kept from before the rename
 		local n, on = rest:lower():match("^(%d)%s+(%a+)$")
@@ -615,7 +622,7 @@ local function Slash(msg)
 			ns.Print("cannot reset in combat")
 		else
 			db.point, db.rel, db.x, db.y, db.scale = "BOTTOM", "BOTTOM", 0, 0, 1
-			db.globesSeparate, db.globeScale = false, 1
+			db.globeScale = 1
 			ns.Refresh()
 			ns.Print("position and scale reset")
 		end

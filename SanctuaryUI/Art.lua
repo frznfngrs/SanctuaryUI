@@ -114,6 +114,12 @@ ns.Art.slots = {
 	unitGlow = { file = "unit-glow.png" }, -- bloom 0-18, core 32-50 of 64x32
 	consoleBase = { file = "console-base.png" }, -- frame.png without the rail band
 	consoleTiers = { file = "console-tiers.png" }, -- the band lifted over 1-2 rows (sheet x 200..1400, atlas y 0/208 of 512)
+	-- Globes scaled apart from the bars (ActionBar.lua LayoutCradles): the globe pieces with the
+	-- corner on the bar's side cleared, that corner's brackets without the rim, and the mask
+	-- that cuts the rebuilt corner to the rim.
+	consolePods = { file = "console-pods.png" },
+	consoleBrackets = { file = "console-brackets.png" },
+	consoleRingHole = { file = "console-ring-hole.png" },
 	levelMedallion = { file = "level-medallion.png" }, -- ring and red disc, 120 px across of 128
 	levelPlates = { file = "level-plates.png" }, -- 98x25 plaques at y 0/32/64/96 of 128x128
 	castFill = { file = "cast-fill.png" },

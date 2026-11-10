@@ -282,6 +282,58 @@ def console_tiers() -> None:
     atlas.save(OUT / "console-tiers.png")
 
 
+def console_pods() -> None:
+    """console-pods.png: frame.png for globes scaled apart from the bars, console-brackets.png,
+    and the mask that cuts
+    the art wrapping each globe to its ring (ActionBar.lua LayoutCradles).
+
+    On each globe's bar side, everything beyond its rim ring goes (the band's hook, the rail stub,
+    the bracket under the main row, the base strip): at another scale than the bar they would
+    hang loose. A soft shadow is drawn back round the rim. The addon rebuilds that corner from the
+    bar's own art, cut by console-ring-hole.png: white, opaque outside a hole of radius 48 in 512
+    (so 256 / 48 rim radii reach from its centre to its edge)."""
+    import math
+    frame = Image.open(OUT / "frame.png").convert("RGBA")
+    px = frame.load()
+    for cx, (x0, x1) in zip(GLOBE_CX, ((0, 330), (1265, 1595))):
+        for y in range(201):
+            for x in range(x0, x1):
+                if (x > cx) != (cx < 800):
+                    continue
+                r = math.hypot(x + 0.5 - cx, y + 0.5 - GLOBE_CY)
+                if r <= RING_R + 1:
+                    continue
+                t = (r - RING_R) / (94 - RING_R)
+                a = int(round(120 * max(0.0, 1 - t) ** 2)) if t < 1 else 0
+                px[x, y] = (0, 0, 0, a)
+    frame.save(OUT / "console-pods.png")
+
+    # The brackets under the main row, beside each globe, without the rim ring: the addon
+    # stretches them from the globe's centre to the bar's wall, where a ring left in them would
+    # show beside the real one. Left: sheet x 243..331 at (0, 0); right: 1264..1356 at (128, 0);
+    # rows 104..201 (BRACKET_* in ActionBar.lua).
+    src = Image.open(OUT / "frame.png").convert("RGBA")
+    brackets = Image.new("RGBA", (256, 128), (0, 0, 0, 0))
+    for cx, (x0, x1), at in zip(GLOBE_CX, ((243, 331), (1264, 1356)), (0, 128)):
+        piece = src.crop((x0, 104, x1, 201))
+        pp = piece.load()
+        for y in range(piece.height):
+            for x in range(piece.width):
+                if math.hypot(x0 + x + 0.5 - cx, 104 + y + 0.5 - GLOBE_CY) <= RING_R + 1:
+                    pp[x, y] = (0, 0, 0, 0)
+        brackets.alpha_composite(piece, (at, 0))
+    brackets.save(OUT / "console-brackets.png")
+
+    np = _np()
+    n, hole = 512, 48
+    ss = 4
+    c = (np.arange(n * ss) + 0.5) / ss - n / 2
+    x, y = np.meshgrid(c, c)
+    outside = (np.hypot(x, y) > hole).astype(float)
+    alpha = outside.reshape(n, ss, n, ss).mean(axis=(1, 3))
+    save_rgba(OUT / "console-ring-hole.png", np.ones_like(alpha), alpha)
+
+
 # The teal brackets that wrap the globes, re-toned to the brown-gold of the console's gold
 # sockets (stops sampled from their trim by brightness), so they match the gold menu styling.
 GOLD_STOPS = ((0, (16, 10, 5)), (32, (50, 33, 18)), (80, (110, 83, 49)), (112, (138, 116, 72)),
@@ -2251,7 +2303,7 @@ def rendered_storm() -> None:
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     only = set(sys.argv[1:])
-    for step in (frame_and_glass, console_tiers, liquid, liquid_halves, animated_liquid, surface_mask, hotline, xp_fills, menu, glow, blade, socket_glow, bag_frame, bank_frame, bag_cells, d3_button, pips, pip_frames, shimmer, socket, skill_timer, icon, unit_frames, menu_flyout, target_rings, globe_aura, globe_shell, globe_surge, globe_storm, party, rendered_liquid, pollution_art, rendered_break, surge_art, rendered_storm, heal_art, rendered_shields):
+    for step in (frame_and_glass, console_tiers, console_pods, liquid, liquid_halves, animated_liquid, surface_mask, hotline, xp_fills, menu, glow, blade, socket_glow, bag_frame, bank_frame, bag_cells, d3_button, pips, pip_frames, shimmer, socket, skill_timer, icon, unit_frames, menu_flyout, target_rings, globe_aura, globe_shell, globe_surge, globe_storm, party, rendered_liquid, pollution_art, rendered_break, surge_art, rendered_storm, heal_art, rendered_shields):
         if only and step.__name__ not in only:
             continue
         step()

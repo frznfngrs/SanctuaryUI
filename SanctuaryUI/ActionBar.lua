@@ -434,7 +434,7 @@ end
 -- The console art as one sheet, or with the globes scaled separately, three pieces: the bar
 -- on the console frame and each globe's statue in its pod (Core.lua PlacePods). Each pod then
 -- takes the mouse over its piece, as the cluster does over the bar.
-function LayoutPieces(metrics, lifted)
+function LayoutPieces(metrics, lifted, wrap)
 	local split = metrics.split
 	local trough = ns.Trough
 	local s = metrics.scale
@@ -450,6 +450,10 @@ function LayoutPieces(metrics, lifted)
 	if hasArt then
 		if split then ns.CropBar(trough) else trough:SetTexCoord(unpack(ns.FRAME_TEXCOORD)) end
 	end
+	-- Rebuilding the corner that wraps each globe (LayoutCradles), the globes take the sheet with
+	-- that corner cleared.
+	local podFile = wrap and "consolePods" or file
+	local podArt = ns.Art.Path(podFile) ~= nil
 	local level = ns.Cluster:GetFrameLevel()
 	for side, pod in pairs(ns.Pods) do
 		local art = pod.art
@@ -463,14 +467,14 @@ function LayoutPieces(metrics, lifted)
 			pod:SetScript("OnDragStart", function() ns.ActionBar.DragConsole() end)
 			pod:SetScript("OnDragStop", function() ns.Snap.StopDrag() end)
 		end
-		if art.file ~= file and hasArt then
-			ns.Art.Apply(art.tex, file)
-			art.file = file
+		if art.file ~= podFile and podArt then
+			ns.Art.Apply(art.tex, podFile)
+			art.file = podFile
 		end
 		ns.CropPiece(art.tex, side)
 		ns.PlacePiece(art, pod, side, metrics)
 		art:SetFrameLevel(level + ns.LEVEL.console)
-		art:SetShown(split and hasArt)
+		art:SetShown(split and podArt)
 		pod:SetFrameLevel(level)
 		pod:EnableMouse(split)
 		local x0 = (side == "health" and 0 or ns.SEAM_R) * s
@@ -484,6 +488,143 @@ end
 -- walled in out to the globes (one piece of art per height).
 local TIER_X, TIER_W, CREST_H = 200, 1200, 108
 local TIER_ATLAS_Y = { 0, 208 }
+
+-- Globes scaled apart from the bars: the art wrapping each globe (the band's wing reaching over
+-- it, the bracket under each row beside it) is rebuilt from the bar's own art, stretched from
+-- the globe's centre to the bar's end wall at the bar's row heights, and cut to the rim by a
+-- mask that follows the globe. So it lands on the ring at any two scales; at equal scales it is
+-- the sheet as drawn. A docked stack towering over small globes can't reach them without a slab
+-- under the wing, so it stands beside them, and the globes keep their own brackets.
+local GLOBE_SHEET_X = { health = 243.5, resource = 1354.5 }
+local GLOBE_SHEET_Y, RIM_R = 99, 88 -- sheet px; RIM_R: the rim ring's outer edge
+local HOLE_K = 256 / 48 -- console-ring-hole.png: half its size over its hole's radius
+local CRADLE_STONE = { 350, 118, 400, 168 } -- plain socket stone (frame.png), under the brackets
+local WRAP_REACH = 20 -- sheet px the band may sit above the rim's top and still wrap it
+-- console-brackets.png (256x128): sheet x 243..331 at u 0 and 1264..1356 at u 128, rows 104..201.
+local BRACKET_AT = { health = 243 - 0, resource = 1264 - 128 }
+
+-- Whether the corner is rebuilt: split, the art there, and the band near enough the rims.
+function ns.ActionBar.Wraps(metrics, tiers)
+	if not metrics.split then return false end
+	for _, slot in ipairs({ "consolePods", "consoleBrackets", "consoleRingHole", "consoleTiers", "frame" }) do
+		if not ns.Art.Path(slot) then return false end
+	end
+	if tiers > 0 and not ns.Art.Path("consoleBase") then return false end
+	local s = metrics.scale
+	local g = s * metrics.globeRatio
+	local bandBottom = tiers > 0 and (201 + ns.TIER_H * tiers - CREST_H) * s or (201 - 104) * s
+	local rimTop = (201 - GLOBE_SHEET_Y + RIM_R) * g
+	return bandBottom - rimTop <= WRAP_REACH * s
+end
+
+-- The pieces of one globe's corner: { slot, coords, x0, x1, y0, y1, sub } in cluster units about
+-- the cluster's bottom centre, back to front; and the rim's centre and the mask's hole radius.
+function ns.ActionBar.CradleSpec(metrics, tiers, side)
+	local s = metrics.scale
+	local g = s * metrics.globeRatio
+	local left = side == "health"
+	local seam = left and metrics.seamL or metrics.seamR
+	local spot = metrics[side]
+	local cx, cy = spot.x, metrics.baseY + spot.y
+	local sheetX, sheetSeam = GLOBE_SHEET_X[side], left and ns.SEAM_L or ns.SEAM_R
+	-- Left to right: the source columns and where they land.
+	local srcL, srcR = math.min(sheetX, sheetSeam), math.max(sheetX, sheetSeam)
+	local dstL, dstR = math.min(cx, seam), math.max(cx, seam)
+	local pieces = {}
+	local function Add(slot, texW, texH, u0, u1, v0, v1, x0, x1, y0, y1, sub)
+		pieces[#pieces + 1] = {
+			slot = slot, coords = { u0 / texW, u1 / texW, v0 / texH, v1 / texH },
+			x0 = x0, x1 = x1, y0 = y0, y1 = y1, sub = sub,
+		}
+	end
+	local barTop = (201 + ns.TIER_H * tiers) * s
+	local bandBottom = barTop - (tiers > 0 and CREST_H or 104) * s
+	local rimTop = cy + RIM_R * g
+	-- Stone under the brackets in the rows the rim spans, so stretching them to another rim
+	-- opens no hole between them and the ring.
+	local stoneTop = math.min(bandBottom, rimTop)
+	if stoneTop > 0 then
+		local st = CRADLE_STONE
+		Add("frame", 2048, 256, st[1], st[3], st[2], st[4], dstL, dstR, 0, stoneTop, 0)
+	end
+	-- The main row's bracket, then each docked row's above it.
+	local b = BRACKET_AT[side]
+	Add("consoleBrackets", 256, 128, srcL - b, srcR - b, 0, 97, dstL, dstR, 0, 97 * s, 1)
+	-- Under the wing, the one-row art's cradle beside the top docked row (the two-row art has
+	-- its wing and cradle lower down, where the rim is at equal scales). Lower docked rows have
+	-- the stone; a rim reaching that high covers most of it.
+	if tiers > 0 then
+		local r0 = TIER_ATLAS_Y[1] + CREST_H
+		local top = barTop - CREST_H * s
+		Add("consoleTiers", 2048, 512, srcL - TIER_X, srcR - TIER_X, r0, r0 + ns.TIER_H, dstL, dstR, top - ns.TIER_H * s, top, 2)
+	end
+	-- The wing: the band's end reaching out over the globe, kept to the bar's side of its centre.
+	local reach = (left and (ns.SEAM_L - TIER_X) or (TIER_X + TIER_W - ns.SEAM_R)) * s
+	reach = math.min(reach, math.abs(seam - cx))
+	local u0, u1, x0, x1
+	if left then
+		u0, u1, x0, x1 = ns.SEAM_L - reach / s, ns.SEAM_L, seam - reach, seam
+	else
+		u0, u1, x0, x1 = ns.SEAM_R, ns.SEAM_R + reach / s, seam, seam + reach
+	end
+	local wingY = TIER_ATLAS_Y[1]
+	Add("consoleTiers", 2048, 512, u0 - TIER_X, u1 - TIER_X, wingY, wingY + CREST_H, x0, x1, barTop - CREST_H * s, barTop, 3)
+	return pieces, cx, cy, (RIM_R - 3) * g
+end
+
+local function Cradle(side)
+	ns.Cradles = ns.Cradles or {}
+	local cradle = ns.Cradles[side]
+	if cradle then return cradle end
+	cradle = CreateFrame("Frame", nil, ns.Cluster)
+	cradle:SetAllPoints(ns.Cluster)
+	cradle:EnableMouse(false)
+	cradle.mask = cradle:CreateMaskTexture()
+	cradle.mask:SetTexture(ns.Art.Path("consoleRingHole"), "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	cradle.pieces = {}
+	ns.Cradles[side] = cradle
+	return cradle
+end
+
+local function LayoutCradles(metrics, tiers, wrap)
+	for _, side in ipairs({ "health", "resource" }) do
+		local cradle = wrap and Cradle(side) or (ns.Cradles and ns.Cradles[side])
+		if cradle then
+			cradle:SetShown(wrap)
+		end
+		if wrap then
+			-- Under the globe pieces (whose rim covers the cut), over the glass.
+			cradle:SetFrameLevel(ns.Cluster:GetFrameLevel() + ns.LEVEL.console - 1)
+			local pieces, cx, cy, hole = ns.ActionBar.CradleSpec(metrics, tiers, side)
+			local size = 2 * HOLE_K * hole
+			cradle.mask:ClearAllPoints()
+			cradle.mask:SetPoint("CENTER", ns.Cluster, "BOTTOM", cx, cy)
+			cradle.mask:SetSize(size, size)
+			for i, piece in ipairs(pieces) do
+				local tex = cradle.pieces[i]
+				if not tex then
+					tex = cradle:CreateTexture(nil, "ARTWORK")
+					tex:AddMaskTexture(cradle.mask)
+					cradle.pieces[i] = tex
+				end
+				if tex.slot ~= piece.slot then
+					ns.Art.Apply(tex, piece.slot)
+					tex.slot = piece.slot
+				end
+				tex:SetDrawLayer("ARTWORK", piece.sub)
+				tex:SetTexCoord(unpack(piece.coords))
+				tex:ClearAllPoints()
+				tex:SetPoint("BOTTOMLEFT", ns.Cluster, "BOTTOM", piece.x0, piece.y0)
+				tex:SetPoint("TOPRIGHT", ns.Cluster, "BOTTOM", piece.x1, piece.y1)
+				tex:Show()
+			end
+			for i = #pieces + 1, #cradle.pieces do
+				cradle.pieces[i]:Hide()
+			end
+		end
+	end
+end
+
 function LayoutTiers(metrics)
 	local frame = ns.ConsoleFrame
 	local tiers = math.min(metrics.tiers, #TIER_ATLAS_Y)
@@ -503,7 +644,7 @@ function LayoutTiers(metrics)
 		local h = CREST_H + ns.TIER_H * tiers
 		local y0 = TIER_ATLAS_Y[tiers]
 		-- Its wings reach out over the globes; with the globes scaled separately they would miss
-		-- them, so the band stops at the seams.
+		-- them, so the band stops at the seams (LayoutCradles brings wings fitted to the globes).
 		local x0, x1 = TIER_X, TIER_X + TIER_W
 		if metrics.split then x0, x1 = ns.SEAM_L, ns.SEAM_R end
 		frame.tier:SetTexCoord((x0 - TIER_X) / 2048, (x1 - TIER_X) / 2048, y0 / 512, (y0 + h) / 512)
@@ -511,7 +652,9 @@ function LayoutTiers(metrics)
 		frame.tier:ClearAllPoints()
 		frame.tier:SetPoint("TOPLEFT", frame, "TOPLEFT", x0 * s, metrics.lift)
 	end
-	LayoutPieces(metrics, lifted)
+	local wrap = ns.ActionBar.Wraps(metrics, lifted and tiers or 0) and (lifted or tiers == 0)
+	LayoutPieces(metrics, lifted, wrap)
+	LayoutCradles(metrics, lifted and tiers or 0, wrap)
 end
 
 function ns.ActionBar.Layout()

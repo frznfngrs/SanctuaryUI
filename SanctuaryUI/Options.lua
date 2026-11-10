@@ -929,13 +929,19 @@ local function Build()
 					end)(),
 				}),
 				size = Card(2, "Console size", {
-					scale = Range(1, "Scale", "The console: its bars, menu and rail, and the globes unless they are scaled separately.", nil, "scale", 0.5, 1.8, 0.01, true),
-					globesSeparate = Third(Toggle(2, "Scale globes separately", "Give the globes their own scale. They stay on the ends of the bar, bottoms level, whatever its size.", nil, "globesSeparate")),
-					globeScale = (function()
-						local option = Range(3, "Globe scale", "The globes and their statues.", nil, "globeScale", 0.5, 1.8, 0.01, true)
-						option.disabled = function() return not DB().globesSeparate end
-						return option
-					end)(),
+					scale = Range(1, "Bar scale", "The console between the globes: its bars, including bars set into it, the menu and the rail.", nil, "scale", 0.5, 1.8, 0.01, true),
+					globeScale = Range(2, "Globe scale", "The globes and their statues. They stay on the ends of the bar, bottoms level, and the art round each globe is fitted to it whatever the two scales. When bars set into the console stand much taller than the globes, they stand beside them instead.", nil, "globeScale", 0.5, 1.8, 0.01, true),
+					match = Width({
+						type = "execute",
+						order = 3,
+						name = "Match globes to bars",
+						desc = "Set the globe scale to the bar scale.",
+						func = function()
+							local db = DB()
+							db.globeScale = db.scale
+							Changed()
+						end,
+					}, THIRD),
 					reset = {
 						type = "execute",
 						order = 4,
