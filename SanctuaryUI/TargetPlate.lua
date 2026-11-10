@@ -1455,10 +1455,10 @@ local function ConfigureBoxes(plate, opt, d, b, same)
 		box:SetAuraGroupMaxFrameCount(group.key, enabled and max or 0)
 		box:SetAuraGroupFilterString(group.key, filter)
 		box:SetAuraGroupLayout(group.key, GroupLayout(spec, group.newLine))
-		for i = 1, box:GetAuraGroupFrameCount(group.key) do
-			local button = box:GetAuraGroupFrame(group.key, i)
-			if button then SizeAuraButton(button, spec.size) end
-		end
+		box.sanctuarySizes = box.sanctuarySizes or {}
+		ns.ResizeAuraButtons(box, group.key, spec.size, function(button)
+			SizeAuraButton(button, spec.size)
+		end, box.sanctuarySizes)
 	end
 	local db = plate.debuffBox
 	for _, group in ipairs(DEBUFF_GROUPS) do

@@ -934,10 +934,8 @@ local function ConfigureAuras(b)
 			box:SetAuraGroupMaxFrameCount("debuffs", on and max or 0)
 			box:SetAuraGroupFilterString("debuffs", standIn and "HELPFUL" or "HARMFUL")
 			box:SetAuraGroupLayout("debuffs", GroupLayout(size))
-			for i = 1, box:GetAuraGroupFrameCount("debuffs") do
-				local button = box:GetAuraGroupFrame("debuffs", i)
-				if button then button:SetSize(size, size) end
-			end
+			box.sanctuarySizes = box.sanctuarySizes or {}
+			ns.ResizeAuraButtons(box, "debuffs", size, function(button) button:SetSize(size, size) end, box.sanctuarySizes)
 			Flow(box, max, size)
 			box:ClearAllPoints()
 			box:SetPoint(v.debuffAt[1], b, "TOPLEFT", v.debuffAt[2], v.debuffAt[3])
@@ -953,10 +951,8 @@ local function ConfigureAuras(b)
 			box:SetAuraGroupEnabled("mine", on)
 			box:SetAuraGroupMaxFrameCount("mine", on and max or 0)
 			box:SetAuraGroupLayout("mine", GroupLayout(size))
-			for i = 1, box:GetAuraGroupFrameCount("mine") do
-				local button = box:GetAuraGroupFrame("mine", i)
-				if button then button:SetSize(size, size) end
-			end
+			box.sanctuarySizes = box.sanctuarySizes or {}
+			ns.ResizeAuraButtons(box, "mine", size, function(button) button:SetSize(size, size) end, box.sanctuarySizes)
 			Flow(box, max, size)
 			box:ClearAllPoints()
 			box:SetPoint(v.buffAt[1], b, "TOPLEFT", v.buffAt[2], v.buffAt[3])

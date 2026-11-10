@@ -188,6 +188,29 @@ function ns.Print(msg)
 	ns.Log("print: %s", msg)
 end
 
+-- Resize the buttons an aura container already made for one of its groups. Once the client has
+-- shown an aura on a button, addon code may no longer touch it ("forbidden object"), so those are
+-- skipped (and any other refusal caught) instead of aborting the caller's setup. sizer(button)
+-- does the resize. When a button is stuck at its old size and the size really changed, say once
+-- that a reload finishes the job. `last` is the caller's record of sizes applied, per group.
+function ns.ResizeAuraButtons(box, group, size, sizer, last)
+	local stuck = false
+	for i = 1, box:GetAuraGroupFrameCount(group) do
+		local button = box:GetAuraGroupFrame(group, i)
+		if button then
+			if (button.IsForbidden and button:IsForbidden()) or not pcall(sizer, button) then
+				stuck = true
+			end
+		end
+	end
+	local changed = last and last[group] ~= nil and last[group] ~= size
+	if last then last[group] = size end
+	if stuck and changed and not ns.auraResizeSaid then
+		ns.auraResizeSaid = true
+		ns.Print("Aura icons already in use keep their old size until you /reload.")
+	end
+end
+
 -- Changing a Blizzard CVar from addon code taints Blizzard's copy of it: the CVAR_UPDATE
 -- handlers run tainted and store the new value (CVarCallbackRegistry's cache, the Settings
 -- values), and every Blizzard frame that reads it afterwards runs tainted too. Its action
