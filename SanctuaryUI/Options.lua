@@ -120,15 +120,15 @@ local function PositionCard(order, note, reset, notMoved)
 end
 
 -- A statue's card on the Statues page (StatueEyes.lua): the buff that lights its eyes.
-local function StatueEyesCard(order, key, title, what)
+local function StatueEyesCard(order, key, title, what, toggle, noColour)
 	local path = "statueEyes." .. key
 	local function cfg() return ns.DB().statueEyes[key] end
 	local function off() return not cfg().enabled end
 	local get, set = Field(path, "spells")
 	return Card(order, title, {
-		enabled = Toggle(1, "Eyes glow under a buff", what, path, "enabled"),
+		enabled = Toggle(1, toggle or "Eyes glow under a buff", what, path, "enabled"),
 		color = Width({
-			type = "color", order = 2, name = "Colour", disabled = off,
+			type = "color", order = 2, name = "Colour", disabled = off, hidden = noColour,
 			get = function() local c = cfg().color return c[1], c[2], c[3] end,
 			set = function(_, r, g, b)
 				cfg().color = { r, g, b }
@@ -144,7 +144,7 @@ local function StatueEyesCard(order, key, title, what)
 		spells = {
 			type = "input", order = 4, width = "full", disabled = off,
 			name = "Buff name or spell ID",
-			desc = "The buff that lights the eyes while it is on you: its exact name (every rank counts) or a spell ID. Commas between several, e.g. Blessing of Might, Greater Blessing of Might.",
+			desc = "The buff that lights it while it is on you: its exact name (every rank counts) or a spell ID. Commas between several, e.g. Blessing of Might, Greater Blessing of Might.",
 			get = get,
 			set = function(info, value) set(info, (value or ""):gsub("^%s+", ""):gsub("%s+$", "")) end,
 		},
@@ -1014,9 +1014,10 @@ local function Build()
 			}),
 
 			statues = Page(14, "Statues", {
-				note = Note(0, "The console's statues can show a buff of yours: their eyes glow while it is on you, in combat too. Only buffs on you count, not debuffs or cooldowns. A change made in combat applies when it ends."),
+				note = Note(0, "The console's statues can show a buff of yours: their eyes glow, or the angel's wings light up, while it is on you, in combat too. Only buffs on you count, not debuffs or cooldowns. A change made in combat applies when it ends."),
 				angel = StatueEyesCard(1, "angel", "Angel", "Wisps of light stream from under the angel's hood while the buff below is on you."),
 				gargoyle = StatueEyesCard(2, "gargoyle", "Gargoyle", "The gargoyle's eye burns, trailing wisps, while the buff below is on you."),
+				wings = StatueEyesCard(3, "wings", "Angel's wings", "Golden light runs down the angel's wings, shedding sparks, with a glow behind the statue, while the buff below is on you. Nothing is chosen to start with: name a buff to use it.", "Wings light up under a buff", true),
 			}),
 
 			gap20 = Gap(19),

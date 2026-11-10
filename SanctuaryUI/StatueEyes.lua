@@ -18,14 +18,18 @@ local S = ns.StatueEyes
 -- walking the client's spell IDs, a little each frame, and the answer kept per account until
 -- the game is patched. A buff seen on you under a wanted name adds its ID too.
 
--- corner: the art's top left in frame.png px (tools/build_statue_eyes.py STATUES).
+-- The golden light on the angel's wings (AngelRadiance.lua) is a third effect here, shown the
+-- same way: it has no buff until you name one.
+
+-- corner, span: the art's top left in frame.png px and the px it covers
+-- (tools/build_statue_eyes.py STATUES). layers: a slot each; "behind" draws under the console.
 local STATUES = {
-	angel = { label = "Angel", pod = "resource", corner = { 1410, 90 }, body = "eyesAngelBody", core = "eyesAngelCore" },
-	gargoyle = { label = "Gargoyle", pod = "health", corner = { 170, 102 }, body = "eyesGargoyleBody", core = "eyesGargoyleCore" },
+	angel = { label = "Angel", pod = "resource", corner = { 1410, 90 }, span = 32, layers = { "front" }, body = "eyesAngelBody", core = "eyesAngelCore" },
+	gargoyle = { label = "Gargoyle", pod = "health", corner = { 170, 102 }, span = 32, layers = { "front" }, body = "eyesGargoyleBody", core = "eyesGargoyleCore" },
+	wings = { label = "Angel's wings", pod = "resource", corner = ns.AngelRadiance.CORNER, span = ns.AngelRadiance.SPAN, layers = { "front", "behind" }, wings = true },
 }
-local ORDER = { "angel", "gargoyle" }
+local ORDER = { "angel", "gargoyle", "wings" }
 S.ORDER = ORDER
-local SPAN = 32 -- frame.png px the art covers
 local FLIP = { rows = 8, cols = 8, frames = 64, seconds = 2.4 }
 local FADE_IN = 0.6
 local PALE = 0.7 -- how far the hot centre is taken from the colour toward white
@@ -34,7 +38,7 @@ local SCAN_MAX = 1500000 -- spell IDs walked when looking a name up (past the ne
 local SCAN_BUDGET = 3 -- ms a frame
 local LEARN_EVERY = 1
 
-local built = {} -- key -> { box, slot, textures }
+local built = {} -- key -> { box, slots = { layer -> slot }, textures }
 local previews = {}
 local pending -- settings changed in combat
 local scan -- { at, names = { lower -> list } }
@@ -199,6 +203,7 @@ end
 -- The glow.
 
 local function ArtReady(statue)
+	if statue.wings then return ns.AngelRadiance.ArtReady() end
 	return ns.Art.Require(statue.body) and ns.Art.Require(statue.core) and true or false
 end
 
@@ -209,28 +214,35 @@ local function Colours(key)
 	return r, g, b, r + (1 - r) * PALE, g + (1 - g) * PALE, b + (1 - b) * PALE
 end
 
+-- The eyes take the colour chosen in the options; the wings' gold is in their art.
 local function Tint(textures, key)
+	if not textures then return end
 	local r, g, b, pr, pg, pb = Colours(key)
 	textures.body:SetVertexColor(r, g, b)
 	textures.core:SetVertexColor(pr, pg, pb)
 end
 
--- Over the statue's head, in its pod, so it follows the globes' own scale.
-local function Place(frame, statue)
+-- Over the statue, in its pod, so it follows the globes' own scale.
+local function Place(frame, statue, layer)
 	local metrics = ns.Metrics and ns.Metrics()
 	local pod = ns.Pods and ns.Pods[statue.pod]
 	if not (metrics and pod) then return false end
 	local s = metrics.scale
 	frame:ClearAllPoints()
-	frame:SetSize(SPAN * s, SPAN * s)
+	frame:SetSize(statue.span * s, statue.span * s)
 	frame:SetPoint("TOPLEFT", pod, "BOTTOM", statue.corner[1] * s - metrics.width / 2,
 		metrics.baseY + metrics.height / 2 - statue.corner[2] * s)
-	pcall(frame.SetFrameLevel, frame, ns.Cluster:GetFrameLevel() + ns.LEVEL.console + 1)
+	local level = layer == "behind" and ns.LEVEL.aura or ns.LEVEL.console + 1
+	pcall(frame.SetFrameLevel, frame, ns.Cluster:GetFrameLevel() + level)
 	return true
 end
 
--- The art and its animations on `host`, a slot or a preview frame.
-local function Dress(host, statue)
+-- A layer's art and animations on `host`, a slot or a preview frame already placed. Returns
+-- the animation groups, and the eyes' textures.
+local function Dress(host, statue, layer)
+	if statue.wings then
+		return ns.AngelRadiance.Dress(layer, host, ns.Metrics().scale)
+	end
 	local textures = {}
 	local loop = host:CreateAnimationGroup()
 	loop:SetLooping("REPEAT")
@@ -255,7 +267,7 @@ local function Dress(host, statue)
 		alpha:SetFromAlpha(0)
 		alpha:SetToAlpha(1)
 	end
-	return textures, loop, fade
+	return { loop, fade }, textures
 end
 
 local function Build(key, ids)
@@ -266,26 +278,29 @@ local function Build(key, ids)
 		NoteError("art", key .. " sheets did not load")
 		return false
 	end
-	local made = {}
+	local made = { slots = {} }
 	local ok, err = pcall(function()
 		local box = CreateFrame("AuraContainer", nil, pod, "CustomAuraContainerTemplate")
 		Place(box, statue)
-		box:AddAuraSlot("eyes", "HELPFUL", {
-			candidateFilters = { includeSpellIDs = ids },
-			initializeFrame = function(slot)
-				made.slot = slot
-				local dressed, why = pcall(function()
-					slot:EnableMouse(false)
-					Place(slot, statue)
-					local textures, loop, fade = Dress(slot, statue)
-					made.textures = textures
-					Tint(textures, key)
-					slot:AddAuraShownAnimation(loop)
-					slot:AddAuraShownAnimation(fade)
-				end)
-				if not dressed then NoteError("slot", why) end
-			end,
-		})
+		for _, layer in ipairs(statue.layers) do
+			box:AddAuraSlot(layer, "HELPFUL", {
+				candidateFilters = { includeSpellIDs = ids },
+				initializeFrame = function(slot)
+					made.slots[layer] = slot
+					local dressed, why = pcall(function()
+						slot:EnableMouse(false)
+						Place(slot, statue, layer)
+						local groups, textures = Dress(slot, statue, layer)
+						if textures then
+							made.textures = textures
+							Tint(textures, key)
+						end
+						for _, group in ipairs(groups) do slot:AddAuraShownAnimation(group) end
+					end)
+					if not dressed then NoteError("slot", why) end
+				end,
+			})
+		end
 		box:SetUnit("player")
 		made.box = box
 	end)
@@ -312,14 +327,22 @@ local function Apply(key)
 			failed[key] = true
 		end
 	elseif made then
-		pcall(made.box.SetAuraSlotCandidateFilters, made.box, "eyes", { includeSpellIDs = ids })
+		for _, layer in ipairs(statue.layers) do
+			pcall(made.box.SetAuraSlotCandidateFilters, made.box, layer, { includeSpellIDs = ids })
+		end
 	end
 	if not made then return end
 	pcall(made.box.SetEnabled, made.box, on)
 	made.box:SetShown(on)
 	Place(made.box, statue)
-	if made.slot then pcall(Place, made.slot, statue) end
-	if made.textures then pcall(Tint, made.textures, key) end
+	for layer, slot in pairs(made.slots) do pcall(Place, slot, statue, layer) end
+	pcall(Tint, made.textures, key)
+end
+
+local function StopPreview(shown)
+	for _, group in ipairs(shown.groups) do group:Stop() end
+	for _, host in ipairs(shown.hosts) do host:Hide() end
+	shown.on = false
 end
 
 function S.ApplySettings()
@@ -330,7 +353,7 @@ function S.ApplySettings()
 	pending = nil
 	for _, key in ipairs(ORDER) do Apply(key) end
 	for key, shown in pairs(previews) do
-		Place(shown.host, STATUES[key])
+		for i, host in ipairs(shown.hosts) do Place(host, STATUES[key], STATUES[key].layers[i]) end
 		Tint(shown.textures, key)
 	end
 end
@@ -357,46 +380,50 @@ end
 -- "off" turns every preview off; a statue's key toggles it.
 function S.Preview(key)
 	if not key or key == "off" then
-		for _, shown in pairs(previews) do
-			shown.loop:Stop()
-			shown.host:Hide()
-		end
+		for _, shown in pairs(previews) do StopPreview(shown) end
 		return true
 	end
 	local statue = STATUES[key]
-	if not statue then return false, "angel or gargoyle" end
+	if not statue then return false, "angel, gargoyle or wings" end
 	local shown = previews[key]
-	if shown and shown.host:IsShown() then
-		shown.loop:Stop()
-		shown.host:Hide()
+	if shown and shown.on then
+		StopPreview(shown)
 		return true, false
 	end
 	if not shown then
 		local pod = ns.Pods and ns.Pods[statue.pod]
 		if not pod then return false, "the console is not up" end
 		if not ArtReady(statue) then return false, "art did not load" end
-		local host = CreateFrame("Frame", nil, pod)
-		host:EnableMouse(false)
-		local ok, textures, loop, fade = pcall(Dress, host, statue)
-		if not ok then
-			host:Hide()
-			NoteError("preview", textures)
-			return false, tostring(textures)
+		shown = { hosts = {}, groups = {} }
+		for i, layer in ipairs(statue.layers) do
+			local host = CreateFrame("Frame", nil, pod)
+			host:EnableMouse(false)
+			shown.hosts[i] = host
+			Place(host, statue, layer)
+			local ok, groups, textures = pcall(Dress, host, statue, layer)
+			if not ok then
+				StopPreview(shown)
+				NoteError("preview", groups)
+				return false, tostring(groups)
+			end
+			for _, group in ipairs(groups) do shown.groups[#shown.groups + 1] = group end
+			shown.textures = textures or shown.textures
 		end
-		shown = { host = host, textures = textures, loop = loop, fade = fade }
 		previews[key] = shown
 	end
-	Place(shown.host, statue)
+	for i, host in ipairs(shown.hosts) do
+		Place(host, statue, statue.layers[i])
+		host:Show()
+	end
 	Tint(shown.textures, key)
-	shown.host:Show()
-	shown.loop:Play()
-	shown.fade:Play()
+	for _, group in ipairs(shown.groups) do group:Play() end
+	shown.on = true
 	return true, true
 end
 
 function S.Previewing(key)
 	local shown = previews[key]
-	return shown ~= nil and shown.host:IsShown()
+	return shown ~= nil and shown.on == true
 end
 
 -- One line for /sanctuary check.
@@ -405,7 +432,7 @@ function S.Status()
 	for _, key in ipairs(ORDER) do
 		local cfg = Config(key)
 		parts[#parts + 1] = ("%s %s%s"):format(key, cfg and cfg.enabled and "on" or "off",
-			built[key] and (built[key].slot and ", slot ready" or ", no slot") or "")
+			built[key] and (next(built[key].slots) and ", slot ready" or ", no slot") or "")
 	end
 	return "statue eyes: " .. table.concat(parts, "; ") .. (S.lastError and (" (" .. S.lastError .. ")") or "")
 end

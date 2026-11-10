@@ -31,6 +31,7 @@ ns.DEFAULTS = {
 		statueEyes = {
 			angel = { enabled = true, spells = "Blessing of Wisdom, Greater Blessing of Wisdom", color = { 0.30, 0.62, 1.0 } },
 			gargoyle = { enabled = true, spells = "Blessing of Might, Greater Blessing of Might", color = { 1.0, 0.16, 0.10 } },
+			wings = { enabled = true, spells = "" }, -- golden light on the angel's wings (AngelRadiance.lua); no buff until one is named
 		},
 		liquidSpeed = 1,
 		lowHealthPulse = true,

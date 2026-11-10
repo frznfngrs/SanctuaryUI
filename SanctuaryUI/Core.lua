@@ -710,11 +710,13 @@ local function Slash(msg)
 	elseif cmd == "proc" then
 		if ns.ProcGlow and ns.ProcGlow.Test then ns.ProcGlow.Test() end
 	elseif cmd == "radiance" then
-		if ns.AngelRadiance and ns.AngelRadiance.Test then ns.AngelRadiance.Test() end
+		-- The golden light on the angel's wings, without needing its buff. Again to stop.
+		local ok, on = ns.StatueEyes.Preview("wings")
+		ns.Print(ok and (on and "Wing light preview on. /sanctuary radiance again to stop." or "Wing light preview off.") or ("Wing light preview failed: " .. tostring(on)))
 	elseif cmd == "eyes" then
-		-- /sanctuary eyes [angel|gargoyle|off]: the statues' eye glow, without needing the buff.
+		-- /sanctuary eyes [angel|gargoyle|wings|off]: the statues' glows, without needing the buff.
 		local key = (rest or ""):lower()
-		local keys = key == "" and ns.StatueEyes.ORDER or { key }
+		local keys = key == "" and { "angel", "gargoyle" } or { key }
 		for _, one in ipairs(keys) do
 			local ok, why = ns.StatueEyes.Preview(one)
 			if not ok then ns.Print("Eye glow preview failed: " .. tostring(why)) end

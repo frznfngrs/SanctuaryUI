@@ -37,7 +37,10 @@ SS = 4
 # texel: the light is finer than the stone it lies on, so it stays clean when the console is
 # drawn large. It hangs past the console's edges, as the glow does.
 CELL_X, CELL_Y, CELL, OUT = 1420, 20, 192, 2
-FRAMES, COLS, SHEET = 24, 5, 2048
+# The client plays the sheet itself, whole frames with nothing blended between them (the light
+# is shown by an aura slot, where no addon code runs), so smoothness is bought with frames:
+# 64 of them, each worked at OUT and stored at TEXELS a side, 8 x 8 filling the sheet exactly.
+FRAMES, COLS, SHEET, TEXELS = 64, 8, 2048, 256
 
 # Wing outlines in frame.png px, traced generously: the statue's alpha trims the outer edge.
 NEAR_WING = [(1482, 60), (1484, 56), (1496, 55), (1506, 58), (1514, 64), (1524, 70), (1534, 78),
@@ -239,7 +242,9 @@ def build(work):
     sheet = np.zeros((SHEET, SHEET, 3), np.float32)
     for i, f in enumerate(frames):
         r, c = divmod(i, COLS)
-        sheet[r * size:(r + 1) * size, c * size:(c + 1) * size] = f
+        small = np.stack([np.asarray(Image.fromarray(np.ascontiguousarray(f[..., ch]), "F").resize(
+            (TEXELS, TEXELS), Image.LANCZOS)) for ch in range(3)], axis=-1)
+        sheet[r * TEXELS:(r + 1) * TEXELS, c * TEXELS:(c + 1) * TEXELS] = np.clip(small, 0, 1)
     # Ordered noise under the 8-bit step: the wide glow is too smooth to survive banding.
     rng = np.random.default_rng(1)
     dither = (rng.random(sheet.shape[:2], dtype=np.float32) - 0.5)[..., None]
