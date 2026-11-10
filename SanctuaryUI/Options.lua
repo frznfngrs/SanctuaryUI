@@ -745,7 +745,7 @@ local function RowGroup(n, order)
 		args = {
 			enabled = Toggle(1, "Enabled", nil, path, "enabled"),
 			docked = (function()
-				local option = Toggle(2, "In the console", "Set this bar into the console: a row of twelve stone sockets between the globes, with the XP rail and the centre skull lifted to sit on top. Up to two bars, stacked in bar order. In the console the bar fills all twelve sockets, so a bar on the main bar's last 3 buttons moves to a free action page and takes its spells and keys with it. Size, spacing and position below don't apply while it's in the console.", path, "docked")
+				local option = Toggle(2, "In the console", "Set this bar into the console: a row of twelve stone sockets between the globes, with the XP rail and the centre skull lifted to sit on top. Up to three bars, stacked in bar order. In the console the bar fills all twelve sockets, so a bar on the main bar's last 3 buttons moves to a free action page and takes its spells and keys with it. Size, spacing and position below don't apply while it's in the console.", path, "docked")
 				option.set = function(_, value)
 					opt().docked = value
 					if value then
@@ -830,7 +830,7 @@ local function RowGroup(n, order)
 			}),
 			place = PositionCard(7, function()
 				if opt().docked then
-					return ns.ActionBar.DockIndex(n) and "In the console." or "In the console, but two bars are there already: this one stacks above."
+					return ns.ActionBar.DockIndex(n) and "In the console." or "In the console, but three bars are there already: this one stacks above."
 				end
 				if opt().moved then
 					return "Moved: this bar keeps its own position."

@@ -487,7 +487,8 @@ end
 -- frame without its rail band and, over it, the band lifted above that many rows of sockets,
 -- walled in out to the globes (one piece of art per height).
 local TIER_X, TIER_W, CREST_H = 200, 1200, 108
-local TIER_ATLAS_Y = { 0, 208 }
+local TIER_ATLAS_Y = { 0, 208, 512 } -- console-tiers.png rows for 1, 2 and 3 docked rows
+local TIER_ATLAS_H = 1024
 
 -- Globes scaled apart from the bars: the art wrapping each globe (the band's wing reaching over
 -- it, the bracket under each row beside it) is rebuilt from the bar's own art, stretched from
@@ -552,7 +553,7 @@ function ns.ActionBar.CradleSpec(metrics, tiers, side)
 	-- most of it.
 	if tiers > 0 then
 		local r0 = TIER_ATLAS_Y[1] + CREST_H
-		Add("consoleTiers", 2048, 512, srcL - TIER_X, srcR - TIER_X, r0, r0 + ns.TIER_H, dstL, dstR, wingBottom - ns.TIER_H * s, wingBottom, 2)
+		Add("consoleTiers", 2048, TIER_ATLAS_H, srcL - TIER_X, srcR - TIER_X, r0, r0 + ns.TIER_H, dstL, dstR, wingBottom - ns.TIER_H * s, wingBottom, 2)
 	end
 	-- The wing: the band's end reaching out over the globe, kept to the bar's side of its centre.
 	local reach = (left and (ns.SEAM_L - TIER_X) or (TIER_X + TIER_W - ns.SEAM_R)) * s
@@ -564,7 +565,7 @@ function ns.ActionBar.CradleSpec(metrics, tiers, side)
 		u0, u1, x0, x1 = ns.SEAM_R, ns.SEAM_R + reach / s, seam, seam + reach
 	end
 	local wingY = TIER_ATLAS_Y[1]
-	Add("consoleTiers", 2048, 512, u0 - TIER_X, u1 - TIER_X, wingY, wingY + CREST_H, x0, x1, wingBottom, wingBottom + CREST_H * s, 3)
+	Add("consoleTiers", 2048, TIER_ATLAS_H, u0 - TIER_X, u1 - TIER_X, wingY, wingY + CREST_H, x0, x1, wingBottom, wingBottom + CREST_H * s, 3)
 	return pieces, cx, cy, (RIM_R - 3) * g
 end
 
@@ -643,7 +644,7 @@ function LayoutTiers(metrics)
 		-- them, so the band stops at the seams (LayoutCradles brings wings fitted to the globes).
 		local x0, x1 = TIER_X, TIER_X + TIER_W
 		if metrics.split then x0, x1 = ns.SEAM_L, ns.SEAM_R end
-		frame.tier:SetTexCoord((x0 - TIER_X) / 2048, (x1 - TIER_X) / 2048, y0 / 512, (y0 + h) / 512)
+		frame.tier:SetTexCoord((x0 - TIER_X) / 2048, (x1 - TIER_X) / 2048, y0 / TIER_ATLAS_H, (y0 + h) / TIER_ATLAS_H)
 		frame.tier:SetSize((x1 - x0) * s, h * s)
 		frame.tier:ClearAllPoints()
 		frame.tier:SetPoint("TOPLEFT", frame, "TOPLEFT", x0 * s, metrics.lift)

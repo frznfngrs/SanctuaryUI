@@ -27,7 +27,7 @@ noted next to each file.
   unit-glow.png  64x32     ember at the health bar's leading edge, ADD: bloom (0-18) and hot core (32-50), white, tinted in Lua
   target-rings.png 512x128 D3 hero portrait frames for the target portrait (normal, elite, boss), hole centred
   console-base.png 2048x256 frame.png without the rail band (rail, ornaments, centre skull), for a lifted console
-  console-tiers.png 2048x512 the band lifted over 1 or 2 extra socket rows, walled in, globe panels and wings beside them (sheet x 200..1400, at y 0/208, 108 + 93k tall)
+  console-tiers.png 2048x1024 the band lifted over 1, 2 or 3 extra socket rows, walled in, globe panels and wings beside them (sheet x 200..1400, at y 0/208/512, 108 + 93k tall)
   level-medallion.png 128x128 iron prestige ring around a dark-red disc, your level on the console
   level-plates.png 128x128 D3's level plaques (bronze, silver, gold, dark), 98x25 each at y 0/32/64/96
   pip-sockets.png 512x64   Kanai's Cube socket rims, centres open: black, orange, green, red, blue
@@ -166,7 +166,7 @@ def pad(image: Image.Image, size: tuple[int, int]) -> Image.Image:
 CREST_CUT = 108
 TIER_H = 201 - CREST_CUT
 TIER_X = (200, 1400)  # sheet span of the tier art
-TIER_Y = (0, 208)  # atlas rows of lifts 1, 2 (each CREST_CUT + k * TIER_H tall)
+TIER_Y = (0, 208, 512)  # atlas rows of lifts 1, 2, 3 (each CREST_CUT + k * TIER_H tall)
 GROUND_Y = 184  # the console's base strip starts here; the mirrored bracket is cut above it
 STACK_MIRROR = 1598  # a pixel at x mirrors to STACK_MIRROR - 1 - x (globe centres 243.5, 1354.5)
 WALL_X = (322, 338)  # left wall, the rim's outer edge to the first socket; right one mirrored
@@ -260,8 +260,8 @@ def console_tiers() -> None:
     row.alpha_composite(strip(end - 2, STACK_MIRROR - w1), (end - 2, 0))
     row.alpha_composite(plaque, (end, 0))
 
-    atlas = Image.new("RGBA", (2048, 512), (0, 0, 0, 0))
-    for k, ay in zip((1, 2), TIER_Y):
+    atlas = Image.new("RGBA", (2048, 1024), (0, 0, 0, 0))
+    for k, ay in zip((1, 2, 3), TIER_Y):
         h, off = CREST_CUT + TIER_H * k, TIER_H * k  # canvas y = sheet y + off
         c = Image.new("RGBA", (1595, h), (0, 0, 0, 0))
         both(c, panel, 240, off + panel_y)

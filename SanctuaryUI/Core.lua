@@ -358,7 +358,7 @@ ns.LEVEL = {
 -- Bars docked in the console (Options > Bars 2-9 > Bar n > In the console): each fills a row of
 -- twelve sockets between the globes, and the rail band (XP rail, ornaments, centre skull)
 -- lifts to sit on top of them. Enabled docked bars in bar order, at most DOCK_MAX.
-ns.DOCK_MAX = 2
+ns.DOCK_MAX = 3
 ns.TIER_H = 93 -- sheet px of one docked row
 function ns.DockedRows()
 	local list = {}

@@ -113,7 +113,7 @@ ns.Art.slots = {
 	unitGloss = { file = "unit-gloss.png" },
 	unitGlow = { file = "unit-glow.png" }, -- bloom 0-18, core 32-50 of 64x32
 	consoleBase = { file = "console-base.png" }, -- frame.png without the rail band
-	consoleTiers = { file = "console-tiers.png" }, -- the band lifted over 1-2 rows (sheet x 200..1400, atlas y 0/208 of 512)
+	consoleTiers = { file = "console-tiers.png" }, -- the band lifted over 1-3 rows (sheet x 200..1400, atlas y 0/208/512 of 1024)
 	-- Globes scaled apart from the bars (ActionBar.lua LayoutCradles): the globe pieces with the
 	-- corner on the bar's side cleared, that corner's brackets without the rim, and the mask
 	-- that cuts the rebuilt corner to the rim.
