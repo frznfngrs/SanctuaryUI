@@ -1563,20 +1563,58 @@ end
 
 -- A unit's moving 3D portrait, square, behind the D3 frame, which hides its corners; out of
 -- view (no model to draw) its round 2D portrait instead, masked into the hole.
+-- When the client can't build a model for a unit, SetUnit leaves the model showing whatever it
+-- had (a warlock's pet came up as the cat-form druid targeted before it). So a new unit clears
+-- the model first, and this watches it load: nothing after a second, and the flat portrait shows
+-- under the empty model; a model that turns up later (slow to load) takes over again.
+local MODEL_WAIT, MODEL_GIVE_UP = 1, 10 -- seconds
+local function WatchModel(portrait, unit)
+	local model = portrait.model
+	if not (model.GetModelFileID and C_Timer) then return end
+	portrait.modelTicket = (portrait.modelTicket or 0) + 1
+	local ticket, waited = portrait.modelTicket, 0
+	local function Check()
+		if portrait.modelTicket ~= ticket or not model:IsShown() then return end -- moved on
+		local file = model:GetModelFileID()
+		if Secret(file) or (file and file ~= 0) then
+			portrait.fallback = nil
+			portrait.face:Hide()
+			return
+		end
+		if waited >= MODEL_WAIT and not portrait.fallback then
+			portrait.fallback = true
+			SetPortraitTexture(portrait.face, unit)
+			portrait.face:Show()
+		end
+		if waited >= MODEL_GIVE_UP then return end
+		local step = waited < MODEL_WAIT and 0.1 or 0.5
+		waited = waited + step
+		C_Timer.After(step, Check)
+	end
+	C_Timer.After(0.1, Check)
+end
+
 local function ShowPortrait(portrait, unit, force)
 	local visible = UnitIsVisible(unit)
 	if not Secret(visible) and visible then
 		-- Setting the unit restarts the model's idle, so only for a different unit or a new model.
 		local guid = UnitGUID(unit)
 		if Secret(guid) then guid = nil end
-		if force or not guid or guid ~= portrait.modelGUID or not portrait.model:IsShown() then
+		local fresh = force or (guid and guid ~= portrait.modelGUID) or not portrait.model:IsShown()
+		if fresh or not guid then
 			portrait.modelGUID = guid
+			if fresh then
+				portrait.fallback = nil
+				if portrait.model.ClearModel then portrait.model:ClearModel() end
+			end
 			portrait.model:SetUnit(unit)
 			pcall(portrait.model.SetPortraitZoom, portrait.model, 1)
+			if fresh then WatchModel(portrait, unit) end
 		end
 		portrait.model:Show()
-		portrait.face:Hide()
+		portrait.face:SetShown(portrait.fallback and true or false)
 	else
+		portrait.fallback = nil
 		portrait.model:Hide()
 		SetPortraitTexture(portrait.face, unit)
 		portrait.face:Show()
