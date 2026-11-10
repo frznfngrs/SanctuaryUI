@@ -493,28 +493,22 @@ local TIER_ATLAS_Y = { 0, 208 }
 -- it, the bracket under each row beside it) is rebuilt from the bar's own art, stretched from
 -- the globe's centre to the bar's end wall at the bar's row heights, and cut to the rim by a
 -- mask that follows the globe. So it lands on the ring at any two scales; at equal scales it is
--- the sheet as drawn. A docked stack towering over small globes can't reach them without a slab
--- under the wing, so it stands beside them, and the globes keep their own brackets.
+-- the sheet as drawn. On a docked stack taller than the globes, the wing and its cradle sit on the
+-- wall at the height of the rim's top, as D3's two-row art has them, not up at the band.
 local GLOBE_SHEET_X = { health = 243.5, resource = 1354.5 }
 local GLOBE_SHEET_Y, RIM_R = 99, 88 -- sheet px; RIM_R: the rim ring's outer edge
 local HOLE_K = 256 / 48 -- console-ring-hole.png: half its size over its hole's radius
 local CRADLE_STONE = { 350, 118, 400, 168 } -- plain socket stone (frame.png), under the brackets
-local WRAP_REACH = 20 -- sheet px the band may sit above the rim's top and still wrap it
 -- console-brackets.png (256x128): sheet x 243..331 at u 0 and 1264..1356 at u 128, rows 104..201.
 local BRACKET_AT = { health = 243 - 0, resource = 1264 - 128 }
 
--- Whether the corner is rebuilt: split, the art there, and the band near enough the rims.
+-- Whether the corner is rebuilt: split, and the art there.
 function ns.ActionBar.Wraps(metrics, tiers)
 	if not metrics.split then return false end
 	for _, slot in ipairs({ "consolePods", "consoleBrackets", "consoleRingHole", "consoleTiers", "frame" }) do
 		if not ns.Art.Path(slot) then return false end
 	end
-	if tiers > 0 and not ns.Art.Path("consoleBase") then return false end
-	local s = metrics.scale
-	local g = s * metrics.globeRatio
-	local bandBottom = tiers > 0 and (201 + ns.TIER_H * tiers - CREST_H) * s or (201 - 104) * s
-	local rimTop = (201 - GLOBE_SHEET_Y + RIM_R) * g
-	return bandBottom - rimTop <= WRAP_REACH * s
+	return tiers == 0 or ns.Art.Path("consoleBase") ~= nil
 end
 
 -- The pieces of one globe's corner: { slot, coords, x0, x1, y0, y1, sub } in cluster units about
@@ -540,9 +534,12 @@ function ns.ActionBar.CradleSpec(metrics, tiers, side)
 	local barTop = (201 + ns.TIER_H * tiers) * s
 	local bandBottom = barTop - (tiers > 0 and CREST_H or 104) * s
 	local rimTop = cy + RIM_R * g
+	-- The wing's foot: on the rim's top (4 px under it, as the art has it at equal scales), or at
+	-- the band when the rim reaches above that; never down over the main row.
+	local wingBottom = math.max(97 * s, math.min(bandBottom, rimTop - 4 * g))
 	-- Stone under the brackets in the rows the rim spans, so stretching them to another rim
 	-- opens no hole between them and the ring.
-	local stoneTop = math.min(bandBottom, rimTop)
+	local stoneTop = math.min(wingBottom, rimTop)
 	if stoneTop > 0 then
 		local st = CRADLE_STONE
 		Add("frame", 2048, 256, st[1], st[3], st[2], st[4], dstL, dstR, 0, stoneTop, 0)
@@ -550,13 +547,12 @@ function ns.ActionBar.CradleSpec(metrics, tiers, side)
 	-- The main row's bracket, then each docked row's above it.
 	local b = BRACKET_AT[side]
 	Add("consoleBrackets", 256, 128, srcL - b, srcR - b, 0, 97, dstL, dstR, 0, 97 * s, 1)
-	-- Under the wing, the one-row art's cradle beside the top docked row (the two-row art has
-	-- its wing and cradle lower down, where the rim is at equal scales). Lower docked rows have
-	-- the stone; a rim reaching that high covers most of it.
+	-- Under the wing, its cradle: the one-row art's, beside its docked row (the two-row art's top
+	-- crest has no wing). Any other docked rows have the stone; a rim reaching that high covers
+	-- most of it.
 	if tiers > 0 then
 		local r0 = TIER_ATLAS_Y[1] + CREST_H
-		local top = barTop - CREST_H * s
-		Add("consoleTiers", 2048, 512, srcL - TIER_X, srcR - TIER_X, r0, r0 + ns.TIER_H, dstL, dstR, top - ns.TIER_H * s, top, 2)
+		Add("consoleTiers", 2048, 512, srcL - TIER_X, srcR - TIER_X, r0, r0 + ns.TIER_H, dstL, dstR, wingBottom - ns.TIER_H * s, wingBottom, 2)
 	end
 	-- The wing: the band's end reaching out over the globe, kept to the bar's side of its centre.
 	local reach = (left and (ns.SEAM_L - TIER_X) or (TIER_X + TIER_W - ns.SEAM_R)) * s
@@ -568,7 +564,7 @@ function ns.ActionBar.CradleSpec(metrics, tiers, side)
 		u0, u1, x0, x1 = ns.SEAM_R, ns.SEAM_R + reach / s, seam, seam + reach
 	end
 	local wingY = TIER_ATLAS_Y[1]
-	Add("consoleTiers", 2048, 512, u0 - TIER_X, u1 - TIER_X, wingY, wingY + CREST_H, x0, x1, barTop - CREST_H * s, barTop, 3)
+	Add("consoleTiers", 2048, 512, u0 - TIER_X, u1 - TIER_X, wingY, wingY + CREST_H, x0, x1, wingBottom, wingBottom + CREST_H * s, 3)
 	return pieces, cx, cy, (RIM_R - 3) * g
 end
 
