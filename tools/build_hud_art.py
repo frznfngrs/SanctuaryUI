@@ -2345,10 +2345,53 @@ def target_slab() -> None:
     atlas.save(OUT / "target-style-slab.png")
 
 
+def party_styled() -> None:
+    """party-styled.png: the halos for the target styles on party frames (PartyArt.lua
+    ns.Art.PARTY.styled): each art's outline at party size, blurred, 1 px per unit."""
+    import re
+
+    c = party_contract()["styled"]
+    art_lua = (ROOT / "SanctuaryUI" / "Art.lua").read_text()
+    atlas = Image.new("RGBA", tuple(int(v) for v in c["atlas"]), (0, 0, 0, 0))
+    halos = c["halos"]
+
+    def place(name, alpha):
+        rect = [int(v) for v in halos[name]]
+        assert alpha.size == (rect[2], rect[3]), (name, alpha.size, rect)
+        atlas.alpha_composite(_soft_halo(alpha, alpha.size, 3.5, 1.7), (rect[0], rect[1]))
+
+    # The rendered styles: their normal row's alpha over the whole art rect, at party size.
+    for name in ("lintel", "slim", "bracket", "tablet"):
+        m = re.search(r"\n\t%s = \{.*?art = \{ *(-?\d+), *(-?\d+), *(\d+), *(\d+) *\}" % name, art_lua, re.S)
+        w, h = int(m.group(3)), int(m.group(4))
+        alpha = Image.open(OUT / f"target-style-{name}.png").getchannel("A").crop((0, 0, w * 2, h * 2))
+        place(name, alpha.resize((round(w * c["scale"]), round(h * c["scale"])), Image.LANCZOS))
+    # D3's monster bar: the normal ring and the normal bar where Party lays them out.
+    d3 = c["d3"]
+    bx, by, bw, bh = (int(v) for v in d3["box"])
+    shape = Image.new("L", (bw, bh), 0)
+    ring = Image.open(OUT / "target-rings.png").getchannel("A").crop((0, 0, 128, 128))
+    shape.paste(ring, (int(d3["ring"][0]) - 64 - bx, int(d3["ring"][1]) - 64 - by), ring)
+    bar = Image.open(OUT / "unit-frames.png").getchannel("A").crop((0, 92, 294, 133))
+    shape.paste(bar, (int(d3["frame"][0]) - bx, int(d3["frame"][1]) - by), bar)
+    # The bar's well and the ring's hole are see-through in the art (the health and the face
+    # show there); fill them so the halo stays outside.
+    fill = ImageDraw.Draw(shape)
+    rx, ry = d3["ring"][0] - bx, d3["ring"][1] - by
+    fill.ellipse([rx - 30, ry - 30, rx + 30, ry + 30], fill=255)
+    fx, fy = d3["frame"][0] - bx, d3["frame"][1] - by
+    fill.rectangle([fx + 18, fy + 8, fx + 276, fy + 32], fill=255)  # ns.Art.UNIT.normal.bar, grown 3
+    place("d3", shape.resize((round(bw * c["d3scale"]), round(bh * c["d3scale"])), Image.LANCZOS))
+    # The pets: the target of target's frame (target-style-parts.png at 560, 560).
+    tot = Image.open(OUT / "target-style-parts.png").getchannel("A").crop((560, 560, 800, 636))
+    place("tot", tot.resize((round(120 * c["pet"]["scale"]), round(38 * c["pet"]["scale"])), Image.LANCZOS))
+    atlas.save(OUT / "party-styled.png")
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     only = set(sys.argv[1:])
-    for step in (frame_and_glass, console_tiers, console_pods, liquid, liquid_halves, animated_liquid, surface_mask, hotline, xp_fills, menu, glow, blade, socket_glow, bag_frame, bank_frame, bag_cells, d3_button, pips, pip_frames, shimmer, socket, skill_timer, icon, unit_frames, menu_flyout, target_rings, globe_aura, globe_shell, globe_surge, globe_storm, party, rendered_liquid, pollution_art, rendered_break, surge_art, rendered_storm, heal_art, rendered_shields, target_slab):
+    for step in (frame_and_glass, console_tiers, console_pods, liquid, liquid_halves, animated_liquid, surface_mask, hotline, xp_fills, menu, glow, blade, socket_glow, bag_frame, bank_frame, bag_cells, d3_button, pips, pip_frames, shimmer, socket, skill_timer, icon, unit_frames, menu_flyout, target_rings, globe_aura, globe_shell, globe_surge, globe_storm, party, rendered_liquid, pollution_art, rendered_break, surge_art, rendered_storm, heal_art, rendered_shields, target_slab, party_styled):
         if only and step.__name__ not in only:
             continue
         step()

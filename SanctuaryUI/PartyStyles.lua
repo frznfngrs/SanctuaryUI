@@ -541,9 +541,321 @@ function S.BuildSlab(button, isPet)
 	return view
 end
 
+---------------------------------------------------------------------------
+-- The target frame's looks (ns.Art.PARTY.styled): Lintel, Slim Lintel, Forged Bracket and Tablet
+-- (ns.Art.TARGET_STYLES, drawn by ns.Art.DrawTargetStyle) and D3's monster bar. The art, the
+-- portrait and the grooves live in `root`, scaled down from the target's size, in the art's own
+-- units; text, icons and the cast bar live in `top`, which undoes that scale, so they keep the
+-- Slab's sizes. Your target gets the art's gold row (the monster bar: its gold laurel ring).
+
+local STYLED = { lintel = true, slim = true, bracket = true, tablet = true, d3 = true }
+S.STYLED = STYLED
+
+-- A view's root at `scale` of the art's units, w x h of them, and its unscaled top layer.
+local function StyledRoot(view, button, scale, w, h)
+	local root = CreateFrame("Frame", nil, button)
+	root:SetScale(scale)
+	root:SetSize(w, h)
+	root:SetPoint("TOPLEFT", button, "TOPLEFT", 0, 0)
+	root:EnableMouse(false)
+	view.root = root
+	view.size = { w * scale, h * scale }
+	local top = CreateFrame("Frame", nil, root)
+	top:SetScale(1 / scale)
+	top:SetAllPoints(root)
+	top:EnableMouse(false)
+	view.top = top
+	return root, top
+end
+
+-- The threat halo, the gold one for your target and the dispel halo's box, over the art's whole
+-- rect (x, y, w, h in root units), from party-styled.png.
+local function StyledHalos(view, root, key, x, y, w, h)
+	local rect = ns.Art.PARTY.styled.halos[key]
+	local glow = Piece(root, "BACKGROUND", "partyStyled", "styled", rect, -8)
+	glow:SetSize(w, h)
+	glow:SetPoint("TOPLEFT", root, "TOPLEFT", x, -y)
+	glow:SetBlendMode("ADD")
+	glow:SetAlpha(0)
+	view.glow = glow
+	local chosen = Piece(root, "BACKGROUND", "partyStyled", "styled", rect, -7)
+	chosen:SetSize(w * 1.06, h * 1.06)
+	chosen:SetPoint("CENTER", glow, "CENTER")
+	chosen:SetBlendMode("ADD")
+	chosen:SetVertexColor(1, 0.74, 0.22)
+	chosen:SetAlpha(0)
+	view.select = chosen
+	local box = CreateFrame("Frame", nil, root)
+	box:SetSize(w, h)
+	box:SetPoint("TOPLEFT", root, "TOPLEFT", x, -y)
+	box:EnableMouse(false)
+	view.glowBox = box
+	view.glowRect = { slot = "partyStyled", style = "styled", rect = rect }
+end
+
+-- The health groove at x, y, w, h (root units): the fill, its liquid, heal and shield bands.
+local function StyledHealth(view, root, x, y, w, h, well)
+	local health = Groove(root, { x, y, w, h })
+	health:SetPoint("TOPLEFT", root, "TOPLEFT", x, -y)
+	local back = Tex(health, "BACKGROUND")
+	back:SetAllPoints()
+	if not (well and ns.Art.Apply(back, well)) then back:SetColorTexture(0.03, 0.015, 0.012, 0.9) end
+	view.health = health
+	view.liquid = GrooveLiquid(health, w, h)
+	view.heal = Band(health, health:GetStatusBarTexture(), 0.42, 1.0, 0.36, 0.6)
+	view.absorb = Band(health, view.heal:GetStatusBarTexture(), 0.8, 0.88, 1.0, 0.6)
+	view.heal:SetWidth(w)
+	view.absorb:SetWidth(w)
+	if health.SetClipsChildren then health:SetClipsChildren(true) end
+	local over = Tex(health, "OVERLAY", 2)
+	over:SetTexture("Interface\\RaidFrame\\Shield-Overshield")
+	over:SetBlendMode("ADD")
+	over:SetVertexColor(0.75, 0.87, 1.0, 0.95)
+	over:SetPoint("TOPRIGHT")
+	over:SetPoint("BOTTOMRIGHT")
+	over:SetWidth(12)
+	over:SetAlpha(0)
+	view.overShield = over
+	return health
+end
+
+local function StyledPower(view, root, x, y, w, h)
+	local power = Groove(root, { x, y, w, h })
+	power:SetPoint("TOPLEFT", root, "TOPLEFT", x, -y)
+	local back = Tex(power, "BACKGROUND")
+	back:SetAllPoints()
+	back:SetColorTexture(0.03, 0.02, 0.015, 0.9)
+	view.power = power
+	return power
+end
+
+-- The portrait: a square socket (x0, y0, x1, y1), or round (cx, cy and the hole's diameter),
+-- with a 3D bust for members (`model`, its square side for a round socket).
+local function StyledSocket(view, root, p, isPet, modelSide)
+	local socket = CreateFrame("Frame", nil, root)
+	local back = Tex(socket, "BACKGROUND")
+	back:SetAllPoints()
+	back:SetColorTexture(0.02, 0.015, 0.012, 1)
+	view.face = Tex(socket, "ARTWORK")
+	view.face:SetAllPoints()
+	if p.round then
+		socket:SetSize(p.hole, p.hole)
+		socket:SetPoint("CENTER", root, "TOPLEFT", p.cx, -p.cy)
+		ns.Art.MaskCircle(back, socket)
+		ns.Art.MaskCircle(view.face, socket)
+	else
+		socket:SetSize(p[3] - p[1], p[4] - p[2])
+		socket:SetPoint("TOPLEFT", root, "TOPLEFT", p[1], -p[2])
+		view.squareFace = true
+	end
+	if not isPet then
+		view.model = CreateFrame("PlayerModel", nil, root)
+		if p.round then
+			view.model:SetSize(modelSide, modelSide)
+			view.model:SetPoint("CENTER", socket, "CENTER")
+		else
+			view.model:SetAllPoints(socket)
+		end
+	end
+	view.socket = socket
+	return socket
+end
+
+-- Name, health text and status in the health groove; leader, role, marker, ready check and the
+-- level badge round the portrait.
+local function StyledText(view, top, health, socket, isPet, nameWidth)
+	view.name = Font(top, isPet and 9 or 12, true)
+	view.name:SetJustifyH("LEFT")
+	view.status = Font(top, isPet and 8 or 10, true)
+	if isPet then
+		view.name:SetPoint("BOTTOMLEFT", health, "TOPLEFT", 1, 1)
+		view.name:SetWidth(nameWidth)
+		view.status:SetPoint("BOTTOMRIGHT", health, "TOPRIGHT", 0, 1)
+		return
+	end
+	view.name:SetPoint("LEFT", health, "LEFT", 4, 0.5)
+	view.name:SetWidth(nameWidth)
+	view.status:SetPoint("RIGHT", health, "RIGHT", -4, 0.5)
+	view.pct = Font(top, 12, false)
+	view.pct:SetPoint("RIGHT", health, "RIGHT", -4, 0)
+	Icons(view, top)
+	local icon = 14
+	view.leader:SetSize(icon, icon)
+	view.leader:SetPoint("TOPLEFT", socket, "TOPLEFT", -5, 7)
+	view.role:SetSize(icon, icon)
+	view.role:SetPoint("BOTTOMRIGHT", socket, "BOTTOMRIGHT", 4, -4)
+	view.mark:SetSize(icon + 2, icon + 2)
+	view.mark:SetPoint("TOPRIGHT", socket, "TOPRIGHT", 6, 7)
+	view.ready:SetSize(24, 24)
+	view.ready:SetPoint("CENTER", socket, "CENTER")
+	LevelBadge(view, top, 16):SetPoint("CENTER", socket, "BOTTOMLEFT", 1, 1)
+end
+
+-- Frame levels, back to front: halos (the root's own), art, portrait and grooves, the model
+-- and the grooves' liquid and bands, a frame drawn over them (bracket ring, D3's bar), text.
+local function StyledLevels(view, parts)
+	return function(base)
+		if parts.art then parts.art:SetFrameLevel(base + 1) end
+		view.socket:SetFrameLevel(base + 2)
+		view.health:SetFrameLevel(base + 2)
+		if view.power then view.power:SetFrameLevel(parts.powerOver and base + 3 or base + 2) end
+		if view.model then view.model:SetFrameLevel(base + 3) end
+		if view.liquid then view.liquid.clip:SetFrameLevel(base + 3) end
+		view.heal:SetFrameLevel(base + 3)
+		view.absorb:SetFrameLevel(base + 3)
+		if parts.over then parts.over:SetFrameLevel(base + 4) end
+		if parts.frameBox then parts.frameBox:SetFrameLevel(base + 4) end
+		if view.cast then
+			view.cast:SetFrameLevel(base + 5)
+			view.cast.bar:SetFrameLevel(base + 5)
+			view.cast.over:SetFrameLevel(base + 6)
+		end
+		view.top:SetFrameLevel(base + 6)
+		if view.levelBox then view.levelBox:SetFrameLevel(base + 7) end
+	end
+end
+
+-- Lintel, Slim Lintel, Forged Bracket or Tablet for a member; pets get the target of target frame.
+local function BuildRendered(name, button)
+	local C = ns.Art.PARTY.styled
+	local st = ns.Art.TargetStyleSized(name, 1, 1)
+	local view = { style = name, metal = {} }
+	local k = C.scale
+	local root, top = StyledRoot(view, button, k, st.size[1], st.size[2])
+	local art = CreateFrame("Frame", nil, root)
+	art:SetAllPoints(root)
+	art:EnableMouse(false)
+	view.art = art
+	ns.Art.DrawTargetStyle(art, st, "normal")
+
+	local p = st.portrait
+	local round = p.round and { round = true, cx = p.cx, cy = p.cy, hole = p.hole * 2 + 2 } or p
+	local socket = StyledSocket(view, root, round, false, p.round and p.model)
+	local over
+	if p.round then
+		-- The Bracket's ring, over the bust so its corners hide.
+		over = CreateFrame("Frame", nil, root)
+		over:SetSize(140, 140)
+		over:SetPoint("CENTER", socket, "CENTER")
+		over:EnableMouse(false)
+		view.ring = over:CreateTexture(nil, "OVERLAY")
+		view.ring:SetAllPoints()
+		if ns.Art.Apply(view.ring, "targetStyleParts") then
+			view.ring:SetTexCoord(ns.Art.TargetPartTexCoord("ring", "normal"))
+		end
+	end
+	local b = st.bar
+	local health = StyledHealth(view, root, b[1], b[2], b[3] - b[1], b[4] - b[2])
+	local pw = st.power
+	local power = StyledPower(view, root, pw[1], pw[2], pw[3] - pw[1], pw[4] - pw[2])
+	StyledText(view, top, health, socket, false, (b[3] - b[1]) * k - 44)
+	-- The cast bar: in the style's cast groove, else over the resource groove.
+	local g = st.castGroove or st.power
+	view.cast = CastBar(top, (g[3] - g[1]) * k, (g[4] - g[2]) * k)
+	view.cast:SetPoint("TOPLEFT", root, "TOPLEFT", g[1] * k, -g[2] * k)
+	view.debuffAt = { "TOPLEFT", view.size[1] + 4, -1 }
+	view.buffAt = { "TOPLEFT", view.size[1] + 4, -23 }
+	StyledHalos(view, root, name, st.art[1], st.art[2], st.art[3], st.art[4])
+
+	view.SetMetal = function(gold)
+		gold = gold and true or false
+		if view.gold == gold then return end
+		view.gold = gold
+		local rank = gold and "elite" or "normal"
+		ns.Art.DrawTargetStyle(art, st, rank)
+		if view.ring and ns.Art.Path("targetStyleParts") then
+			view.ring:SetTexCoord(ns.Art.TargetPartTexCoord("ring", rank))
+		end
+	end
+	view.SetLevels = StyledLevels(view, { art = art, over = over })
+	return view
+end
+
+-- D3's monster bar for a member: the hero portrait ring, the bar frame drawn over its fill, the
+-- resource a strip along the fill's foot.
+local function BuildMonsterBar(button)
+	local C = ns.Art.PARTY.styled
+	local L = C.d3
+	local view = { style = "d3", metal = {} }
+	local k = C.d3scale
+	local root, top = StyledRoot(view, button, k, L.size[1], L.size[2])
+	local hole = ns.Art.TARGET_RING_HOLE + 2
+	local socket = StyledSocket(view, root, { round = true, cx = L.ring[1], cy = L.ring[2], hole = hole }, false, 46)
+	local over = CreateFrame("Frame", nil, root)
+	over:SetAllPoints(root)
+	over:EnableMouse(false)
+	local cell = ns.Art.TARGET_RING_CELL
+	view.ring = over:CreateTexture(nil, "OVERLAY")
+	view.ring:SetSize(cell, cell)
+	view.ring:SetPoint("CENTER", socket, "CENTER")
+	if ns.Art.Apply(view.ring, "targetRings") then
+		view.ring:SetTexCoord(ns.Art.TargetRingTexCoord("normal"))
+	end
+	local piece = ns.Art.UNIT.normal
+	local box = CreateFrame("Frame", nil, over)
+	box:SetSize(piece[3], piece[4])
+	box:SetPoint("TOPLEFT", root, "TOPLEFT", L.frame[1], -L.frame[2])
+	box:EnableMouse(false)
+	ns.Art.DrawSliced(box, "normal", piece[3], 1)
+	view.art = box
+	local bar = piece.bar
+	local x, y = L.frame[1] + bar[1], L.frame[2] + bar[2]
+	local health = StyledHealth(view, root, x, y, bar[3], bar[4], "unitWell")
+	StyledPower(view, root, x, y + bar[4] - 4, bar[3], 4)
+	StyledText(view, top, health, socket, false, bar[3] * k - 44)
+	-- The cast bar under the frame.
+	view.cast = CastBar(top, bar[3] * k, 7 * k)
+	view.cast:SetPoint("TOPLEFT", root, "TOPLEFT", x * k, -(L.frame[2] + piece[4] + 2) * k)
+	view.debuffAt = { "TOPLEFT", view.size[1] + 4, -1 }
+	view.buffAt = { "TOPLEFT", view.size[1] + 4, -23 }
+	local bx = L.box
+	StyledHalos(view, root, "d3", bx[1], bx[2], bx[3], bx[4])
+
+	view.SetMetal = function(gold)
+		gold = gold and true or false
+		if view.gold == gold then return end
+		view.gold = gold
+		if ns.Art.Path("targetRings") then
+			view.ring:SetTexCoord(ns.Art.TargetRingTexCoord(gold and "elite" or "normal"))
+		end
+	end
+	view.SetLevels = StyledLevels(view, { over = over, frameBox = box, powerOver = true })
+	return view
+end
+
+-- A pet in any of these looks: the rendered styles' target of target frame, a small ring and bar.
+local function BuildStyledPet(name, button)
+	local C = ns.Art.PARTY.styled
+	local st = ns.Art.TargetStyleSized(ns.Art.TARGET_TOT_STYLE, 1, 1)
+	local view = { style = name, metal = {} }
+	local k = C.pet.scale
+	local root, top = StyledRoot(view, button, k, st.size[1], st.size[2])
+	local art = CreateFrame("Frame", nil, root)
+	art:SetAllPoints(root)
+	art:EnableMouse(false)
+	view.art = art
+	ns.Art.DrawTargetStyle(art, st, "normal")
+	local p = st.portrait
+	local socket = StyledSocket(view, root, { round = true, cx = p.cx, cy = p.cy, hole = 23 }, true)
+	local b = st.bar
+	local health = StyledHealth(view, root, b[1], b[2], b[3] - b[1], b[4] - b[2])
+	StyledText(view, top, health, socket, true, (b[3] - b[1]) * k - 24)
+	StyledHalos(view, root, "tot", st.art[1], st.art[2], st.art[3], st.art[4])
+	view.SetLevels = StyledLevels(view, { art = art })
+	return view
+end
+
+function S.BuildStyled(style, button, isPet)
+	if isPet then return BuildStyledPet(style, button) end
+	if style == "d3" then return BuildMonsterBar(button) end
+	return BuildRendered(style, button)
+end
+
 -- The frame's metal: gold on your target; else iron in the class colour (c), or plain iron when
 -- there's none (pets). c's numbers may be secret, so a client that refuses them gets plain iron.
+-- The target styles' art is drawn whole, so they only swap to their gold row.
 function S.SetMetal(view, gold, c)
+	if view.SetMetal then return view.SetMetal(gold, c) end
 	local hasArt = ns.Art.Path(view.style == "globes" and "partyGlobes" or "partySlab")
 	for _, m in ipairs(view.metal) do
 		if hasArt then m.tex:SetTexCoord(Coord(view.style, gold and m.gold or m.iron)) end
@@ -556,6 +868,7 @@ function S.SetMetal(view, gold, c)
 end
 
 function S.Build(style, button, isPet)
+	if STYLED[style] then return S.BuildStyled(style, button, isPet) end
 	if style == "slab" then return S.BuildSlab(button, isPet) end
 	return S.BuildGlobes(button, isPet)
 end

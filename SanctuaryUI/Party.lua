@@ -46,9 +46,10 @@ local function Bool(value)
 	return value and true or false
 end
 
+-- globes, slab, or one of the target frame's looks (PartyStyles.lua STYLED); nil is none.
 function P.Style()
 	local style = Opt().style
-	if style == "globes" or style == "slab" then return style end
+	if style == "globes" or style == "slab" or ns.PartyStyles.STYLED[style] then return style end
 	return nil
 end
 
@@ -393,7 +394,7 @@ function UpdatePortrait(b, force)
 	end
 	if v.model then v.model:Hide() end
 	SetPortraitTexture(v.face, unit)
-	if v.style == "slab" then
+	if v.style == "slab" or v.squareFace then
 		v.face:SetTexCoord(0.15, 0.85, 0.15, 0.85)
 	else
 		v.face:SetTexCoord(0.06, 0.94, 0.06, 0.94)
@@ -737,7 +738,7 @@ local PRESERVE = (Enum and Enum.CustomAuraButtonDispelTypeTextureStyle and Enum.
 	or (DispelTypeTextureStyle and DispelTypeTextureStyle.PreserveAsset) or 3
 
 local function AuraSize()
-	return AURA_SIZE[P.Style() or "globes"]
+	return AURA_SIZE[P.Style() or "globes"] or AURA_SIZE.slab
 end
 
 local function ShowFrame(button, kind)
@@ -861,7 +862,7 @@ function P.DispelArt(b)
 	local v = b.v
 	if not (b.dispelTex and v and v.glowRect) then return end
 	local g = v.glowRect
-	local key = tostring(g.slot) .. ":" .. tostring(g.style)
+	local key = tostring(g.slot) .. ":" .. tostring(g.style) .. ":" .. table.concat(g.rect, ",")
 	if b.dispelArtKey == key then return end
 	b.dispelArtKey = key
 	local stuck = false
@@ -1078,7 +1079,7 @@ function P.Layout()
 
 	local G, L = ns.Art.PARTY.globes, ns.Art.PARTY.slab
 	local previewing = P.Previewing()
-	local gap = GAP[style] + (tonumber(opt.spacing) or 0)
+	local gap = (GAP[style] or GAP.slab) + (tonumber(opt.spacing) or 0)
 	local y, width = 0, 0
 	for i, b in ipairs(P.members) do
 		local v = b.v
@@ -1091,9 +1092,13 @@ function P.Layout()
 			pet:SetPoint("CENTER", v.art, "CENTER", G.pet.at[1], -G.pet.at[2])
 			local _, padT = 0, v.size[2] - G.bezel.size[2]
 			below = math.max(0, padT + G.bezel.size[2] / 2 + G.pet.at[2] + G.pet.size[2] / 2 - v.size[2])
-		else
+		elseif style == "slab" then
 			pet:SetPoint("TOPLEFT", b, "BOTTOMLEFT", L.pet.indent, -L.pet.gap)
 			below = L.pet.gap + L.pet.size[2]
+		else
+			local sp = ns.Art.PARTY.styled.pet
+			pet:SetPoint("TOPLEFT", b, "BOTTOMLEFT", sp.indent, -sp.gap)
+			below = sp.gap + pet.v.size[2]
 		end
 		y = y + v.size[2] + (opt.pets and below or 0) + gap
 		width = math.max(width, v.size[1] + 120)
@@ -1267,7 +1272,8 @@ local function OnUpdate(_, elapsed)
 		P.rangeClock = 0
 		for _, b in ipairs(P.all) do UpdateRange(b) end
 	end
-	if P.Style() == "slab" then
+	local style = P.Style()
+	if style and style ~= "globes" then -- the grooves' liquid
 		local db = ns.DB()
 		if db.liquidAnimate ~= false then
 			P.liquidClock = (P.liquidClock or 0) + elapsed * (tonumber(db.liquidSpeed) or 1)

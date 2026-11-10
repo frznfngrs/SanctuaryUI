@@ -13,6 +13,7 @@ ns.Art.slots.partyGlobes = { file = "party-globes.png" }
 ns.Art.slots.partyCrescent = { file = "party-crescent.png" } -- the resource groove's fill, a whole file (StatusBar texture)
 ns.Art.slots.partySlab = { file = "party-slab.png" }
 ns.Art.slots.partyAura = { file = "party-aura.png" }
+ns.Art.slots.partyStyled = { file = "party-styled.png" } -- halos for the target styles on party frames
 
 ns.Art.PARTY = {
 	-- Concept 1, the default: a small health globe in a forged iron bezel, the resource a
@@ -72,6 +73,32 @@ ns.Art.PARTY = {
 		},
 		glow = { size = { 240, 64 }, rect = { 0, 408, 480, 128 } }, -- centred on the member slab
 		petGlow = { size = { 165, 39 }, rect = { 0, 536, 330, 78 } },
+	},
+
+	-- Concept 3: the target frame's looks (Lintel, Slim Lintel, Forged Bracket, Tablet from
+	-- ns.Art.TARGET_STYLES, and D3's monster bar), each member drawn at `scale` of the target's
+	-- size (the monster bar at d3scale, as the target of target), the art's gold row on your
+	-- target (the monster bar: its gold laurel ring). Pets get the rendered styles' target of
+	-- target frame at pet.scale. The halos (threat, your target, dispel) are each art's own
+	-- outline blurred (build_hud_art.py party_styled), 1 px per unit, each covering the art's
+	-- whole rect: TARGET_STYLES[name].art, d3.box, and the target of target's art.
+	styled = {
+		atlas = { 512, 512 },
+		scale = 0.6667,
+		d3scale = 0.6,
+		halos = {
+			lintel = { 0, 0, 272, 77 },
+			slim = { 0, 80, 245, 65 },
+			bracket = { 0, 148, 268, 75 },
+			tablet = { 0, 226, 265, 81 },
+			d3 = { 0, 310, 238, 77 },
+			tot = { 280, 0, 120, 38 },
+		},
+		-- The monster bar's layout, in D3's own units (scaled by d3scale): the portrait ring's
+		-- centre, the bar frame's top left (ns.Art.UNIT.normal), the whole member's size, and
+		-- box: x, y, w, h of the art from the ring's cell to the bar's end (its halo).
+		d3 = { ring = { 45, 45 }, frame = { 84, 25 }, size = { 378, 90 }, box = { -19, -19, 397, 128 } },
+		pet = { scale = 1, gap = 2, indent = 24 },
 	},
 
 	-- Aura frames: D3's buff frame (gold, your buffs) and its debuff frame made neutral grey so

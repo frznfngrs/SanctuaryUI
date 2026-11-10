@@ -26,7 +26,8 @@ local KEEP_PARENT = {
 
 -- Hidden only while the SanctuaryUI part that replaces them is on (portraits, target plate).
 local function PartyStyled(db)
-	return db.party and (db.party.style == "globes" or db.party.style == "slab") or false
+	-- Any of our looks (globes, slab, the target styles); "none" leaves Blizzard's frames up.
+	return db.party and db.party.style ~= nil and db.party.style ~= "none" or false
 end
 
 local REPLACED_BY = {
