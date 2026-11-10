@@ -4,3 +4,4 @@ dist/
 tools/casc
 __pycache__/
 *.pyc
+mockups/
