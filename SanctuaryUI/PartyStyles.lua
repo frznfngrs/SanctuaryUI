@@ -304,7 +304,7 @@ function S.BuildGlobes(button, isPet)
 		view.status:SetPoint("CENTER", globe, "CENTER", 0, -1)
 		view.name = Font(top, 12, true)
 		view.name:SetPoint("TOPLEFT", art, "TOPRIGHT", 2, -10)
-		view.name:SetWidth(110)
+		view.name:SetWidth(150) -- room for a first and last name
 		view.name:SetJustifyH("LEFT")
 
 		Icons(view, top)

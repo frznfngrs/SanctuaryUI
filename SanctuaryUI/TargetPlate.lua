@@ -1686,7 +1686,7 @@ local function UpdateToT(plate, full)
 		art.Name:SetText(YOU or "You")
 		art.Name:SetTextColor(1, 0.38, 0.25)
 	else
-		if not pcall(art.Name.SetText, art.Name, ns.Or(UnitName(unit), "")) then art.Name:SetText("") end
+		if not pcall(art.Name.SetText, art.Name, ns.Or(ns.UnitDisplayName(unit, Opt().surnames ~= false), "")) then art.Name:SetText("") end
 		art.Name:SetTextColor(color[1], color[2], color[3])
 	end
 	-- Health may be secret: the bar takes it as is.
@@ -1825,7 +1825,7 @@ function ns.TargetPlate.Update(snap)
 	if classColor then nameColor = { classColor.r, classColor.g, classColor.b } end
 	if Previewing() then
 		plate.Name:SetText(PREVIEW_NAMES[PREVIEW_RANKS[preview.rank]] or "")
-	elseif not pcall(plate.Name.SetText, plate.Name, ns.Or(UnitName(U()), "")) then
+	elseif not pcall(plate.Name.SetText, plate.Name, ns.Or(ns.UnitDisplayName(U(), Opt().surnames ~= false), "")) then
 		plate.Name:SetText("")
 	end
 	plate.Name:SetTextColor(nameColor[1], nameColor[2], nameColor[3])

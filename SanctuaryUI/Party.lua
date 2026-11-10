@@ -429,7 +429,7 @@ local function UpdateName(b)
 	if not v or not v.name then return end
 	local unit, pv = U(b), PV(b)
 	if not pv and not UnitExists(unit) then return end
-	local name = pv and pv.name or UnitName(unit)
+	local name = pv and pv.name or ns.UnitDisplayName(unit, Opt().surnames ~= false)
 	if not pcall(v.name.SetText, v.name, name or "") then v.name:SetText("") end
 	local c = ClassColor(b)
 	if c then

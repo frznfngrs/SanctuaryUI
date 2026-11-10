@@ -70,6 +70,24 @@ function ns.Or(value, default)
 	return value
 end
 
+-- A unit's name to show. Characters on Forever have a surname, and there UnitName's second
+-- return is that surname (elsewhere it's the realm), joined with the client's own separator as
+-- Plater does. withSurname false gives the first name alone. A secret name can't be joined, so
+-- it comes back as the client gave it.
+local IS_FOREVER = WOW_PROJECT_CAMELOT ~= nil and WOW_PROJECT_ID == WOW_PROJECT_CAMELOT
+local SURNAME_SEP = Constants and Constants.CharacterNameSeparatorConsts
+	and Constants.CharacterNameSeparatorConsts.CHARACTERNAME_SURNAME_SEPARATOR or " "
+function ns.UnitDisplayName(unit, withSurname)
+	local first, second = UnitName(unit)
+	if not IS_FOREVER or withSurname == false or ns.Secret(first) or ns.Secret(second) then
+		return first
+	end
+	if type(first) == "string" and type(second) == "string" and second ~= "" then
+		return first .. SURNAME_SEP .. second
+	end
+	return first
+end
+
 -- Every aura of one kind (filter) on a unit, in the client's order, which way it was read, and
 -- whether the client refused every way (in combat it refuses addons the player's auras
 -- outright, so an empty list then means "can't tell", not "no buffs").
@@ -578,6 +596,15 @@ local function Slash(msg)
 		ns.GlobeRatio() -- converts an old profile's scales first
 		if not value then
 			ns.Print(("bar scale is %.2f, globe scale %.2f"):format(db.scale or 1, db.globeScale or 1))
+			-- What the frames really have, against UIParent: the console, a globe pod, the globe.
+			local ui = UIParent:GetEffectiveScale()
+			local function On(frame)
+				return frame and ("%.3f"):format(frame:GetEffectiveScale() / ui) or "-"
+			end
+			local pod = ns.Pods and ns.Pods.health
+			ns.Print(("on screen: console %s, pod %s (own %s), globe %s, globe art %s"):format(
+				On(ns.Cluster), On(pod), pod and ("%.3f"):format(pod:GetScale()) or "-",
+				On(ns.HealthGlobe), On(pod and pod.art)))
 		elseif InCombatLockdown() then
 			ns.Print("cannot change scale in combat")
 		else

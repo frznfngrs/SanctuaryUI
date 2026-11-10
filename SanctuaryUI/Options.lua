@@ -1247,6 +1247,7 @@ local function Build()
 						nameSize = TargetText("nameShow", Range(4, "Size", nil, "target", "nameSize", 6, 24, 1)),
 						nameX = TargetText("nameShow", Range(5, "Nudge left / right", nil, "target", "nameX", -200, 200, 1)),
 						nameY = TargetText("nameShow", Range(6, "Nudge up / down", nil, "target", "nameY", -60, 60, 1)),
+						surnames = TargetText("nameShow", Third(Toggle(7, "Last names", "A player's full name, first and last, here and on the target of target. Off, first names only.", "target", "surnames"))),
 					}),
 					level = Card(3, "Level", {
 						levelShow = Third(Toggle(1, "Show level", nil, "target", "levelShow")),
@@ -1376,6 +1377,7 @@ local function Build()
 					healPrediction = Toggle(4, "Incoming heals and shields", "Heals on the way and damage shields poured on top of their health, as on your globe.", "party", "healPrediction"),
 					threat = Toggle(5, "Threat halo", "A red halo on a member with aggro (orange as they near it).", "party", "threat"),
 					rangeFade = Toggle(6, "Fade out of range", nil, "party", "rangeFade"),
+					surnames = Toggle(7, "Last names", "Each member's full name, first and last. Off, first names only, which leaves more room on the Slab.", "party", "surnames"),
 				}),
 				auras = Card(6, "Auras", {
 					debuffs = Toggle(1, "Debuffs", "Their debuffs in D3's debuff frame, coloured by type: blue magic, purple curse, brown disease, green poison.", "party", "debuffs"),
