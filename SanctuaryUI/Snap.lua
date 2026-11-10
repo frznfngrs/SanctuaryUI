@@ -248,12 +248,18 @@ function ns.Snap.DrawGrid()
 			line:SetColorTexture(0.86, 0.72, 0.42, 0.22)
 		end
 		line:ClearAllPoints()
+		-- On whole screen pixels: the grid's places fall between pixels at most UI scales, and a
+		-- one-pixel line there gets snapped to either side (some lines sharp, some doubled, dim
+		-- or gone). So it covers whole pixels, n wide, centred as near its place as pixels allow
+		-- (within half a pixel of where frames snap).
+		local n = centre and 2 or 1
+		local edge = math.floor(at / px - n / 2 + 0.5) * px
 		if vertical then
-			line:SetSize(px * (centre and 2 or 1), H)
-			line:SetPoint("CENTER", frame, "BOTTOMLEFT", at, H / 2)
+			line:SetSize(n * px, H)
+			line:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", edge, 0)
 		else
-			line:SetSize(W, px * (centre and 2 or 1))
-			line:SetPoint("CENTER", frame, "BOTTOMLEFT", W / 2, at)
+			line:SetSize(W, n * px)
+			line:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, edge)
 		end
 		line:Show()
 	end
