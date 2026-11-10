@@ -1403,6 +1403,9 @@ function ns.ActionBar.UpdateMovers(hide)
 	if ns.TargetPlate and ns.TargetPlate.mover then
 		ns.TargetPlate.mover:SetShown(unlocked and ns.DB().target.enabled)
 	end
+	if ns.FocusPlate and ns.FocusPlate.mover then
+		ns.FocusPlate.mover:SetShown(unlocked and ns.DB().focus.enabled)
+	end
 	if ns.Portraits and ns.Portraits.mover then
 		ns.Portraits.mover:SetShown(unlocked and ns.DB().portraits.enabled)
 	end

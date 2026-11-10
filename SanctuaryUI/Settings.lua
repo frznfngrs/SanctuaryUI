@@ -414,6 +414,18 @@ function ns.InitDB()
 	return ns.db
 end
 
+-- The focus frame: the target frame's settings, for the focus unit (TargetPlate.lua builds both),
+-- a little smaller and with a shorter debuff row, and no target of target by default.
+do
+	local focus = {}
+	for k, v in pairs(ns.DEFAULTS.profile.target) do focus[k] = v end
+	focus.scale = 0.8
+	focus.tot = false
+	focus.maxDebuffs = 8
+	focus.auraPerLine = 8
+	ns.DEFAULTS.profile.focus = focus
+end
+
 function ns.DB()
 	return (ns.db or ns.InitDB()).profile
 end
@@ -450,6 +462,7 @@ function ns.Refresh()
 	Run("rail", ns.Experience and ns.Experience.Update)
 	Run("auras", ns.Auras and ns.Auras.ApplySettings)
 	Run("target", ns.TargetPlate and ns.TargetPlate.ApplySettings)
+	Run("focus", ns.FocusPlate and ns.FocusPlate.ApplySettings)
 	Run("portraits", ns.Portraits and ns.Portraits.ApplySettings)
 	Run("party", ns.Party and ns.Party.ApplySettings)
 	Run("pollution", ns.Pollution and ns.Pollution.ApplySettings)

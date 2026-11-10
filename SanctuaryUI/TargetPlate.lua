@@ -1,6 +1,5 @@
 SanctuaryUI = SanctuaryUI or {}
 local ns = SanctuaryUI
-ns.TargetPlate = ns.TargetPlate or {}
 
 -- The target plate, D3's monster health bar at the top of the screen: the name inside the bar, the frame
 -- by rank (silver for ordinary monsters, gold for elites and rares, the gold banner for bosses),
@@ -20,6 +19,13 @@ ns.TargetPlate = ns.TargetPlate or {}
 -- a portrait socket, a health bar and a resource bar. SetStylePiece and ApplyStyle do that part; the
 -- health, text and aura code below is shared. Those frames draw under the bars, D3's over them.
 
+
+-- The focus frame (Options > Focus) is the same plate for the focus unit: Build runs this whole
+-- file once per unit, filling a module table M from a config (CFG: unit, settings key, global
+-- name prefix, the event for a new unit, its label and its default place). Everything below is
+-- per plate; the body is not indented.
+local function Build(M, CFG)
+local UNIT, KEY = CFG.unit, CFG.key
 local MAX_AURAS = 24 -- of each kind
 -- Every rank's bar is centred on the same line (the boss banner's), and the lines under it sit
 -- at fixed places, so nothing secure (the target-of-target button) hangs off a frame that
@@ -58,7 +64,7 @@ local RANK_LABEL = {
 }
 
 local function Opt()
-	return ns.DB().target
+	return ns.DB()[KEY]
 end
 
 -- The rendered style in use at the Width and Height options, or nil for D3's monster bar.
@@ -101,16 +107,16 @@ local preview = { rank = 1, clock = 0, health = 1 }
 -- The stand-in shows when asked for in options, and while frames are unlocked, so the plate
 -- can be seen and placed with no target (as the party frames do).
 local function Showcase()
-	return (ns.TargetPlate.preview or not ns.DB().locked) and true or false
+	return (M.preview or not ns.DB().locked) and true or false
 end
 
 local function Previewing()
-	return Showcase() and not UnitExists("target")
+	return Showcase() and not UnitExists(UNIT)
 end
 
 -- The unit the plate reads: the target, or you while previewing.
 local function U()
-	return Previewing() and "player" or "target"
+	return Previewing() and "player" or UNIT
 end
 
 local function Secret(value)
@@ -870,7 +876,7 @@ local function PreviewTick(plate, elapsed)
 	if preview.health <= 0 then
 		preview.health = 1
 		preview.rank = preview.rank % #PREVIEW_RANKS + 1
-		ns.TargetPlate.Update(true)
+		M.Update(true)
 	else
 		SetHealth(plate)
 	end
@@ -1396,7 +1402,7 @@ local function MakeBox(plate, name, groups)
 			layout = GroupLayout(spec, group.newLine),
 		})
 	end
-	box:SetUnit("target")
+	box:SetUnit(UNIT)
 	box:SetEnabled(true)
 	return box
 end
@@ -1406,10 +1412,10 @@ end
 local function MakeBoxes(plate)
 	if not HAS_CONTAINERS then return false end
 	local ok, debuffBox, buffBox = pcall(function()
-		return MakeBox(plate, "SanctuaryUITargetDebuffs", DEBUFF_GROUPS), MakeBox(plate, "SanctuaryUITargetBuffs", BUFF_GROUPS)
+		return MakeBox(plate, CFG.prefix .. "Debuffs", DEBUFF_GROUPS), MakeBox(plate, CFG.prefix .. "Buffs", BUFF_GROUPS)
 	end)
 	if not ok then
-		if ns.LogError then ns.LogError("target", "aura containers: " .. tostring(debuffBox)) end
+		if ns.LogError then ns.LogError(KEY, "aura containers: " .. tostring(debuffBox)) end
 		return false
 	end
 	plate.debuffBox, plate.buffBox = debuffBox, buffBox
@@ -1451,7 +1457,7 @@ local function ConfigureBoxes(plate, opt, d, b, same)
 	local maxD = math.min(MAX_AURAS, opt.maxDebuffs or 16)
 	local maxB = math.min(MAX_AURAS, opt.maxBuffs or 8)
 	-- Previewing (no target): your own buffs stand in for the debuffs, as before.
-	local unit = preview and "player" or "target"
+	local unit = preview and "player" or UNIT
 	local function Set(box, group, enabled, max, filter, spec)
 		box:SetAuraGroupEnabled(group.key, enabled)
 		box:SetAuraGroupMaxFrameCount(group.key, enabled and max or 0)
@@ -1553,7 +1559,7 @@ end
 local function UpdateAuras(plate)
 	if plate.debuffBox then
 		local ok, err = pcall(UpdateBoxes, plate)
-		if not ok and ns.LogError then ns.LogError("target", "aura containers: " .. tostring(err)) end
+		if not ok and ns.LogError then ns.LogError(KEY, "aura containers: " .. tostring(err)) end
 	else
 		UpdateAuraIcons(plate)
 	end
@@ -1654,7 +1660,7 @@ end
 -- portrait, which otherwise only changes when the unit does (its model would restart).
 local function UpdateToT(plate, full)
 	local art = plate.ToTArt
-	local unit = "targettarget"
+	local unit = UNIT .. "target"
 	if not UnitExists(unit) then
 		plate.totGUID = nil
 		return
@@ -1793,8 +1799,8 @@ local function UpdateMarks(plate)
 end
 
 -- snap: a new target, so the bar jumps to its health instead of draining to it.
-function ns.TargetPlate.Update(snap)
-	local plate = ns.TargetPlate.frame
+function M.Update(snap)
+	local plate = M.frame
 	if not plate or not Opt().enabled or not UnitExists(U()) then return end
 
 	local rank, colorKey, classification = Rank()
@@ -1961,14 +1967,14 @@ local function ApplyStyle(plate)
 	ring:SetSize(140, 140)
 end
 
-function ns.TargetPlate.Layout()
-	local plate = ns.TargetPlate.frame
+function M.Layout()
+	local plate = M.frame
 	if not plate then return end
 	if InCombatLockdown() then
-		ns.TargetPlate.pending = true
+		M.pending = true
 		return
 	end
-	ns.TargetPlate.pending = nil
+	M.pending = nil
 	local opt = Opt()
 	plate:SetScale(ns.Art.D3Scale(opt.scale))
 	local style = Style()
@@ -1991,7 +1997,7 @@ function ns.TargetPlate.Layout()
 	if opt.moved then
 		plate:SetPoint("CENTER", UIParent, "BOTTOMLEFT", ns.MovedPoint(plate, opt))
 	else
-		plate:SetPoint("TOP", UIParent, "TOP", 0, -12 - room)
+		CFG.place(plate, room)
 	end
 	plate.rank = nil -- redraw the frame at the new width
 	-- Target of target click area: from the narrowest frame's right end (normal) to the end of
@@ -2045,31 +2051,31 @@ end
 -- Update stops when there is no target, but the aura containers can only be set up out of
 -- combat: left to the first target, a first target in combat would get the wrong layout.
 local function ConfigureWithoutTarget()
-	local plate = ns.TargetPlate.frame
+	local plate = M.frame
 	if plate and plate.debuffBox and Opt().enabled and not UnitExists(U()) then
 		UpdateAuras(plate)
 	end
 end
 
-function ns.TargetPlate.SetPreview(on)
+function M.SetPreview(on)
 	if InCombatLockdown() then
 		ns.Print("cannot preview in combat")
 		return
 	end
-	ns.TargetPlate.preview = on and true or nil
+	M.preview = on and true or nil
 	preview.rank, preview.clock, preview.health = 1, 0, 1
-	ns.TargetPlate.Layout()
-	ns.TargetPlate.Update(true)
+	M.Layout()
+	M.Update(true)
 	ConfigureWithoutTarget()
 end
 
-function ns.TargetPlate.ApplySettings()
-	ns.TargetPlate.Layout()
-	ns.TargetPlate.Update()
+function M.ApplySettings()
+	M.Layout()
+	M.Update()
 	ConfigureWithoutTarget()
 end
 
-function ns.TargetPlate.ResetPosition()
+function M.ResetPosition()
 	local opt = Opt()
 	opt.moved, opt.mx, opt.my = false, 0, 0
 	ns.Refresh()
@@ -2288,23 +2294,23 @@ local function MakeToTArt(plate, parent)
 	return art
 end
 
-function ns.TargetPlate.Init()
-	local plate = CreateFrame("Button", "SanctuaryUITargetPlate", UIParent, "SecureUnitButtonTemplate")
+function M.Init()
+	local plate = CreateFrame("Button", CFG.prefix .. "Plate", UIParent, "SecureUnitButtonTemplate")
 	plate:SetSize(ns.Art.UNIT.boss[3], PLATE_H)
 	-- In the console's strata and above its stack, so that moved down near the console it still
 	-- gets the mouse (its aura tooltips) and draws over it. Its pieces take their levels from
 	-- the plate's, so this comes first. The bag window is top-level and still rises over it.
 	plate:SetFrameStrata("MEDIUM")
 	plate:SetFrameLevel((ns.Cluster and ns.Cluster:GetFrameLevel() or 1) + ns.LEVEL.target)
-	plate:SetAttribute("unit", "target")
+	plate:SetAttribute("unit", UNIT)
 	plate:SetAttribute("*type1", "target")
 	plate:SetAttribute("*type2", "togglemenu")
 	plate:RegisterForClicks("AnyUp")
 	plate:EnableMouse(true)
-	plate:SetScript("OnEnter", function(self) ShowUnitTooltip(self, "target", self.Hover) end)
+	plate:SetScript("OnEnter", function(self) ShowUnitTooltip(self, UNIT, self.Hover) end)
 	plate:SetScript("OnLeave", function(self) HideUnitTooltip(self.Hover) end)
 	-- The frame keeps Update and Layout: it lives in a field of the module table.
-	ns.TargetPlate.frame = plate
+	M.frame = plate
 
 	-- The frame art (sliced, so it can stretch) sits over the health bar, which fills its slot;
 	-- the pale trail runs under the health bar.
@@ -2456,12 +2462,12 @@ function ns.TargetPlate.Init()
 
 	-- Target of target: a secure unit button of its own (left-click targets, right-click opens
 	-- its menu), right of the frame on the bar's line. RegisterUnitWatch shows it, also in combat.
-	local tot = CreateFrame("Button", "SanctuaryUITargetTarget", plate, "SecureUnitButtonTemplate")
+	local tot = CreateFrame("Button", CFG.prefix .. "Target", plate, "SecureUnitButtonTemplate")
 	tot:SetSize(10, 22) -- placed by Layout
 
 	tot:SetFrameStrata("MEDIUM")
 	tot:EnableMouse(true)
-	tot:SetAttribute("unit", "targettarget")
+	tot:SetAttribute("unit", UNIT .. "target")
 	tot:SetAttribute("*type1", "target")
 	tot:SetAttribute("*type2", "togglemenu")
 	tot:RegisterForClicks("AnyUp")
@@ -2469,7 +2475,7 @@ function ns.TargetPlate.Init()
 	-- rank's frame end; the button is a fixed click area over everywhere it can be, since a
 	-- secure button can't move in combat.
 	plate.ToTArt = MakeToTArt(plate, tot)
-	tot:SetScript("OnEnter", function(self) ShowUnitTooltip(self, "targettarget", plate.ToTArt.Hover) end)
+	tot:SetScript("OnEnter", function(self) ShowUnitTooltip(self, UNIT .. "target", plate.ToTArt.Hover) end)
 	tot:SetScript("OnLeave", function() HideUnitTooltip(plate.ToTArt.Hover) end)
 	tot:HookScript("OnShow", function() UpdateToT(plate, true) end)
 	plate.ToT = tot -- shown by RegisterUnitWatch (Layout)
@@ -2605,15 +2611,15 @@ function ns.TargetPlate.Init()
 	plate.buffRef:SetSize(1, 1)
 	plate.debuffs, plate.buffs = {}, {}
 	for i = 1, MAX_AURAS do
-		plate.debuffs[i] = MakeAura(plate, "SanctuaryUITargetDebuff" .. i)
-		plate.buffs[i] = MakeAura(plate, "SanctuaryUITargetBuff" .. i)
+		plate.debuffs[i] = MakeAura(plate, CFG.prefix .. "Debuff" .. i)
+		plate.buffs[i] = MakeAura(plate, CFG.prefix .. "Buff" .. i)
 	end
 	-- Where the client has aura containers they replace these icons (see MakeBoxes).
 	MakeBoxes(plate)
 
 	-- On UIParent, not the plate: the plate hides by its unit watch, and the mover must still
 	-- show to be dragged. In DIALOG strata, over the plate (which takes the mouse) and its art.
-	ns.TargetPlate.mover = ns.MakeMover(plate, "Target", Opt, "Reset its position in /sanctuary > Target.", UIParent)
+	M.mover = ns.MakeMover(plate, CFG.label, Opt, "Reset its position in /sanctuary > " .. CFG.label .. ".", UIParent)
 
 	-- Every frame, on a plain child frame (so it runs while the plate shows, as the globes'
 	-- driver does): health easing, the bar's liquid, the preview, and the target of target
@@ -2632,46 +2638,46 @@ function ns.TargetPlate.Init()
 		UpdateToT(plate)
 	end)
 	plate.driver = driver
-	plate:HookScript("OnShow", function() ns.TargetPlate.Update(true) end)
+	plate:HookScript("OnShow", function() M.Update(true) end)
 
 	local events = CreateFrame("Frame", nil, UIParent)
-	events:RegisterEvent("PLAYER_TARGET_CHANGED")
+	pcall(events.RegisterEvent, events, CFG.changed) -- a client without a focus has no such event
 	events:RegisterEvent("PLAYER_ENTERING_WORLD")
 	events:RegisterEvent("PLAYER_REGEN_ENABLED")
 	events:RegisterEvent("RAID_TARGET_UPDATE")
 	events:RegisterEvent("UI_SCALE_CHANGED")
 	events:RegisterEvent("DISPLAY_SIZE_CHANGED")
-	events:RegisterUnitEvent("UNIT_HEALTH", "target")
-	events:RegisterUnitEvent("UNIT_MAXHEALTH", "target")
-	events:RegisterUnitEvent("UNIT_POWER_UPDATE", "target")
-	events:RegisterUnitEvent("UNIT_MAXPOWER", "target")
-	events:RegisterUnitEvent("UNIT_DISPLAYPOWER", "target")
-	events:RegisterUnitEvent("UNIT_HEAL_PREDICTION", "target")
-	events:RegisterUnitEvent("UNIT_ABSORB_AMOUNT_CHANGED", "target")
-	events:RegisterUnitEvent("UNIT_AURA", "target")
-	events:RegisterUnitEvent("UNIT_NAME_UPDATE", "target")
-	events:RegisterUnitEvent("UNIT_FACTION", "target")
-	events:RegisterUnitEvent("UNIT_LEVEL", "target")
-	events:RegisterUnitEvent("UNIT_MODEL_CHANGED", "target")
-	events:RegisterUnitEvent("UNIT_PORTRAIT_UPDATE", "target")
-	pcall(events.RegisterUnitEvent, events, "UNIT_CLASSIFICATION_CHANGED", "target")
-	events:RegisterUnitEvent("UNIT_TARGET", "target")
-	events:RegisterUnitEvent("UNIT_SPELLCAST_START", "target")
-	events:RegisterUnitEvent("UNIT_SPELLCAST_STOP", "target")
-	events:RegisterUnitEvent("UNIT_SPELLCAST_DELAYED", "target")
-	events:RegisterUnitEvent("UNIT_SPELLCAST_FAILED", "target")
-	events:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTED", "target")
-	events:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_START", "target")
-	events:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_STOP", "target")
-	events:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_UPDATE", "target")
-	pcall(events.RegisterUnitEvent, events, "UNIT_SPELLCAST_EMPOWER_START", "target")
-	pcall(events.RegisterUnitEvent, events, "UNIT_SPELLCAST_EMPOWER_UPDATE", "target")
-	pcall(events.RegisterUnitEvent, events, "UNIT_SPELLCAST_EMPOWER_STOP", "target")
-	pcall(events.RegisterUnitEvent, events, "UNIT_SPELLCAST_INTERRUPTIBLE", "target")
-	pcall(events.RegisterUnitEvent, events, "UNIT_SPELLCAST_NOT_INTERRUPTIBLE", "target")
+	events:RegisterUnitEvent("UNIT_HEALTH", UNIT)
+	events:RegisterUnitEvent("UNIT_MAXHEALTH", UNIT)
+	events:RegisterUnitEvent("UNIT_POWER_UPDATE", UNIT)
+	events:RegisterUnitEvent("UNIT_MAXPOWER", UNIT)
+	events:RegisterUnitEvent("UNIT_DISPLAYPOWER", UNIT)
+	events:RegisterUnitEvent("UNIT_HEAL_PREDICTION", UNIT)
+	events:RegisterUnitEvent("UNIT_ABSORB_AMOUNT_CHANGED", UNIT)
+	events:RegisterUnitEvent("UNIT_AURA", UNIT)
+	events:RegisterUnitEvent("UNIT_NAME_UPDATE", UNIT)
+	events:RegisterUnitEvent("UNIT_FACTION", UNIT)
+	events:RegisterUnitEvent("UNIT_LEVEL", UNIT)
+	events:RegisterUnitEvent("UNIT_MODEL_CHANGED", UNIT)
+	events:RegisterUnitEvent("UNIT_PORTRAIT_UPDATE", UNIT)
+	pcall(events.RegisterUnitEvent, events, "UNIT_CLASSIFICATION_CHANGED", UNIT)
+	events:RegisterUnitEvent("UNIT_TARGET", UNIT)
+	events:RegisterUnitEvent("UNIT_SPELLCAST_START", UNIT)
+	events:RegisterUnitEvent("UNIT_SPELLCAST_STOP", UNIT)
+	events:RegisterUnitEvent("UNIT_SPELLCAST_DELAYED", UNIT)
+	events:RegisterUnitEvent("UNIT_SPELLCAST_FAILED", UNIT)
+	events:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTED", UNIT)
+	events:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_START", UNIT)
+	events:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_STOP", UNIT)
+	events:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_UPDATE", UNIT)
+	pcall(events.RegisterUnitEvent, events, "UNIT_SPELLCAST_EMPOWER_START", UNIT)
+	pcall(events.RegisterUnitEvent, events, "UNIT_SPELLCAST_EMPOWER_UPDATE", UNIT)
+	pcall(events.RegisterUnitEvent, events, "UNIT_SPELLCAST_EMPOWER_STOP", UNIT)
+	pcall(events.RegisterUnitEvent, events, "UNIT_SPELLCAST_INTERRUPTIBLE", UNIT)
+	pcall(events.RegisterUnitEvent, events, "UNIT_SPELLCAST_NOT_INTERRUPTIBLE", UNIT)
 	events:SetScript("OnEvent", function(_, event)
 		if event == "UI_SCALE_CHANGED" or event == "DISPLAY_SIZE_CHANGED" then
-			ns.TargetPlate.Layout()
+			M.Layout()
 			return
 		end
 		if not Opt().enabled then return end
@@ -2699,20 +2705,36 @@ function ns.TargetPlate.Init()
 		elseif event == "UNIT_TARGET" then
 			UpdateToT(plate)
 		elseif event == "PLAYER_REGEN_ENABLED" then
-			if ns.TargetPlate.pending then ns.TargetPlate.Layout() end
+			if M.pending then M.Layout() end
 			-- The rank changed in combat: fit the click area to its frame now.
 			if plate.hitStale then
 				plate.rank = nil
-				ns.TargetPlate.Update()
+				M.Update()
 			end
 			-- Aura settings changed in combat wait for now.
 			if plate.debuffBox then UpdateAuras(plate) end
 		else
-			ns.TargetPlate.Update(event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_ENTERING_WORLD")
+			M.Update(event == CFG.changed or event == "PLAYER_ENTERING_WORLD")
 			if event == "PLAYER_ENTERING_WORLD" then ConfigureWithoutTarget() end
 		end
 	end)
 
 	plate:Hide()
-	ns.TargetPlate.Layout()
+	M.Layout()
 end
+end -- Build
+
+ns.TargetPlate = ns.TargetPlate or {}
+Build(ns.TargetPlate, {
+	unit = "target", key = "target", prefix = "SanctuaryUITarget", changed = "PLAYER_TARGET_CHANGED",
+	label = "Target",
+	place = function(plate, room) plate:SetPoint("TOP", UIParent, "TOP", 0, -12 - room) end,
+})
+
+-- The focus: left of the target frame and lower, out of the way of it and of the portraits.
+ns.FocusPlate = ns.FocusPlate or {}
+Build(ns.FocusPlate, {
+	unit = "focus", key = "focus", prefix = "SanctuaryUIFocus", changed = "PLAYER_FOCUS_CHANGED",
+	label = "Focus",
+	place = function(plate) plate:SetPoint("TOP", UIParent, "TOP", -480, -260) end,
+})

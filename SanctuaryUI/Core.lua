@@ -512,6 +512,7 @@ function ns.Layout()
 	if ns.Stance and ns.Stance.Layout then ns.Stance.Layout() end
 	if ns.Totem and ns.Totem.Layout then ns.Totem.Layout() end
 	if ns.TargetPlate and ns.TargetPlate.Layout then ns.TargetPlate.Layout() end
+	if ns.FocusPlate and ns.FocusPlate.Layout then ns.FocusPlate.Layout() end
 	if ns.Portraits and ns.Portraits.Layout then ns.Portraits.Layout() end
 end
 
@@ -870,6 +871,7 @@ loader:SetScript("OnEvent", function(_, event)
 		Safe("totems", ns.Totem and ns.Totem.Init)
 		Safe("auras", ns.Auras and ns.Auras.Init)
 		Safe("target plate", ns.TargetPlate and ns.TargetPlate.Init)
+		Safe("focus plate", ns.FocusPlate and ns.FocusPlate.Init)
 		Safe("portraits", ns.Portraits and ns.Portraits.Init)
 		Safe("party", ns.Party and ns.Party.Init)
 		Safe("pollution", ns.Pollution and ns.Pollution.Init)
