@@ -147,6 +147,7 @@ local SURGE_ART = {
 	upwellCore = { slot = "surgeUpwellCore", w = 2048, h = 1024, cw = 256, ch = 256, cols = 8, frames = 32, seconds = 3, row = 0 },
 }
 local STYLE_SLOTS = {
+	fury = { "furyVortex", "gargoyleFury", "gargoyleHorns", "furyBreath", "eyesGargoyleBody", "eyesGargoyleCore" },
 	inhale = { "surgeInhaleRays", "surgeStreak" },
 	pour = { "surgePourColumn", "surgePourUnder" },
 	upwell = { "surgeUpwellBody", "surgeUpwellCore" },
@@ -169,8 +170,8 @@ STYLE_SLOTS.embers = { "healDrop" }
 -- The one-off heals; if a sheet won't load the skill plays the plain burst.
 local HEAL_SLOTS = { mend = { "healDome" }, benediction = { "healBeam", "healRings" }, mound = { "healMound" } }
 local HEAL_SECONDS = { mend = 1.25, benediction = 1.15, mound = 1.15 }
-local RIDES_LEVEL = { pour = true, upwell = true, rain = true, pulse = true }
-local KICKS_POOL = { pour = true, upwell = true } -- lighting one sets the liquid rocking
+local RIDES_LEVEL = { pour = true, upwell = true, rain = true, pulse = true, fury = true }
+local KICKS_POOL = { pour = true, upwell = true, fury = true } -- lighting one sets the liquid rocking
 local NEW_STYLE = { vines = true, halo = true, bloom = true, veil = true, rain = true, pulse = true, embers = true }
 local STREAKS = 24 -- inhale: streaks rushing in
 local STREAK_CYCLE = 3 -- seconds for one
@@ -2028,9 +2029,170 @@ function DRAW.embers(g, u, s, now, base, sat, hot, rush, calm)
 	end
 end
 
+do
+-- Fury (BUILD.fury): the gargoyle's rage light and its hot parts share a sheet; its eye is
+-- StatueEyes.lua's flipbook, crossfaded here.
+local FURY_ART = {
+	light = { slot = "gargoyleFury", w = 2048, h = 1024, cw = 256, ch = 256, cols = 8, frames = 16, seconds = 1.6, row = 0 },
+	heat = { slot = "gargoyleFury", w = 2048, h = 1024, cw = 256, ch = 256, cols = 8, frames = 16, seconds = 1.6, row = 2 },
+	eyeBody = { slot = "eyesGargoyleBody", w = 512, h = 512, cw = 64, ch = 64, cols = 8, frames = 64, seconds = 2.4, row = 0 },
+	eyeCore = { slot = "eyesGargoyleCore", w = 512, h = 512, cw = 64, ch = 64, cols = 8, frames = 64, seconds = 2.4, row = 0 },
+	breath = { slot = "furyBreath", w = 1024, h = 512, cw = 128, ch = 128, cols = 8, frames = 16, seconds = 0.8, row = 0 },
+	breathCore = { slot = "furyBreath", w = 1024, h = 512, cw = 128, ch = 128, cols = 8, frames = 16, seconds = 0.8, row = 2 },
+}
+-- Fury: rage. The liquid itself is whipped up (Liquid.lua reads pool.fury: it turns several
+-- times faster and sloshes without rest) with a whirlpool spinning in it, and on the health
+-- globe the console's gargoyle wakes: heat beats out over the stone from its chest like a
+-- pulse, its horns turn a deep dark shade of the colour, its eye burns, and it breathes fire
+-- out over the glass. Positions are frame.png px.
+local FURY_CELL = { x = 28, y = 12, span = 192 } -- tools/build_fury_art.py CORNER, CELL
+local FURY_EYE = { x = 170, y = 102, span = 32 } -- tools/build_statue_eyes.py, the gargoyle
+local FURY_BREATH = { x = 196, y = 108, span = 72, fromX = 204, fromY = 143.5, angle = math.rad(11), length = 60 } -- build_fury_art.py BREATH_*
+local FURY_SPARKS = 6
+local FURY_FROTH = 8
+
+function BUILD.fury(g, u)
+	local _, inside = g.frame.pool:Anchors()
+	local s = { parts = {}, sheets = {}, bound = {} }
+	local liquid = Layer(inside)
+	liquid:SetAllPoints(g.frame)
+	local mask = GlobeMask(liquid, g.frame)
+	s.vortex = { Own(s, liquid, "furyVortex", 0), Own(s, liquid, "furyVortex", 1) }
+	for _, tex in ipairs(s.vortex) do
+		tex:AddMaskTexture(mask)
+		ClipTo(tex, g.frame)
+	end
+	s.froth = {}
+	for i = 1, FURY_FROTH do
+		s.froth[i] = Own(s, liquid, "mote", 2)
+		s.froth[i]:AddMaskTexture(mask)
+	end
+	s.frames, s.liquid = { liquid }, liquid
+
+	-- The gargoyle stands by the health globe; the same look on the other globe is the liquid alone.
+	local pod = ns.Pods and ns.Pods.health
+	if g.frame == ns.HealthGlobe and pod then
+		local statue = Layer(pod)
+		statue:SetFrameLevel(LevelOf("front"))
+		s.statue = statue
+		-- The horns' own paint, laid on in a deep colour (normal blending: it has to darken).
+		s.horns = Own(s, statue, "gargoyleHorns", -2)
+		s.horns:SetBlendMode("BLEND")
+		s.horns:ClearAllPoints()
+		s.horns:SetAllPoints(statue)
+		s.light = OwnPair(s, statue, FURY_ART.light, 0)
+		s.heat = OwnPair(s, statue, FURY_ART.heat, 1)
+		PairCall(s.light, "SetAllPoints", statue)
+		PairCall(s.heat, "SetAllPoints", statue)
+		s.eyeBody = OwnPair(s, statue, FURY_ART.eyeBody, 2)
+		s.eyeCore = OwnPair(s, statue, FURY_ART.eyeCore, 3)
+		s.breath = OwnPair(s, statue, FURY_ART.breath, 4)
+		s.breathCore = OwnPair(s, statue, FURY_ART.breathCore, 5)
+		s.flash = Own(s, statue, "mote", 6)
+		s.sparks = {}
+		for i = 1, FURY_SPARKS do
+			s.sparks[i] = Own(s, statue, "mote", 7)
+		end
+		s.frames[#s.frames + 1] = statue
+	end
+	return s
+end
+
+-- The statue's frame over the gargoyle in its pod, as StatueEyes.lua places the eyes.
+local function PlaceFury(s)
+	local metrics = ns.Metrics()
+	local k = metrics.scale
+	if s.placed == metrics.baseY and s.scale == k then return k end
+	s.placed, s.scale = metrics.baseY, k
+	local statue = s.statue
+	statue:ClearAllPoints()
+	statue:SetSize(FURY_CELL.span * k, FURY_CELL.span * k)
+	statue:SetPoint("TOPLEFT", ns.Pods.health, "BOTTOM", FURY_CELL.x * k - metrics.width / 2,
+		metrics.baseY + metrics.height / 2 - FURY_CELL.y * k)
+	for _, p in ipairs({ s.eyeBody, s.eyeCore }) do
+		for _, tex in ipairs({ p.a, p.b }) do
+			tex:ClearAllPoints()
+			tex:SetSize(FURY_EYE.span * k, FURY_EYE.span * k)
+			tex:SetPoint("TOPLEFT", statue, "TOPLEFT", (FURY_EYE.x - FURY_CELL.x) * k, -(FURY_EYE.y - FURY_CELL.y) * k)
+		end
+	end
+	for _, p in ipairs({ s.breath, s.breathCore }) do
+		for _, tex in ipairs({ p.a, p.b }) do
+			tex:ClearAllPoints()
+			tex:SetSize(FURY_BREATH.span * k, FURY_BREATH.span * k)
+			tex:SetPoint("TOPLEFT", statue, "TOPLEFT", (FURY_BREATH.x - FURY_CELL.x) * k, -(FURY_BREATH.y - FURY_CELL.y) * k)
+		end
+	end
+	return k
+end
+
+function DRAW.fury(g, u, s, now, base, sat, hot, rush, calm)
+	local size = g.size
+	local r = size / 2
+	local k = base * (RANK_WEIGHT[u.rank + 1] or 0.4) * (1 - 0.3 * calm)
+	local clock = now + u.rank * 0.7
+	-- The liquid's own motion: Liquid.lua lets go of this by itself once it stops being told.
+	local pool = g.frame.pool
+	pool.fury, pool.furyAt = math.min(1, k), now
+	-- Two whirlpools turning against each other, the fast one leading.
+	local surge = 0.82 + 0.18 * math.sin(clock * 7.3) * math.sin(clock * 3.1)
+	Spin(s.vortex[1], -clock * 5.4)
+	Paint(s.vortex[1], Mix(sat, hot, 0.85, 0.3), 0.6 * k * surge * (1 + 0.5 * rush))
+	Spin(s.vortex[2], clock * 3.3 + 2)
+	Paint(s.vortex[2], hot, 0.3 * k * (1.82 - surge))
+	-- Froth torn round with it.
+	for i, tex in ipairs(s.froth) do
+		local lane = 0.18 + 0.66 * Hash(i * 3.7)
+		local angle = -clock * (5.5 - 2.5 * lane) + i * 2.39
+		local wobble = 1 + 0.08 * math.sin(clock * 4 + i)
+		tex:ClearAllPoints()
+		tex:SetPoint("CENTER", g.frame, "CENTER", math.cos(angle) * r * lane * wobble, math.sin(angle) * r * lane * wobble)
+		Size(tex, size * (0.07 + 0.06 * Hash(i * 2.1)))
+		Paint(tex, hot, (0.35 + 0.45 * Hash(i * 8.7)) * (0.6 + 0.4 * math.sin(clock * 6 + i * 1.3)) * k)
+	end
+
+	if not s.statue then return end
+	local px = PlaceFury(s)
+	-- Deep and dark: the colour's own hue with most of its light taken out.
+	s.horns:SetVertexColor(0.42 * sat[1] ^ 2.2, 0.42 * sat[2] ^ 2.2, 0.42 * sat[3] ^ 2.2)
+	s.horns:SetAlpha(math.min(1, k))
+	DrawPair(s.light, clock, sat, 0.95 * k * (1 + 0.5 * rush))
+	DrawPair(s.heat, clock, hot, 0.9 * k * (1 + rush))
+	DrawPair(s.eyeBody, clock, sat, k)
+	DrawPair(s.eyeCore, clock, Mix(sat, hot, 0.3, 0.9), k)
+	-- Waking: a flash off the head as it lights.
+	if s.flash then
+		s.flash:ClearAllPoints()
+		s.flash:SetPoint("CENTER", s.statue, "TOPLEFT", (196 - FURY_CELL.x) * px, -(128 - FURY_CELL.y) * px)
+		Size(s.flash, (90 + 110 * (1 - rush)) * px)
+		Paint(s.flash, hot, 0.85 * rush * rush * k)
+	end
+	-- Fire roared from the maw, out over the glass: it gutters and swells but never stops.
+	local roar = 0.8 + 0.2 * math.sin(clock * 9.1) * math.sin(clock * 3.7)
+	DrawPair(s.breath, clock, Mix(sat, hot, 0.9, 0.25), k * roar * (1 + 0.4 * rush))
+	DrawPair(s.breathCore, clock, Mix(sat, hot, 0.15, 1.1), k * roar)
+	-- Sparks shot down the jet, fast and straight: thrown, not floating.
+	local b = FURY_BREATH
+	local ax, ay = math.cos(b.angle), math.sin(b.angle)
+	for i, tex in ipairs(s.sparks) do
+		local life = 0.28 + 0.2 * Hash(i * 4.1)
+		local q = (clock / life + Hash(i * 6.3)) % 1
+		local along = 6 + (b.length * (0.75 + 0.35 * Hash(i * 1.9)) - 6) * (1 - (1 - q) ^ 1.6)
+		local across = (Hash(i * 9.1 + math.floor(clock / life + Hash(i * 6.3))) - 0.5) * 0.5 * along
+		local x = b.fromX + ax * along - ay * across
+		local y = b.fromY + ay * along + ax * across
+		tex:ClearAllPoints()
+		tex:SetPoint("CENTER", s.statue, "TOPLEFT", (x - FURY_CELL.x) * px, -(y - FURY_CELL.y) * px)
+		Size(tex, (9 + 5 * Hash(i * 5.3)) * (1 - 0.6 * q) * px)
+		Paint(tex, Mix(sat, hot, 0.2, 1), math.min(1, q * 10) * (1 - q) * k * roar)
+	end
+end
+end
+
 -- What each style keeps of the swirl's shared light: corona size and strength, glass bloom.
 local STYLE_LIGHT = {
 	inhale = { corona = 0.98, glow = 0.42, top = 0.42 },
+	fury = { corona = 0.95, glow = 0.3, top = 0.3, settle = 0.3 },
 	pour = { corona = 0.7, glow = 0.22, top = 0.22 },
 	upwell = { corona = 0.9, glow = 0.34, top = 0.4 },
 	-- Healing looks: quiet, and quieter still when a long buff settles.

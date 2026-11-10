@@ -31,7 +31,8 @@ local ns = SanctuaryUI
 --   surge             with look = "surge", how the power enters by default: "pour" (a column of
 --                     light falling into the liquid, for filling up over time), "inhale" (streaks
 --                     rushing in to the glass, for a short violent surge), "upwell" (plumes rising
---                     through the liquid, for quiet healing), or "swirl", or a healing look: "vines",
+--                     through the liquid, for quiet healing), or "swirl", "fury" (rage: the liquid
+--                     whipped into a whirlpool, and on the health globe the gargoyle wakes), or a healing look: "vines",
 --                     "halo", "bloom", "veil", "rain", "pulse" or "embers". Players can change any
 --                     skill in the options (GlobeAura.lua LookOf)
 --   flare             a burst played at the cast (and, for look = "flare", all it does):
@@ -93,8 +94,8 @@ ns.WatchData.EFFECTS = {
 		label = "Death Wish", desc = "crimson light radiates from behind the rage globe" },
 	{ key = "recklessness", class = "WARRIOR", spells = { 1719 }, names = { "Recklessness" }, look = "radiate", globe = "power", tint = "rage", length = 15, strength = 1.6,
 		label = "Recklessness", desc = "fiery light radiates from behind the rage globe" },
-	{ key = "berserkerRage", class = "WARRIOR", spells = { 18499 }, names = { "Berserker Rage" }, look = "radiate", globe = "power", tint = "rage", length = 10, strength = 1.4,
-		label = "Berserker Rage", desc = "fiery light radiates from behind the rage globe" },
+	{ key = "berserkerRage", class = "WARRIOR", spells = { 18499 }, names = { "Berserker Rage" }, look = "surge", surge = "fury", globe = "health", tint = "rage", length = 10, strength = 1.4,
+		label = "Berserker Rage", desc = "the health globe churns violently round a whirlpool and the gargoyle wakes: heat beats over it, its horns turn deep red and it breathes fire" },
 	{ key = "adrenalineRush", class = "ROGUE", spells = { 13750 }, names = { "Adrenaline Rush" }, look = "radiate", globe = "power", tint = "energy", length = 15,
 		label = "Adrenaline Rush", desc = "gold light radiates from behind the energy globe" },
 	{ key = "bladeFlurry", class = "ROGUE", spells = { 13877 }, names = { "Blade Flurry" }, look = "radiate", globe = "power", tint = "steel", length = 15, strength = 1.4,
@@ -210,11 +211,11 @@ ns.WatchData.CONSUMERS = {
 -- What a skill can be set to show (GlobeAura.lua LookOf), for the options: the names, and the
 -- order the choices are listed in. A buff picks from LOOK_ORDER, a one-off flare from FLARE_ORDER.
 ns.WatchData.LOOK_NAMES = {
-	radiate = "Radiance", shell = "Crystal shell", aegis = "Aegis", rime = "Rime", hex = "Hex ward", bulwark = "Bulwark", pour = "Pour", inhale = "Inhale", upwell = "Upwell", swirl = "Swirl",
+	radiate = "Radiance", shell = "Crystal shell", aegis = "Aegis", rime = "Rime", hex = "Hex ward", bulwark = "Bulwark", pour = "Pour", inhale = "Inhale", upwell = "Upwell", swirl = "Swirl", fury = "Fury",
 	vines = "Vines", halo = "Halo", bloom = "Bloom", veil = "Veil", rain = "Rain", pulse = "Pulse", embers = "Embers",
 	burst = "Burst", mend = "Mend", benediction = "Benediction", mound = "Surge",
 }
-ns.WatchData.LOOK_ORDER = { "radiate", "shell", "aegis", "rime", "hex", "bulwark", "pour", "inhale", "upwell", "swirl", "vines", "halo", "bloom", "veil", "rain", "pulse", "embers" }
+ns.WatchData.LOOK_ORDER = { "radiate", "shell", "aegis", "rime", "hex", "bulwark", "pour", "inhale", "upwell", "swirl", "fury", "vines", "halo", "bloom", "veil", "rain", "pulse", "embers" }
 ns.WatchData.FLARE_ORDER = { "burst", "mend", "benediction", "mound" }
 -- How a shield breaks, for the options. Only skills that can really break get the choice.
 ns.WatchData.BREAK_NAMES = { shatter = "Shatter", shockwave = "Shockwave", dissolve = "Dissolve", crumble = "Crumble", melt = "Melt" }

@@ -60,6 +60,11 @@ ns.Art.slots = {
 	-- Golden light on the console's angel (AngelRadiance.lua).
 	angelRadiance = { file = "angel-radiance.png", lazy = true },
 	angelRadianceFx = { file = "angel-radiance-fx.png", lazy = true },
+	-- Fury (GlobeAura.lua BUILD.fury): rage light on the gargoyle, and the whirlpool in the liquid.
+	gargoyleFury = { file = "gargoyle-fury.png", lazy = true },
+	furyVortex = { file = "fury-vortex.png", lazy = true },
+	gargoyleHorns = { file = "gargoyle-horns.png", lazy = true },
+	furyBreath = { file = "fury-breath.png", lazy = true },
 	-- Wisps from the statues' eyes (StatueEyes.lua): the wisp and its hot centre.
 	eyesAngelBody = { file = "eyes-angel-body.png", lazy = true },
 	eyesAngelCore = { file = "eyes-angel-core.png", lazy = true },

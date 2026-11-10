@@ -65,6 +65,10 @@ local PULSE_BELOW = 0.35
 local URGE_FROM, URGE_FULL = 0.5, 0.1
 local URGE_SPIN = 1.6 -- extra turning speed at full urgency (2.6x)
 local URGE_RIPPLE = 2.5 -- extra resting ripple at full urgency
+-- Fury (GlobeAura.lua DRAW.fury sets pool.fury and pool.furyAt each frame it shows): the
+-- liquid whipped up, however full the globe is.
+local FURY_SPIN = 3.4 -- extra turning speed at full fury
+local FURY_HOLD, FURY_DECAY = 0.25, 3 -- seconds unrefreshed before it lets go, and how fast
 local CHURN = { span = 1.25, spin = -0.32, du = 0.07, dv = -0.035, alpha = 0.5 } -- the fast churn layer
 
 -- Texcoord motion per layer. span: texture widths across the globe. spin: rad/s. du, dv: drift
@@ -429,7 +433,7 @@ end
 function Pool:Physics(dt)
 	local bar = self.bar
 	-- Restless at low health: the liquid sloshes on its own, harder and more often the lower.
-	local urge = self.urge or 0
+	local urge = math.max(self.urge or 0, self.fury or 0)
 	if urge > 0.05 and ns.DB().liquidAnimate then
 		self.restless = (self.restless or 0) - dt
 		if self.restless <= 0 then
@@ -1289,7 +1293,12 @@ function ns.Liquid.Start()
 		for i = 1, #pools do
 			local pool = pools[i]
 			-- Each pool runs its own clock so low health can speed one up without a jump.
-			local rate = 1 + URGE_SPIN * pool:Urgency(dt)
+			local fury = pool.fury or 0
+			if fury > 0 and now - (pool.furyAt or 0) > FURY_HOLD then
+				fury = fury * math.exp(-dt * FURY_DECAY)
+				pool.fury = fury > 0.01 and fury or nil
+			end
+			local rate = 1 + URGE_SPIN * pool:Urgency(dt) + FURY_SPIN * fury
 			pool.t = (pool.t or clock) + (db.liquidAnimate and dt * speed * rate or 0)
 			pool:Physics(dt)
 			if pool.frame:IsVisible() then
