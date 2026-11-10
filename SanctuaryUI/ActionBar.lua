@@ -769,7 +769,7 @@ function ns.ActionBar.Layout()
 				row.mover:SetPoint("BOTTOMRIGHT", anchor, "BOTTOMRIGHT", ox, -ob)
 				anchor:ClearAllPoints()
 				if opt.moved then
-					anchor:SetPoint("CENTER", UIParent, "BOTTOMLEFT", opt.mx, opt.my)
+					anchor:SetPoint("CENTER", UIParent, "BOTTOMLEFT", ns.MovedPoint(anchor, opt))
 				else
 					anchor:SetPoint("BOTTOM", cluster, "BOTTOM", 0, rowY)
 					rowY = rowY + height + bh * 0.2 + math.max(4, gap)
@@ -1138,12 +1138,23 @@ local function MoverTooltip(self, label, what, hint)
 end
 
 -- A labelled box that drags a frame while frames are unlocked. opt holds the position:
--- moved, mx, my (the frame's centre, in coordinates at the scale it was dragged at: mscale).
--- ns.MovedPoint gives the offsets at the frame's scale now, for frames with their own SetScale.
+-- moved, mx, my (the frame's centre from the screen's bottom-left, in the frame's own units when
+-- it was dragged) and mscale (its scale against UIParent then). ns.MovedPoint gives the offsets
+-- for its scale now, so a frame keeps its place and grows about its centre whether its own scale
+-- changed (target, party, portraits) or its parent's (bars, stance and totems on the console).
+local function ScreenScale(frame)
+	return frame:GetEffectiveScale() / UIParent:GetEffectiveScale()
+end
+
 function ns.MovedPoint(frame, opt)
-	local scale = frame:GetScale()
-	opt.mscale = opt.mscale or scale -- saved before the scale was recorded
-	local k = opt.mscale / scale
+	if not opt.meff then
+		-- Saved with the frame's own scale (or none): its parent's scale now completes it.
+		local parent = frame:GetParent()
+		local own = opt.mscale or frame:GetScale()
+		opt.mscale = own * (parent and ScreenScale(parent) or 1)
+		opt.meff = true
+	end
+	local k = opt.mscale / ScreenScale(frame)
 	return opt.mx * k, opt.my * k
 end
 
@@ -1170,7 +1181,7 @@ function ns.MakeMover(anchor, label, opt, hint, parent)
 		local x, y = anchor:GetCenter()
 		if x then
 			local o = opt()
-			o.moved, o.mx, o.my, o.mscale = true, x, y, anchor:GetScale()
+			o.moved, o.mx, o.my, o.mscale, o.meff = true, x, y, ScreenScale(anchor), true
 		end
 	end
 	local function Save()

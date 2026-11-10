@@ -161,7 +161,7 @@ function ns.Stance.Layout()
 	bar:SetSize(width, height)
 	bar:ClearAllPoints()
 	if opt.moved then
-		bar:SetPoint("CENTER", UIParent, "BOTTOMLEFT", opt.mx, opt.my)
+		bar:SetPoint("CENTER", UIParent, "BOTTOMLEFT", ns.MovedPoint(bar, opt))
 	else
 		-- Centred above the health globe, clear of the demon's horns.
 		local globe = metrics.health

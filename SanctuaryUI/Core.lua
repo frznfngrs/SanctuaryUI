@@ -482,25 +482,54 @@ function ns.CropBar(tex)
 	tex:SetTexCoord(ns.SEAM_L / 2048, ns.SEAM_R / 2048, 0, TEX_H / 256)
 end
 
+-- The console's place is its bottom centre, in screen (UIParent) units from the screen's bottom
+-- centre (db.posUI), so changing the bar scale grows it up and out from there. Earlier profiles
+-- kept the anchor a drag left (its centre from the screen's bottom-left, in the console's own
+-- scaled units), which slid it toward that corner as the scale changed; they convert once.
+local function Anchor(cluster, db)
+	local s = ClampScale(db.scale)
+	cluster:ClearAllPoints()
+	cluster:SetPoint("BOTTOM", UIParent, "BOTTOM", (db.x or 0) / s, (db.y or 0) / s)
+end
+
+-- Record where the console is now, in that form, and anchor it so.
+function ns.SavePosition()
+	local cluster = ns.Cluster
+	if not cluster then return end
+	local left, bottom, width = cluster:GetLeft(), cluster:GetBottom(), cluster:GetWidth()
+	if not left then return end
+	local db = ns.DB()
+	local s = cluster:GetScale()
+	db.point, db.rel = "BOTTOM", "BOTTOM"
+	db.x = (left + width / 2) * s - UIParent:GetWidth() / 2
+	db.y = bottom * s
+	db.posUI = true
+	db.movedConsole = true
+	Anchor(cluster, db)
+end
+
 function ns.ApplyPosition()
 	local db = ns.DB()
 	local cluster = ns.Cluster
 	if not cluster then return end
+	if db.posUI then
+		Anchor(cluster, db)
+		ApplyScale()
+		return
+	end
+	-- An earlier profile: its own anchor at the scale it has now, then converted from where
+	-- that puts the console.
+	if (db.point or "BOTTOM") == "BOTTOM" and (db.rel or "BOTTOM") == "BOTTOM" then
+		local s = ClampScale(db.scale)
+		db.x, db.y, db.posUI = (db.x or 0) * s, (db.y or 0) * s, true
+		Anchor(cluster, db)
+		ApplyScale()
+		return
+	end
 	cluster:ClearAllPoints()
 	cluster:SetPoint(db.point or "BOTTOM", UIParent, db.rel or "BOTTOM", db.x or 0, db.y or 0)
 	ApplyScale()
-end
-
-function ns.SavePosition()
-	local cluster = ns.Cluster
-	if not cluster then return end
-	local point, _, rel, x, y = cluster:GetPoint(1)
-	local db = ns.DB()
-	db.point = point or "BOTTOM"
-	db.rel = rel or "BOTTOM"
-	db.x = x or 0
-	db.y = y or 0
-	db.movedConsole = true
+	ns.SavePosition()
 end
 
 function ns.Layout()
@@ -672,7 +701,7 @@ local function Slash(msg)
 		if InCombatLockdown() then
 			ns.Print("cannot reset in combat")
 		else
-			db.point, db.rel, db.x, db.y, db.scale = "BOTTOM", "BOTTOM", 0, 0, 1
+			db.point, db.rel, db.x, db.y, db.scale, db.posUI = "BOTTOM", "BOTTOM", 0, 0, 1, true
 			db.globeScale = 1
 			ns.Refresh()
 			ns.Print("position and scale reset")
@@ -827,6 +856,8 @@ loader:SetScript("OnEvent", function(_, event)
 		SANCTUARYUI = "SanctuaryUI"
 		ns.Cluster = CreateFrame("Frame", "SanctuaryUICluster", UIParent, "SecureHandlerStateTemplate")
 		ns.Cluster:SetSize(720, 250)
+		-- Its scale from the start: bars moved off it keep their place by it (ns.MovedPoint).
+		ns.Cluster:SetScale(ClampScale(ns.DB().scale))
 		ns.Cluster:SetMovable(true)
 		ns.Cluster:SetClampedToScreen(true)
 		ns.Cluster:EnableMouse(true)

@@ -723,7 +723,7 @@ function ns.Totem.Layout()
 		LayoutRow(bar, shown, size)
 		bar:ClearAllPoints()
 		if opt.moved then
-			bar:SetPoint("CENTER", UIParent, "BOTTOMLEFT", opt.mx, opt.my)
+			bar:SetPoint("CENTER", UIParent, "BOTTOMLEFT", ns.MovedPoint(bar, opt))
 		else
 			-- Centred above the resource globe, mirroring the stance bar over the health globe.
 			local globe = metrics.resource

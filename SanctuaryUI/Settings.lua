@@ -14,6 +14,7 @@ ns.DEFAULTS = {
 		globeScale = 1, -- the globes and their statues
 		globesSeparate = false, -- old profiles: the globes kept globeScale instead of following scale
 		scalesSplit = false, -- old profiles converted to separate bar and globe scales (Core.lua)
+		posUI = false, -- x, y are the console's bottom centre in screen units (Core.lua ApplyPosition)
 		iconSize = 1, -- console skill icons, of their socket; below 1 the stone shows around them
 		locked = true,
 		snapping = true, -- unlocked frames snap to each other and the screen edges while dragged
