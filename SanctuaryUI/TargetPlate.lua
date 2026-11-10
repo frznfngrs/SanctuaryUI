@@ -90,8 +90,14 @@ local PREVIEW_NAMES = { normal = "Risen Ghoul", elite = "Bonecrusher the Vile", 
 local PREVIEW_CLASS = { normal = "normal", elite = "elite", rare = "rareelite", boss = "worldboss" }
 local preview = { rank = 1, clock = 0, health = 1 }
 
+-- The stand-in shows when asked for in options, and while frames are unlocked, so the plate
+-- can be seen and placed with no target (as the party frames do).
+local function Showcase()
+	return (ns.TargetPlate.preview or not ns.DB().locked) and true or false
+end
+
 local function Previewing()
-	return ns.TargetPlate.preview and not UnitExists("target")
+	return Showcase() and not UnitExists("target")
 end
 
 -- The unit the plate reads: the target, or you while previewing.
@@ -1981,7 +1987,7 @@ function ns.TargetPlate.Layout()
 		UnregisterUnitWatch(plate.ToT)
 		plate.ToT:Hide()
 	end
-	if opt.enabled and ns.TargetPlate.preview then
+	if opt.enabled and Showcase() then
 		-- Previewing: shown whether or not there is a target.
 		UnregisterUnitWatch(plate)
 		plate:Show()
@@ -2560,9 +2566,9 @@ function ns.TargetPlate.Init()
 	-- Where the client has aura containers they replace these icons (see MakeBoxes).
 	MakeBoxes(plate)
 
-	ns.TargetPlate.mover = ns.MakeMover(plate, "Target", Opt, "Reset its position in /sanctuary > Target.")
-	-- The plate is hidden with no target; the mover must still show to be dragged.
-	ns.TargetPlate.mover:SetParent(UIParent)
+	-- On UIParent, not the plate: the plate hides by its unit watch, and the mover must still
+	-- show to be dragged. In DIALOG strata, over the plate (which takes the mouse) and its art.
+	ns.TargetPlate.mover = ns.MakeMover(plate, "Target", Opt, "Reset its position in /sanctuary > Target.", UIParent)
 
 	-- Every frame, on a plain child frame (so it runs while the plate shows, as the globes'
 	-- driver does): health easing, the bar's liquid, the preview, and the target of target

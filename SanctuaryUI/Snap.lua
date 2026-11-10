@@ -272,8 +272,9 @@ function ns.Snap.DrawGrid()
 end
 
 -- Show or hide the grid to match the settings; redraw it when its spacing changed.
-function ns.Snap.UpdateGrid()
-	local shown = ns.Snap.GridShown()
+-- hide: combat is starting, when the lockdown doesn't show yet.
+function ns.Snap.UpdateGrid(hide)
+	local shown = not hide and ns.Snap.GridShown()
 	if not shown and not grid then return end
 	local frame = GridFrame()
 	if shown then

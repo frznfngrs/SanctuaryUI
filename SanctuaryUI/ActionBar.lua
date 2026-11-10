@@ -837,15 +837,164 @@ end
 ---------------------------------------------------------------------------
 -- Movers: with frames unlocked, each enabled row shows a labelled box that drags the row.
 
--- A mover's gold edge brightens while the drag has caught on something.
-function ns.MoverLit(mover, lit)
-	if mover.edge then
-		if lit then
-			mover.edge:SetColorTexture(1, 0.9, 0.55, 1)
-		else
-			mover.edge:SetColorTexture(0.86, 0.72, 0.42, 0.8)
+-- How a mover looks: a light wash with a thin gold outline and corner brackets, so the frame
+-- under it stays in view, and its name in outlined text that reads over anything. Hovered, the
+-- wash warms and the outline brightens; caught on a snap mid-drag, the outline flares.
+local MOVER_FILL = { 0.05, 0.03, 0.02, 0.3 }
+local MOVER_FILL_HOT = { 0.5, 0.36, 0.14, 0.24 }
+local MOVER_EDGE = { 0.86, 0.72, 0.42, 0.7 }
+local MOVER_EDGE_HOT = { 1, 0.86, 0.5, 1 }
+local MOVER_EDGE_LIT = { 1, 0.97, 0.8, 1 }
+local MOVER_CORNER = 10 -- bracket arm length, in the mover's units
+
+-- n screen pixels in frame's units (crisp lines whatever the UI scale).
+local function Pixels(frame, n)
+	local _, physical = GetPhysicalScreenSize()
+	local s = frame:GetEffectiveScale()
+	if not physical or physical <= 0 or not s or s <= 0 then return n end
+	return n * 768 / physical / s
+end
+
+local function PaintMover(mover)
+	local hot = mover.hot
+	local edge = mover.lit and MOVER_EDGE_LIT or hot and MOVER_EDGE_HOT or MOVER_EDGE
+	local fill = hot and MOVER_FILL_HOT or MOVER_FILL
+	mover.fill:SetColorTexture(fill[1], fill[2], fill[3], fill[4])
+	for _, line in ipairs(mover.lines) do
+		line:SetColorTexture(edge[1], edge[2], edge[3], edge[4])
+	end
+	for _, line in ipairs(mover.corners) do
+		line:SetColorTexture(edge[1], edge[2], edge[3], 1)
+	end
+	if hot then
+		mover.label:SetTextColor(1, 1, 1)
+	else
+		mover.label:SetTextColor(1, 0.82, 0.45)
+	end
+end
+
+-- Line widths follow the screen's pixels, so set them each time the mover shows.
+local function SizeMoverLines(mover)
+	local thin, thick = Pixels(mover, 1), Pixels(mover, 3)
+	local arm = math.min(MOVER_CORNER, (mover:GetWidth() or 0) / 3, (mover:GetHeight() or 0) / 3)
+	for i, line in ipairs(mover.lines) do
+		if i <= 2 then line:SetHeight(thin) else line:SetWidth(thin) end
+	end
+	for i, line in ipairs(mover.corners) do
+		if i % 2 == 1 then line:SetSize(arm, thick) else line:SetSize(thick, arm) end
+	end
+end
+
+-- Dress a mover frame. large: the console's bigger label.
+function ns.SkinMover(mover, label, large)
+	mover.fill = mover:CreateTexture(nil, "BACKGROUND")
+	mover.fill:SetAllPoints()
+	mover.lines = {}
+	for i, points in ipairs({ { "TOPLEFT", "TOPRIGHT" }, { "BOTTOMLEFT", "BOTTOMRIGHT" }, { "TOPLEFT", "BOTTOMLEFT" }, { "TOPRIGHT", "BOTTOMRIGHT" } }) do
+		local line = mover:CreateTexture(nil, "BORDER")
+		line:SetPoint(points[1])
+		line:SetPoint(points[2])
+		mover.lines[i] = line
+	end
+	-- Two arms per corner, the across one first.
+	mover.corners = {}
+	for _, corner in ipairs({ "TOPLEFT", "TOPRIGHT", "BOTTOMLEFT", "BOTTOMRIGHT" }) do
+		for _ = 1, 2 do
+			local arm = mover:CreateTexture(nil, "ARTWORK")
+			arm:SetPoint(corner)
+			mover.corners[#mover.corners + 1] = arm
 		end
 	end
+	local text = mover:CreateFontString(nil, "OVERLAY", large and "GameFontNormalLarge" or "GameFontNormal")
+	local font, size = text:GetFont()
+	if font then text:SetFont(font, size, "OUTLINE") end
+	text:SetShadowOffset(1, -1)
+	text:SetShadowColor(0, 0, 0, 0.9)
+	text:SetPoint("CENTER")
+	text:SetText(label)
+	mover.label = text
+	mover:HookScript("OnShow", function(self)
+		self.hot, self.lit = nil, nil
+		SizeMoverLines(self)
+		PaintMover(self)
+	end)
+	mover:HookScript("OnSizeChanged", SizeMoverLines)
+	mover:HookScript("OnEnter", function(self)
+		self.hot = true
+		PaintMover(self)
+	end)
+	mover:HookScript("OnLeave", function(self)
+		self.hot = nil
+		PaintMover(self)
+	end)
+	PaintMover(mover)
+end
+
+-- A mover's outline flares while the drag has caught on something.
+function ns.MoverLit(mover, lit)
+	if mover.fill then
+		mover.lit = lit or nil
+		PaintMover(mover)
+	end
+end
+
+-- Arrow keys nudge the frame under the mouse one unit (Shift: ten); other keys pass through to
+-- their bindings. nudge(dx, dy) moves it, in UIParent units. Movers hide in combat, when
+-- keyboard propagation can't be set, so the keys only ever catch out of combat.
+local NUDGE = { UP = { 0, 1 }, DOWN = { 0, -1 }, LEFT = { -1, 0 }, RIGHT = { 1, 0 } }
+function ns.MoverKeys(mover, nudge)
+	mover:SetScript("OnKeyDown", function(self, key)
+		if InCombatLockdown() then return end
+		local d = NUDGE[key]
+		self:SetPropagateKeyboardInput(not d)
+		if d then
+			local step = IsShiftKeyDown() and 10 or 1
+			nudge(d[1] * step, d[2] * step)
+		end
+	end)
+	mover:HookScript("OnEnter", function(self)
+		if not InCombatLockdown() then
+			self:SetPropagateKeyboardInput(true)
+			self:EnableKeyboard(true)
+		end
+	end)
+	local function Release(self)
+		if not InCombatLockdown() then self:EnableKeyboard(false) end
+	end
+	mover:HookScript("OnLeave", Release)
+	mover:HookScript("OnHide", Release)
+end
+
+-- Shift frame by dx, dy UIParent units, leaving it anchored CENTER to UIParent's BOTTOMLEFT
+-- the way a drag does.
+function ns.NudgeFrame(frame, dx, dy)
+	local x, y = frame:GetCenter()
+	if not x or InCombatLockdown() then return end
+	local k = UIParent:GetEffectiveScale() / frame:GetEffectiveScale()
+	frame:ClearAllPoints()
+	frame:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x + dx * k, y + dy * k)
+	return true
+end
+
+-- Nudges come a press at a time: apply the settings once the keys go quiet.
+local refreshToken = 0
+local function RefreshSoon()
+	refreshToken = refreshToken + 1
+	local mine = refreshToken
+	C_Timer.After(0.4, function()
+		if mine == refreshToken then ns.Refresh() end
+	end)
+end
+
+local function MoverTooltip(self, label, what, hint)
+	GameTooltip:SetOwner(self, "ANCHOR_TOP")
+	GameTooltip:SetText(label)
+	GameTooltip:AddLine(what .. (ns.Snap.Enabled() and ": it snaps to other frames and the screen edges (hold Shift to place freely)." or "."), 1, 1, 1, true)
+	GameTooltip:AddLine("Arrow keys nudge it (Shift: 10). Right-click to lock all frames.", 1, 1, 1, true)
+	if hint then
+		GameTooltip:AddLine(hint, 0.7, 0.7, 0.7, true)
+	end
+	GameTooltip:Show()
 end
 
 -- A labelled box that drags a frame while frames are unlocked. opt holds the position:
@@ -858,10 +1007,12 @@ function ns.MovedPoint(frame, opt)
 	return opt.mx * k, opt.my * k
 end
 
-function ns.MakeMover(anchor, label, opt, hint)
-	local mover = CreateFrame("Frame", nil, anchor)
-	mover:SetAllPoints()
+-- parent: where the mover lives, if not on the frame itself (a frame that hides, like the
+-- target plate with no target). Strata is set after the parent: SetParent would reset it.
+function ns.MakeMover(anchor, label, opt, hint, parent)
+	local mover = CreateFrame("Frame", nil, parent or anchor)
 	mover:SetFrameStrata("DIALOG")
+	mover:SetAllPoints(anchor)
 	mover:EnableMouse(true)
 	mover:RegisterForDrag("LeftButton")
 	mover:SetScript("OnMouseUp", function(_, button)
@@ -869,23 +1020,21 @@ function ns.MakeMover(anchor, label, opt, hint)
 			ns.SetLocked(true)
 		end
 	end)
-	local edge = mover:CreateTexture(nil, "BACKGROUND")
-	edge:SetPoint("TOPLEFT", -1, 1)
-	edge:SetPoint("BOTTOMRIGHT", 1, -1)
-	edge:SetColorTexture(0.86, 0.72, 0.42, 0.8)
-	local bg = mover:CreateTexture(nil, "BORDER")
-	bg:SetAllPoints()
-	bg:SetColorTexture(0.08, 0.05, 0.03, 0.85)
-	local text = mover:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	text:SetPoint("CENTER")
-	text:SetText(label)
-	mover.edge = edge
-	local function Save()
+	-- Scripts set before the skin and keys hook them.
+	mover:SetScript("OnEnter", function(self)
+		MoverTooltip(self, label, "Drag to move", hint)
+	end)
+	mover:SetScript("OnLeave", GameTooltip_Hide)
+	ns.SkinMover(mover, label)
+	local function Record()
 		local x, y = anchor:GetCenter()
 		if x then
 			local o = opt()
 			o.moved, o.mx, o.my, o.mscale = true, x, y, anchor:GetScale()
 		end
+	end
+	local function Save()
+		Record()
 		ns.Refresh()
 	end
 	mover:SetScript("OnDragStart", function()
@@ -896,17 +1045,13 @@ function ns.MakeMover(anchor, label, opt, hint)
 		end)
 	end)
 	mover:SetScript("OnDragStop", ns.Snap.StopDrag)
-	ns.Snap.RegisterMover(mover, anchor)
-	mover:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_TOP")
-		GameTooltip:SetText(label)
-		GameTooltip:AddLine(ns.Snap.Enabled() and "Drag to move: it snaps to other frames and the screen edges (hold Shift to place freely). Right-click to lock all frames." or "Drag to move. Right-click to lock all frames.", 1, 1, 1, true)
-		if hint then
-			GameTooltip:AddLine(hint, 0.7, 0.7, 0.7, true)
+	ns.MoverKeys(mover, function(dx, dy)
+		if ns.NudgeFrame(anchor, dx, dy) then
+			Record()
+			RefreshSoon()
 		end
-		GameTooltip:Show()
 	end)
-	mover:SetScript("OnLeave", GameTooltip_Hide)
+	ns.Snap.RegisterMover(mover, anchor)
 	mover:Hide()
 	return mover
 end
@@ -919,10 +1064,40 @@ end
 local function UnlockPanel()
 	if ns.UnlockPanel then return ns.UnlockPanel end
 	local panel = CreateFrame("Frame", "SanctuaryUIUnlockPanel", UIParent)
-	panel:SetSize(340, 112)
-	panel:SetPoint("TOP", UIParent, "TOP", 0, -120)
+	panel:SetSize(340, 156)
 	panel:SetFrameStrata("DIALOG")
+	panel:SetFrameLevel(100) -- over the movers, should a frame be dragged under it
 	panel:EnableMouse(true)
+	panel:SetClampedToScreen(true)
+	-- Drag it by its body out of the way of whatever is being placed; it keeps the spot.
+	panel:SetMovable(true)
+	panel:RegisterForDrag("LeftButton")
+	local function Place()
+		local at = ns.DB().unlockPanel
+		panel:ClearAllPoints()
+		if at and at.x then
+			panel:SetPoint("CENTER", UIParent, "BOTTOMLEFT", at.x, at.y)
+		else
+			panel:SetPoint("TOP", UIParent, "TOP", 0, -230)
+		end
+	end
+	Place()
+	panel:SetScript("OnDragStart", function(self)
+		if not InCombatLockdown() then self:StartMoving() end
+	end)
+	panel:SetScript("OnDragStop", function(self)
+		self:StopMovingOrSizing()
+		self:SetUserPlaced(false)
+		local x, y = self:GetCenter()
+		if x then ns.DB().unlockPanel = { x = x, y = y } end
+		Place()
+	end)
+	panel:SetScript("OnMouseUp", function(_, button)
+		if button == "RightButton" then
+			ns.DB().unlockPanel = nil
+			Place()
+		end
+	end)
 	local edge = panel:CreateTexture(nil, "BACKGROUND")
 	edge:SetAllPoints()
 	edge:SetColorTexture(0.86, 0.72, 0.42, 0.85)
@@ -932,7 +1107,11 @@ local function UnlockPanel()
 	bg:SetColorTexture(0.06, 0.04, 0.03, 0.95)
 	local text = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	text:SetPoint("TOP", 0, -10)
-	text:SetText("SanctuaryUI frames unlocked: drag the console or a bar")
+	text:SetText("SanctuaryUI frames unlocked: drag the console or a frame")
+	local hint = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	hint:SetPoint("TOP", 0, -80)
+	hint:SetWidth(316)
+	hint:SetText("Arrow keys nudge the frame under the mouse (Shift: 10). Right-click a frame to lock all. Drag this panel aside; right-click it to reset its spot.")
 	local lock = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
 	lock:SetSize(110, 22)
 	lock:SetPoint("BOTTOM", 0, 9)
@@ -1040,17 +1219,6 @@ local function ConsoleMover()
 	mover:SetFrameStrata("DIALOG")
 	mover:EnableMouse(true)
 	mover:RegisterForDrag("LeftButton")
-	local edge = mover:CreateTexture(nil, "BACKGROUND")
-	edge:SetPoint("TOPLEFT", -1, 1)
-	edge:SetPoint("BOTTOMRIGHT", 1, -1)
-	edge:SetColorTexture(0.86, 0.72, 0.42, 0.8)
-	local bg = mover:CreateTexture(nil, "BORDER")
-	bg:SetAllPoints()
-	bg:SetColorTexture(0.08, 0.05, 0.03, 0.45)
-	local label = mover:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-	label:SetPoint("CENTER")
-	label:SetText("Console")
-	mover.edge = edge
 	mover:SetScript("OnDragStart", function()
 		ns.ActionBar.DragConsole(function(snapped) ns.MoverLit(mover, snapped) end)
 	end)
@@ -1061,24 +1229,27 @@ local function ConsoleMover()
 		end
 	end)
 	mover:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_TOP")
-		GameTooltip:SetText("Console")
-		GameTooltip:AddLine("Drag to move the globes, bars and menu" .. (ns.Snap.Enabled() and ": it snaps to other frames and the screen edges (hold Shift to place freely)" or "") .. ". Right-click to lock all frames.", 1, 1, 1, true)
-		GameTooltip:Show()
+		MoverTooltip(self, "Console", "Drag to move the globes, bars and menu")
 	end)
 	mover:SetScript("OnLeave", GameTooltip_Hide)
+	ns.SkinMover(mover, "Console", true)
+	ns.MoverKeys(mover, function(dx, dy)
+		if ns.NudgeFrame(ns.Cluster, dx, dy) then ns.SavePosition() end
+	end)
 	mover:Hide()
 	ns.ConsoleMover = mover
 	ns.Snap.Register(ns.Cluster, ns.ActionBar.ConsoleBox)
 	return mover
 end
 
-function ns.ActionBar.UpdateMovers()
+-- hide: combat is starting (PLAYER_REGEN_DISABLED, a moment before the lockdown itself).
+function ns.ActionBar.UpdateMovers(hide)
 	if not ns.ActionBar.rows then return end
-	local unlocked = not ns.DB().locked and not InCombatLockdown()
+	local unlocked = not hide and not ns.DB().locked and not InCombatLockdown()
+	if not unlocked then ns.Snap.StopDrag() end
 	UnlockPanel():SetShown(unlocked)
 	ns.UnlockPanel.Sync()
-	ns.Snap.UpdateGrid()
+	ns.Snap.UpdateGrid(hide)
 	if ns.ConsoleFrame then
 		local mover, span = ConsoleMover(), ns.ActionBar.span
 		-- Over the whole console art, out to the globes' statues at whatever their scale.
@@ -1112,6 +1283,15 @@ function ns.ActionBar.UpdateMovers()
 		row.mover:SetShown(unlocked and ns.DB().rows[n].enabled and not DockIndex(n))
 	end
 end
+
+-- Movers and the grid step aside for combat (they can't drag in it, and the arrow keys they
+-- catch would be stuck), and come back after.
+local moverCombat = CreateFrame("Frame")
+moverCombat:RegisterEvent("PLAYER_REGEN_DISABLED")
+moverCombat:RegisterEvent("PLAYER_REGEN_ENABLED")
+moverCombat:SetScript("OnEvent", function(_, event)
+	ns.ActionBar.UpdateMovers(event == "PLAYER_REGEN_DISABLED")
+end)
 
 function ns.ActionBar.ResetRowPosition(n)
 	local opt = ns.DB().rows[n]

@@ -109,7 +109,7 @@ local function Gap(order)
 	return { type = "group", order = order, name = " ", disabled = true, args = {} }
 end
 
-local UNLOCK = "Unlock frames on the General page, then drag its mover to place it anywhere."
+local UNLOCK = "Unlock frames on the General page, then drag its mover to place it anywhere, or hover it and nudge it with the arrow keys."
 
 -- Every movable frame's Position card: where it sits now and how to put it back.
 local function PositionCard(order, note, reset, notMoved)
@@ -919,7 +919,7 @@ local function Build()
 			sectionSetup = Section(0, "Setup"),
 			general = Page(1, "General", {
 				moving = Card(1, "Moving frames", {
-					locked = Toggle(1, "Lock frames", "When unlocked, drag the console to move it, and drag a bar's mover to move that bar.", nil, "locked"),
+					locked = Toggle(1, "Lock frames", "When unlocked, each frame shows a mover: drag it to move that frame, or hover it and use the arrow keys to nudge (Shift: 10). The target frame shows a stand-in while unlocked.", nil, "locked"),
 					snapping = Toggle(2, "Bar snapping", "While dragging, the console, bars and other frames snap to each other's edges and centres and to the screen's edges and centre, as in Bartender4. Hold Shift while dragging to place one freely.", nil, "snapping"),
 					grid = Toggle(3, "Show grid", "While frames are unlocked, draw a grid like Edit Mode's, its centre lines brighter, and snap frames' edges and centres to its lines (with Bar snapping on).", nil, "grid"),
 					gridSize = (function()
