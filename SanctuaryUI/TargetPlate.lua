@@ -61,9 +61,17 @@ local function Opt()
 	return ns.DB().target
 end
 
--- The rendered style in use, or nil for D3's monster bar.
+-- The rendered style in use at the Width and Height options, or nil for D3's monster bar.
+local lastStyle = {}
 local function Style()
-	return ns.Art.TARGET_STYLES[Opt().style or "d3"]
+	local opt = Opt()
+	local name, w, h = opt.style or "d3", opt.width or 1, opt.height or 1
+	local c = lastStyle
+	if c.name ~= name or c.w ~= w or c.h ~= h then
+		c.name, c.w, c.h = name, w, h
+		c.style = ns.Art.TargetStyleSized(name, w, h)
+	end
+	return c.style
 end
 
 -- Pixels the Height option adds to D3's bar, the same on every rank so the plate doesn't jump
@@ -280,21 +288,14 @@ local function FitBars(plate, w, h)
 end
 
 -- A rendered frame: one piece of art per rank at fixed places, so a rank change only swaps art.
+-- Width and Height stretch it in slices (ns.Art.DrawTargetStyle).
 local function SetStylePiece(plate, rank, colorKey, style)
 	local art = colorKey == "rare" and "rare" or rank
-	local key = style.slot .. art
+	local key = style.key .. art
 	if plate.rank == key then return end
 	plate.rank = key
-	local tex = plate.StyleArt.tex
-	local atlas = ns.Art.Require(style.slot)
-	tex:SetShown(atlas and true or false)
-	if atlas then
-		tex:SetTexture(atlas)
-		tex:SetTexCoord(ns.Art.TargetStyleTexCoord(style, art))
-		tex:ClearAllPoints()
-		tex:SetPoint("TOPLEFT", plate, "TOPLEFT", style.art[1], -style.art[2])
-		tex:SetSize(style.art[3], style.art[4])
-	end
+	plate.StyleArt.tex:Hide()
+	ns.Art.DrawTargetStyle(plate.StyleArt, style, art)
 	local parts = ns.Art.Require("targetStyleParts")
 	if parts then
 		plate.StyleBadge.tex:SetTexture(parts)
@@ -325,7 +326,8 @@ local function SetStylePiece(plate, rank, colorKey, style)
 	FitBars(plate, w, h)
 	LayoutTexts(plate)
 	plate.ToTArt:ClearAllPoints()
-	plate.ToTArt:SetPoint("TOPLEFT", plate, "TOPLEFT", style.tot[1], -style.tot[2])
+	local grown = (plate.ToTArt.height - ns.Art.TARGET_TOT_STYLE.size[2]) / 2 -- as Layout places the button
+	plate.ToTArt:SetPoint("TOPLEFT", plate, "TOPLEFT", style.tot[1], -(style.tot[2] - grown))
 	LayoutMarks(plate)
 end
 
@@ -1137,7 +1139,7 @@ local function PlaceSideRef(plate, ref, spec, away)
 	end
 	-- From the top on the right, start under the target of target, which sits there.
 	if spec.pos == "right" and spec.align == "left" and opt.tot ~= false then
-		top = style and style.tot[2] + 34 or (BarLine() + plate.ToTArt.height / 2 + 2)
+		top = style and style.tot[2] + 19 + plate.ToTArt.height / 2 or (BarLine() + plate.ToTArt.height / 2 + 2)
 	end
 	local y = top
 	if spec.align == "center" then
@@ -1825,10 +1827,11 @@ function ns.TargetPlate.Update(snap)
 end
 
 -- Sizes a portrait and what's in it; D3's sizes are kept on the portrait by MakeRing.
-local function SizePortrait(portrait, frame, model, disc)
-	portrait:SetSize(frame, frame)
-	portrait.back:SetSize(model, model)
-	portrait.model:SetSize(model, model)
+-- tall: a socket the Height option made taller than it is wide (the model fills it).
+local function SizePortrait(portrait, frame, model, disc, tall)
+	portrait:SetSize(frame, tall or frame)
+	portrait.back:SetSize(model, tall or model)
+	portrait.model:SetSize(model, tall or model)
 	portrait.disc:SetSize(disc, disc)
 end
 
@@ -1879,7 +1882,7 @@ end
 -- Switch between D3's frame and a rendered one: what's shown and the portrait's and cast's shape.
 local function ApplyStyle(plate)
 	local style = Style()
-	local key = style and style.slot or "d3"
+	local key = style and style.key or "d3"
 	plate.Power:SetShown(Opt().power ~= false)
 	plate.Power.track:SetShown(not style)
 	if plate.styleKey == key then return end
@@ -1910,7 +1913,7 @@ local function ApplyStyle(plate)
 		SizePortrait(portrait, size, size, p.hole * 2 + 2)
 	else
 		cx, cy, size = (p[1] + p[3]) / 2, (p[2] + p[4]) / 2, p[3] - p[1]
-		SizePortrait(portrait, size, size, size)
+		SizePortrait(portrait, size, size, size, p[4] - p[2])
 	end
 	portrait:ClearAllPoints()
 	portrait:SetPoint("CENTER", plate, "TOPLEFT", cx, -cy)
@@ -1957,7 +1960,7 @@ function ns.TargetPlate.Layout()
 	-- the ToT bar hung off the widest's (the boss banner), on the bar's line.
 	local w = opt.width or 1
 	local art = plate.ToTArt
-	art.SetStyled(style and true or false)
+	art.SetStyled(style and true or false, opt.totWidth or 1, opt.totHeight or 1)
 	if not style then
 		art.Resize(opt.totWidth or 1, math.floor(BAR_BASE_H * TOT_K * ((opt.totHeight or 1) - 1) + 0.5))
 	end
@@ -1968,7 +1971,9 @@ function ns.TargetPlate.Layout()
 	end
 	plate.ToT:ClearAllPoints()
 	if style then
-		plate.ToT:SetPoint("TOPLEFT", plate, "TOPLEFT", style.tot[1], -style.tot[2])
+		-- A taller ToT grows about the middle it has at its own height.
+		local grown = (art.height - ns.Art.TARGET_TOT_STYLE.size[2]) / 2
+		plate.ToT:SetPoint("TOPLEFT", plate, "TOPLEFT", style.tot[1], -(style.tot[2] - grown))
 		plate.ToT:SetSize(art.width, art.height)
 	else
 		local least, most = D3WidthRange()
@@ -2184,37 +2189,39 @@ local function MakeToTArt(plate, parent)
 	art.Portrait = MakeRing(art, k)
 	art.Portrait:SetPoint("CENTER", art, "LEFT", reach * k, 0)
 	art.Portrait:SetShown(art.portraitShown)
-	-- The rendered styles' small frame: a socket with its own bar, in place of D3's.
-	local styleTex = art:CreateTexture(nil, "ARTWORK")
-	styleTex:SetPoint("TOPLEFT", art, "TOPLEFT", -4, 4)
-	styleTex:SetSize(120, 38)
-	styleTex:Hide()
-	function art.SetStyled(on)
-		if art.styled == on then return end
+	-- The rendered styles' small frame: a socket with its own bar, in place of D3's. Its Width
+	-- and Height stretch it in slices (ns.Art.TARGET_TOT_STYLE, ns.Art.DrawTargetStyle).
+	local styleArt = CreateFrame("Frame", nil, art)
+	styleArt:SetAllPoints()
+	styleArt:SetFrameLevel(art:GetFrameLevel())
+	styleArt:Hide()
+	art.styledKey = false
+	function art.SetStyled(on, widthScale, heightScale)
+		local tot = on and ns.Art.TargetStyleSized(ns.Art.TARGET_TOT_STYLE, widthScale, heightScale)
+		local key = tot and tot.key or false
+		if art.styledKey == key then return end
+		art.styledKey = key
 		art.styled = on
 		box:SetShown(not on)
 		well:SetShown(not on)
-		styleTex:SetShown(on)
+		styleArt:SetShown(on)
 		health:ClearAllPoints()
 		art.Name:ClearAllPoints()
 		local portrait = art.Portrait
 		portrait:ClearAllPoints()
 		if on then
-			local parts = ns.Art.Require("targetStyleParts")
-			if parts then
-				styleTex:SetTexture(parts)
-				styleTex:SetTexCoord(ns.Art.TargetPartTexCoord("tot"))
-			end
-			art.width, art.height = 112, 30
+			ns.Art.DrawTargetStyle(styleArt, tot, "normal")
+			local b = tot.bar
+			art.width, art.height = tot.size[1], tot.size[2]
 			art:SetSize(art.width, art.height)
-			health:SetPoint("TOPLEFT", art, "TOPLEFT", 32, -11)
-			health:SetSize(70, 8)
+			health:SetPoint("TOPLEFT", art, "TOPLEFT", b[1], -b[2])
+			health:SetSize(b[3] - b[1], b[4] - b[2])
 			art.Name:SetPoint("BOTTOMLEFT", health, "TOPLEFT", 1, 0)
-			art.Name:SetWidth(70)
+			art.Name:SetWidth(b[3] - b[1])
 			art.Name:SetJustifyH("LEFT")
 			portrait.ring:Hide()
 			SizePortraitSmall(portrait, 30, 22, 23)
-			portrait:SetPoint("CENTER", art, "TOPLEFT", 15, -15)
+			portrait:SetPoint("CENTER", art, "TOPLEFT", tot.portrait.cx, -tot.portrait.cy)
 			portrait:Show()
 		else
 			health:SetPoint("TOPLEFT", box, "TOPLEFT", bar[1] * k, -bar[2] * k)

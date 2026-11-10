@@ -212,6 +212,11 @@ end
 -- power grooves and either a cast groove or a cast rail above the frame (castBottom: the rail's
 -- bottom edge). belowY / aboveY: where aura lines start under and over the frame. marks: centres
 -- of the class icon, faction emblem and raid marker, around the portrait socket.
+-- stretch = { x0, x1, y0, y1 }: a plain span of the frame (no rivets, slopes or tab ends) that
+-- the Width and Height options grow by mirror-folding it and shrink by cropping it (TargetStyleSized,
+-- DrawTargetStyle). ringCol: the left columns hold a round ring that keeps its size and stays
+-- centred as the frame gets taller. capScaleY: the right end is a point, so its band scales
+-- instead of repeating (a repeated point turns into teeth).
 ns.Art.TARGET_STYLE_RANK = { normal = 0, rare = 1, elite = 2, boss = 3 }
 ns.Art.TARGET_STYLES = {
 	lintel = {
@@ -219,12 +224,14 @@ ns.Art.TARGET_STYLES = {
 		portrait = { 8, 8, 64, 64 }, badge = { 8, 62 }, bar = { 76, 10, 330, 36 }, power = { 76, 41, 330, 47 },
 		castGroove = { 76, 51, 330, 65 }, tot = { 346, 18 }, belowY = 77, aboveY = -6,
 		marks = { class = { 10, 10 }, faction = { 62, 10 }, raid = { 36, 6 } },
+		stretch = { 110, 300, 16, 30 },
 	},
 	slim = {
 		slot = "targetStyleSlim", size = { 300, 54 }, art = { -34, -34, 368, 98 },
 		portrait = { 6, 6, 48, 48 }, badge = { 7, 46 }, bar = { 56, 7, 292, 33 }, power = { 56, 38, 292, 45 },
 		castBottom = -6, tot = { 306, 12 }, belowY = 60, aboveY = -2,
 		marks = { class = { 8, 8 }, faction = { 46, 8 }, raid = { 27, 5 } },
+		stretch = { 90, 270, 12, 28 },
 	},
 	bracket = {
 		slot = "targetStyleBracket", size = { 334, 68 }, art = { -34, -34, 402, 112 },
@@ -232,19 +239,172 @@ ns.Art.TARGET_STYLES = {
 		bar = { 74, 21, 310, 45 }, power = { 74, 48, 296, 53 },
 		castBottom = 10, tot = { 344, 20 }, belowY = 64, aboveY = 12,
 		marks = { class = { 12, 12 }, faction = { 56, 12 }, raid = { 34, 2 } },
+		stretch = { 100, 280, 26, 40 }, ringCol = 64, capScaleY = true,
 	},
 	tablet = {
 		slot = "targetStyleTablet", size = { 330, 66 }, art = { -34, -34, 398, 122 },
 		portrait = { 10, 8, 62, 60 }, badge = { 11, 58 }, bar = { 76, 20, 322, 46 }, power = { 76, 50, 322, 56 },
 		nameAt = { 164, 9 }, castBottom = -6, tot = { 342, 24 }, belowY = 70, aboveY = 0,
 		marks = { class = { 12, 10 }, faction = { 60, 10 }, raid = { 36, 6 } },
+		stretch = { 100, 230, 26, 40 },
 	},
+}
+
+-- The rendered styles' target of target (target-style-parts.png at 560, 560): a ring, a bar and
+-- a point, one look for every rank. Same fields as a style, for TargetStyleSized and
+-- DrawTargetStyle. Coordinates from the small frame's top left; the art overhangs it by 4.
+ns.Art.TARGET_TOT_STYLE = {
+	id = "tot", slot = "targetStyleParts", origin = { 560, 560 }, unranked = true,
+	size = { 112, 30 }, art = { -4, -4, 120, 38 }, bar = { 32, 11, 102, 19 },
+	portrait = { round = true, cx = 15, cy = 15 },
+	stretch = { 40, 96, 12, 18 }, ringCol = 30, capScaleY = true,
 }
 
 function ns.Art.TargetStyleTexCoord(style, rank)
 	local row = ns.Art.TARGET_STYLE_RANK[rank] or 0
 	local w, h = style.art[3] * 2, style.art[4] * 2
 	return 0, w / 1024, row * h / 1024, (row + 1) * h / 1024
+end
+
+-- Strokes along one axis that fill `len` units from the span a..b, each { from, to, drawn length }
+-- in source units: longer than the span folds back and forth over its far end (mirror tiles, so
+-- every join matches and nothing is smeared); shorter keeps its two ends with one cut between.
+local function FoldStrokes(a, b, len)
+	local span = b - a
+	if len <= span then
+		local half = len / 2
+		return { { a, a + half, half }, { b - (len - half), b, len - half } }
+	end
+	local out = { { a, b, span } }
+	local extra = len - span
+	local k = math.ceil(extra / (2 * span))
+	-- Whole units per fold where the extra allows it (it's even from TargetStyleSized), so no
+	-- tile edge lands between pixels.
+	local per, left = math.floor(extra / (2 * k)), extra - 2 * k * math.floor(extra / (2 * k))
+	for i = 1, k do
+		local d = per
+		if i == k then d = d + left / 2 end
+		out[#out + 1] = { b, b - d, d }
+		out[#out + 1] = { b - d, b, d }
+	end
+	return out
+end
+ns.Art.FoldStrokes = FoldStrokes
+
+local sizedStyles = {}
+
+-- A rendered style at the Width and Height options: the same table shape as TARGET_STYLES, with
+-- everything right of the stretch span moved by the width it gains and everything under it by
+-- the height. Width is a share of the frame's width, height a share of the health bar's.
+function ns.Art.TargetStyleSized(name, widthScale, heightScale)
+	local base = type(name) == "table" and name or ns.Art.TARGET_STYLES[name]
+	if not base then return nil end
+	name = base.id or name
+	local st = base.stretch
+	local spanX, spanY = st[2] - st[1], st[4] - st[3]
+	local barH = base.bar[4] - base.bar[2]
+	-- Even, so the folds, the halves of a crop and the ring's centring stay on whole units.
+	local function Even(v) return 2 * math.floor(v / 2 + 0.5) end
+	local E = math.max(Even(base.size[1] * ((widthScale or 1) - 1)), 20 - spanX)
+	local H = math.max(Even(barH * ((heightScale or 1) - 1)), 4 - spanY)
+	local key = name .. ":" .. E .. ":" .. H
+	local s = sizedStyles[key]
+	if s then return s end
+	local function X(x)
+		if x <= st[1] then return x end
+		if x >= st[2] then return x + E end
+		return st[1] + (x - st[1]) * (spanX + E) / spanX
+	end
+	local function Y(y)
+		if y <= st[3] then return y end
+		if y >= st[4] then return y + H end
+		return st[3] + (y - st[3]) * (spanY + H) / spanY
+	end
+	local function Rect(r) return r and { X(r[1]), Y(r[2]), X(r[3]), Y(r[4]) } end
+	local ring = base.ringCol and H / 2 -- the ring column rides in the middle
+	local function Point(p) return p and { X(p[1]), ring and p[2] + ring or Y(p[2]) } end
+	s = {}
+	for k, v in pairs(base) do s[k] = v end
+	s.key, s.name, s.base, s.extraW, s.extraH = key, name, base, E, H
+	s.size = { base.size[1] + E, base.size[2] + H }
+	s.bar, s.power, s.castGroove = Rect(base.bar), Rect(base.power), Rect(base.castGroove)
+	if base.portrait.round then
+		local p = {}
+		for k, v in pairs(base.portrait) do p[k] = v end
+		p.cy = p.cy + H / 2
+		s.portrait = p
+	else
+		s.portrait = Rect(base.portrait)
+	end
+	s.badge = Point(base.badge)
+	s.nameAt = base.nameAt and { X(base.nameAt[1]), base.nameAt[2] }
+	s.tot = base.tot and { X(base.tot[1]), base.tot[2] + H / 2 }
+	s.marks = {}
+	for k, m in pairs(base.marks or {}) do s.marks[k] = ring and { m[1], m[2] + ring } or { m[1], m[2] } end
+	s.belowY, s.aboveY = base.belowY and Y(base.belowY), base.aboveY
+	sizedStyles[key] = s
+	return s
+end
+
+-- Draw a sized style's frame for a rank on `owner` (a frame filling the plate) as a grid of
+-- slices from owner.tiles. Returns false when the art isn't there.
+function ns.Art.DrawTargetStyle(owner, style, rank)
+	local atlas = ns.Art.Require(style.slot)
+	owner.tiles = owner.tiles or {}
+	local used = 0
+	if atlas then
+		local base = style.base or style
+		local st = base.stretch
+		local ax, ay, aw, ah = base.art[1], base.art[2], base.art[3], base.art[4]
+		local E, H = style.extraW or 0, style.extraH or 0
+		-- origin: where the art sits in its atlas (art px); unranked art has one row, not four.
+		local ox, oy = base.origin and base.origin[1] or 0, base.origin and base.origin[2] or 0
+		local v0 = oy + (base.unranked and 0 or (ns.Art.TARGET_STYLE_RANK[rank] or 0) * ah * 2)
+		local function Tile(sx0, sx1, sy0, sy1, dx, dy, dw, dh)
+			used = used + 1
+			local tex = owner.tiles[used]
+			if not tex then
+				tex = owner:CreateTexture(nil, "ARTWORK")
+				owner.tiles[used] = tex
+			end
+			tex:SetTexture(atlas)
+			-- Reversed strokes give reversed coordinates: the mirror tiles.
+			tex:SetTexCoord((ox + (sx0 - ax) * 2) / 1024, (ox + (sx1 - ax) * 2) / 1024,
+				(v0 + (sy0 - ay) * 2) / 1024, (v0 + (sy1 - ay) * 2) / 1024)
+			tex:ClearAllPoints()
+			tex:SetPoint("TOPLEFT", owner, "TOPLEFT", dx, -dy)
+			tex:SetSize(dw, dh)
+			tex:Show()
+		end
+		local cols = {}
+		local left = ax
+		if base.ringCol then
+			cols[#cols + 1] = { ax, base.ringCol, base.ringCol - ax, ring = true }
+			left = base.ringCol
+		end
+		cols[#cols + 1] = { left, st[1], st[1] - left }
+		for _, c in ipairs(FoldStrokes(st[1], st[2], st[2] - st[1] + E)) do cols[#cols + 1] = c end
+		cols[#cols + 1] = { st[2], ax + aw, ax + aw - st[2], cap = true }
+		local rows = { { ay, st[3], st[3] - ay } }
+		for _, r in ipairs(FoldStrokes(st[3], st[4], st[4] - st[3] + H)) do rows[#rows + 1] = r end
+		rows[#rows + 1] = { st[4], ay + ah, ay + ah - st[4] }
+		local capRows = { rows[1], { st[3], st[4], st[4] - st[3] + H }, rows[#rows] }
+		local x = ax
+		for _, c in ipairs(cols) do
+			if c.ring then
+				Tile(c[1], c[2], ay, ay + ah, x, ay + H / 2, c[3], ah)
+			else
+				local y = ay
+				for _, r in ipairs((c.cap and base.capScaleY) and capRows or rows) do
+					Tile(c[1], c[2], r[1], r[2], x, y, c[3], r[3])
+					y = y + r[3]
+				end
+			end
+			x = x + c[3]
+		end
+	end
+	for i = used + 1, #owner.tiles do owner.tiles[i]:Hide() end
+	return atlas and true or false
 end
 
 -- target-style-parts.png (1024x1024): the Bracket's ring, the cast rail, the level stud and the

@@ -1180,16 +1180,8 @@ local function Build()
 					look = Card(1, "Style and size", {
 						style = Select(1, "Style", "The look of the frame. Monster bar is D3's own enemy bar. The others are rendered for SanctuaryUI: a portrait socket, one health bar and a resource bar.", "target", "style", TARGET_STYLES, TARGET_STYLE_ORDER),
 						scale = Range(2, "Scale", "100% is D3's own size: the art one-to-one at 1080p, the same share of the screen at any resolution.", "target", "scale", 0.5, 2, 0.05, true),
-						width = (function()
-							local option = Range(3, "Width", "Stretches the frame and bar between their ornaments. Monster bar style only.", "target", "width", 0.6, 2.5, 0.05, true)
-							option.disabled = StyledTarget
-							return option
-						end)(),
-						height = (function()
-							local option = Range(4, "Height", "Makes the bar taller or shorter; the frame's lips and ornaments keep their size. Monster bar style only.", "target", "height", 0.7, 3, 0.05, true)
-							option.disabled = StyledTarget
-							return option
-						end)(),
+						width = Range(3, "Width", "Stretches the frame and bar between their ornaments; the portrait and the frame's ends keep their size.", "target", "width", 0.6, 2.5, 0.05, true),
+						height = Range(4, "Height", "Makes the health bar taller or shorter; the frame's lips and ornaments keep their size. In the other styles the portrait socket grows with it, and Bracket's ring stays round.", "target", "height", 0.7, 3, 0.05, true),
 						rankWidth = (function()
 							local option = Select(5, "Width by rank", "D3 draws bosses far wider than ordinary monsters. Same frame width keeps the frame, the portrait and the target of target still as you change targets; same bar width keeps the health bar one length and lets the ornaments differ. Monster bar style only.", "target", "rankWidth", { frame = "Same frame width", bar = "Same bar width", d3 = "Grows with rank (D3)" }, { "frame", "bar", "d3" })
 							option.disabled = StyledTarget
@@ -1226,13 +1218,13 @@ local function Build()
 							return option
 						end)(),
 						totWidth = (function()
-							local option = Range(3, "Width", "Stretches its frame and bar between their ornaments. Monster bar style only.", "target", "totWidth", 0.6, 3, 0.05, true)
-							option.disabled = function() return DB().target.tot == false or StyledTarget() end
+							local option = Range(3, "Width", "Stretches its frame and bar between their ornaments.", "target", "totWidth", 0.6, 3, 0.05, true)
+							option.disabled = function() return DB().target.tot == false end
 							return option
 						end)(),
 						totHeight = (function()
-							local option = Range(4, "Height", "Makes its bar taller or shorter. Monster bar style only.", "target", "totHeight", 0.7, 3, 0.05, true)
-							option.disabled = function() return DB().target.tot == false or StyledTarget() end
+							local option = Range(4, "Height", "Makes its bar taller or shorter. In the other styles its ring keeps its size.", "target", "totHeight", 0.7, 3, 0.05, true)
+							option.disabled = function() return DB().target.tot == false end
 							return option
 						end)(),
 					}),
