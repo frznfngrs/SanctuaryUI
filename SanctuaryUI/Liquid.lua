@@ -920,7 +920,9 @@ function ns.Liquid.Attach(globe, bar, opts)
 	-- scrolling inside, each lifted by the wave. A child of the bar so it hides with it.
 	local surface = CreateFrame("Frame", nil, bar)
 	surface:SetAllPoints(globe)
-	local circle = Mask(surface, globe)
+	-- Faded over the bottom of the globe, so an empty (or secret) level never leaves the glow
+	-- on the bottom edge, where it would ripple below the glass.
+	local circle = Mask(surface, globe, ns.Art.Path("surfaceMask") and "surfaceMask" or nil)
 	local glowPath = ns.Art.Path("surfaceGlow") or ns.Art.Path("hotline")
 	local shimmerPath = ns.Art.Path("surfaceShimmer")
 	for i = 1, opts.slices or SLICES do

@@ -609,6 +609,18 @@ def animated_liquid() -> None:
     save_rgba(OUT / "mote.png", np.ones_like(mote), np.clip(mote, 0, 1))
 
 
+def surface_mask() -> None:
+    """surface-mask.png 512: the globe circle, faded out over the bottom of the globe.
+
+    The surface glow is masked by this rather than the plain circle, so a nearly empty globe
+    (or one whose level is secret in combat) can't park a bright line on the bottom edge."""
+    np = _np()
+    cover, _, y, _, _ = disc(512)
+    height = (y + 1) / 2  # 0 at the bottom of the globe, 1 at the top
+    t = np.clip((height - 0.03) / (0.15 - 0.03), 0, 1)
+    save_rgba(OUT / "surface-mask.png", np.ones_like(cover), cover * t * t * (3 - 2 * t))
+
+
 def hotline() -> None:
     # The source is a bright edge fading down over ~32 rows (the rest is DXT wrap noise).
     # Keep that fade only: the band's top edge sits on the liquid surface and glows downward.
@@ -2239,7 +2251,7 @@ def rendered_storm() -> None:
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     only = set(sys.argv[1:])
-    for step in (frame_and_glass, console_tiers, liquid, liquid_halves, animated_liquid, hotline, xp_fills, menu, glow, blade, socket_glow, bag_frame, bank_frame, bag_cells, d3_button, pips, pip_frames, shimmer, socket, skill_timer, icon, unit_frames, menu_flyout, target_rings, globe_aura, globe_shell, globe_surge, globe_storm, party, rendered_liquid, pollution_art, rendered_break, surge_art, rendered_storm, heal_art, rendered_shields):
+    for step in (frame_and_glass, console_tiers, liquid, liquid_halves, animated_liquid, surface_mask, hotline, xp_fills, menu, glow, blade, socket_glow, bag_frame, bank_frame, bag_cells, d3_button, pips, pip_frames, shimmer, socket, skill_timer, icon, unit_frames, menu_flyout, target_rings, globe_aura, globe_shell, globe_surge, globe_storm, party, rendered_liquid, pollution_art, rendered_break, surge_art, rendered_storm, heal_art, rendered_shields):
         if only and step.__name__ not in only:
             continue
         step()

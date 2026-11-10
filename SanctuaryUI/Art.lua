@@ -103,6 +103,7 @@ ns.Art.slots = {
 	mote = { file = "mote.png" },
 	globeShade = { file = "globe-shade.png" },
 	globeMask = { file = "globe-mask.png" },
+	surfaceMask = { file = "surface-mask.png" }, -- the circle, faded over the bottom: keeps the surface glow off the bottom edge
 	skillTimer = { file = "skill-timer.png" },
 	menuFlyout = { file = "menu-flyout.png" },
 	unitFrames = { file = "unit-frames.png" },
