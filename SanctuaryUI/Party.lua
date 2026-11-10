@@ -819,6 +819,7 @@ local function DressDispel(b, slot)
 	slot:EnableMouse(false)
 	b.dispelSlot = slot
 	b.dispelTex = {}
+	b.dispelArtKey = nil -- new textures: P.DispelArt dresses them
 	if b.v then -- else ConfigureAuras places it, once the button has a view
 		slot:ClearAllPoints()
 		slot:SetAllPoints(b.v.glowBox)
@@ -845,15 +846,35 @@ local function DressDispel(b, slot)
 	if slot.AddAuraShownAnimation then pcall(slot.AddAuraShownAnimation, slot, pulse) end
 end
 
+-- The halo textures belong to the client once it has shown a debuff on them: after that, any
+-- addon call on them throws "forbidden object" (issue #4). So dress them only when the halo art
+-- actually changes (a style switch), never on the routine reconfigures SPELLS_CHANGED and
+-- UNIT_PET trigger, and skip or catch textures the client has already taken.
+local function DressDispelTex(tex, g)
+	if ns.Art.Apply(tex, g.slot) then
+		tex:SetTexCoord(ns.Art.PartyCoord(g.style, g.rect))
+		tex:SetBlendMode("ADD")
+	end
+end
+
 function P.DispelArt(b)
 	local v = b.v
 	if not (b.dispelTex and v and v.glowRect) then return end
 	local g = v.glowRect
+	local key = tostring(g.slot) .. ":" .. tostring(g.style)
+	if b.dispelArtKey == key then return end
+	b.dispelArtKey = key
+	local stuck = false
 	for _, tex in ipairs(b.dispelTex) do
-		if ns.Art.Apply(tex, g.slot) then
-			tex:SetTexCoord(ns.Art.PartyCoord(g.style, g.rect))
-			tex:SetBlendMode("ADD")
+		if tex.IsForbidden and tex:IsForbidden() then
+			stuck = true
+		elseif not pcall(DressDispelTex, tex, g) then
+			stuck = true
 		end
+	end
+	if stuck and not P.dispelStuckSaid then
+		P.dispelStuckSaid = true
+		ns.Print("The party dispel glow keeps its old shape until you /reload.")
 	end
 end
 
