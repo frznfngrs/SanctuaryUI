@@ -464,8 +464,18 @@ end
 local pending -- a Judgement waiting for the buff frame: { consumer, at, icons }
 local landing = {} -- casts at someone that may be you: { effect, id, name, at, icons }
 local sentTarget = {} -- castGUID -> the target name UNIT_SPELLCAST_SENT gave (false: hidden)
+local sentGuess = {} -- castGUID -> whether a cast with a hidden target looked aimed at you (GuessAim)
 local sentCount = 0 -- entries, so casts that never went off don't pile up
 local playerName
+-- Your last casts as the client reported them and what was made of each, for /sanctuary watch:
+-- when an effect doesn't show, this says whether the cast was seen, named, matched and aimed.
+local seen = {}
+local SEEN_KEPT = 12
+
+local function NoteCast(text)
+	table.insert(seen, 1, ("%s  %s"):format(date("%H:%M:%S"), text))
+	seen[SEEN_KEPT + 1] = nil
+end
 
 local function SealExpires(group)
 	local latest
@@ -544,14 +554,38 @@ local function Land(effect, id, name, at)
 	Flare(effect)
 end
 
--- Is the cast with this GUID aimed at you? true, false, or nil when the client won't say.
+-- Is this unit a friend other than you? nil when the client won't say.
+local function OtherFriend(unit)
+	local ok, other = pcall(function()
+		if not UnitExists(unit) then return false end
+		if UnitIsUnit(unit, "player") then return false end
+		return UnitCanAssist("player", unit) and true or false
+	end)
+	if ok then return other end
+	return nil
+end
+
+-- In combat the client hides who a cast was sent at. What can still be seen, as the cast is
+-- sent, is who it could have gone to: with a friend under the mouse or targeted, it is taken
+-- as theirs; with neither (yourself, nobody or an enemy targeted) a helpful spell lands on
+-- you. Only one-off heals use this (OnCast): they leave no buff icon to confirm with.
+local function GuessAim()
+	local mouse, target = OtherFriend("mouseover"), OtherFriend("target")
+	if mouse == nil or target == nil then return nil end
+	return not (mouse or target)
+end
+
+-- Is the cast with this GUID aimed at you? true or false from its target's name, then whether
+-- that was only a guess (the name was hidden); nil when nothing can be told.
 local function AimedAtYou(castGUID)
 	local target = castGUID and sentTarget[castGUID]
-	if castGUID then sentTarget[castGUID] = nil end
-	if not target then return nil end
-	if target == "" then return nil end
+	local guess = castGUID and sentGuess[castGUID]
+	if castGUID then sentTarget[castGUID], sentGuess[castGUID] = nil, nil end
+	if not target or target == "" then return guess, true end
+	-- Characters here have a surname, and the event may give either form.
 	playerName = playerName or UnitName("player")
-	return target == playerName
+	local full = ns.UnitDisplayName and ns.UnitDisplayName("player")
+	return target == playerName or (Readable(full) and target == full) or false
 end
 
 local function OnCast(spellID, now, castGUID)
@@ -565,13 +599,18 @@ local function OnCast(spellID, now, castGUID)
 		length = length or ns.DescribedLength(spellID)
 		groupCast[group] = { name = name, at = now, expires = length and now + length }
 	end
-	local aimed = AimedAtYou(castGUID)
+	local aimed, guessed = AimedAtYou(castGUID)
+	local matched = {}
+	for _, effect in ipairs(EffectsOf(spellID, name)) do matched[#matched + 1] = effect.key end
+	NoteCast(("%s (%s): %s; aimed at you: %s%s"):format(tostring(name or "unnamed"), tostring(spellID),
+		#matched > 0 and ("effect " .. table.concat(matched, ", ")) or (group and "seal group" or "no effect for it"),
+		tostring(aimed), guessed and " (target hidden, judged by your target and mouseover)" or ""))
 	for _, effect in ipairs(EffectsOf(spellID, name)) do
 		-- Channels start on their own event; readings and the absorb gate aren't casts.
 		if effect.kind ~= "channel" and effect.kind ~= "reading" and effect.kind ~= "absorb" then
-			if effect.target ~= "any" or aimed == true or test then
+			if effect.target ~= "any" or (aimed == true and not (guessed and Kept(effect))) or test then
 				Land(effect, spellID, name, now)
-			elseif aimed == nil and Kept(effect) then
+			elseif (aimed == nil or guessed) and Kept(effect) then
 				-- Can't tell where it went: it is yours if a buff icon turns up with it. A direct
 				-- heal leaves no buff, so it stays silent rather than guess.
 				table.insert(landing, { effect = effect, id = spellID, name = name, at = now, icons = iconCount })
@@ -728,6 +767,16 @@ function ns.Watch.Report()
 				GateTrusted(consumer) and "trusted" or "not trusted yet", g.agree or 0, g.against or 0))
 		end
 	end
+	ns.Print(("your last casts, newest first (%d):"):format(#seen))
+	for _, line in ipairs(seen) do ns.Print("  " .. line) end
+	local opt = ns.DB().globeAuras
+	if opt then
+		local off = {}
+		for _, effect in ipairs(EFFECTS) do
+			if (effect.class == class or effect.class == "ANY") and not opt.effects[effect.key] then off[#off + 1] = effect.label end
+		end
+		ns.Print(("globe auras %s%s"):format(opt.enabled and "on" or "OFF", #off > 0 and ("; switched off: " .. table.concat(off, ", ")) or ""))
+	end
 	local a = Store().absorb
 	ns.Print(("absorbs: %s (%d events after shields, %d missed)"):format(
 		AbsorbWorks() and "reported, shields follow them" or "not seen yet, shields follow their timers", a.works or 0, a.miss or 0))
@@ -835,18 +884,26 @@ function ns.Watch.Init()
 	end
 	local gateDirty = false
 	driver:SetScript("OnEvent", function(_, event, _, a2, a3, a4)
-		if test and event ~= "SPELLS_CHANGED" then return end
+		if test and event ~= "SPELLS_CHANGED" then
+			if event == "UNIT_SPELLCAST_SUCCEEDED" then NoteCast("a cast ignored: test mode is on") end
+			return
+		end
 		local now = GetTime()
 		if event == "UNIT_SPELLCAST_SUCCEEDED" then
 			-- unit, castGUID, spellID
-			if Readable(a3) then OnCast(a3, now, Readable(a2) and a2 or nil) end
+			if Readable(a3) then
+				OnCast(a3, now, Readable(a2) and a2 or nil)
+			else
+				NoteCast("a cast whose spell the client hid: nothing can follow it")
+			end
 			dirty = true
 		elseif event == "UNIT_SPELLCAST_SENT" then
 			-- unit, target, castGUID, spellID
 			if Readable(a3) then
 				sentCount = sentCount + 1
-				if sentCount > 64 then wipe(sentTarget); sentCount = 1 end
+				if sentCount > 64 then wipe(sentTarget); wipe(sentGuess); sentCount = 1 end
 				sentTarget[a3] = Readable(a2) and a2 or false
+				if not sentTarget[a3] or sentTarget[a3] == "" then sentGuess[a3] = GuessAim() end
 			end
 		elseif event == "UNIT_SPELLCAST_CHANNEL_START" or event == "UNIT_SPELLCAST_CHANNEL_STOP" or event == "UNIT_SPELLCAST_CHANNEL_UPDATE" then
 			OnChannel(event, a3, now)

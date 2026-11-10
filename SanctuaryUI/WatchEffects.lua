@@ -146,7 +146,8 @@ ns.WatchData.EFFECTS = {
 		flare = { { globe = "health", tint = "holy", dir = "in" } },
 		label = "Lay on Hands", desc = "a beam of gold light strikes the health globe, when it is on you" },
 	-- Your direct heals, when they land on you (target = "any": your cast aimed at you, never a
-	-- heal on someone else). Heals leave no buff, so a cast the client won't name a target for shows nothing.
+	-- heal on someone else). Heals leave no buff to confirm with, so when the client hides a cast's
+	-- target (in combat) Watch.lua goes by who it could have gone to: see GuessAim there.
 	{ key = "flashOfLight", class = "PALADIN", spells = { 19750 }, names = { "Flash of Light" }, look = "flare", heal = "mend", target = "any",
 		flare = { { globe = "health", tint = "holy", dir = "in" } },
 		label = "Flash of Light", desc = "a dome of gold light swells off the health globe's surface, when it is on you" },
