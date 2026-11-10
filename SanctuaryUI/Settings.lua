@@ -147,7 +147,7 @@ ns.DEFAULTS = {
 		-- target plate, top of the screen
 		target = {
 			enabled = true,
-			style = "d3", -- d3 (D3's monster bar) | lintel | slim | bracket | tablet
+			style = "d3", -- d3 (D3's monster bar) | lintel | slim | slab | bracket | tablet
 			scale = 1, -- 1 = D3's own size (one art pixel per pixel at 1080p)
 			width = 1, -- frame and bar width, stretched between the ornaments (d3 style)
 			rankWidth = "frame", -- frame: every rank as wide | bar: every bar as long | d3: grows with rank

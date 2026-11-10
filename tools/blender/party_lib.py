@@ -6,6 +6,7 @@ orthographic, top-down, 2 px per unit, transparent background, lit from the top-
 """
 import json
 import math
+import random
 import sys
 
 import bmesh
@@ -423,3 +424,67 @@ def render_passes(prefix, cx, cy, w, h, metal, floors):
     render(prefix + "-data.png", cx, cy, w, h)
     sc.view_settings.view_transform = "Standard"
     sc.cycles.use_denoising = True
+
+
+# The Slab: shared by party_slab.py and target_slab.py.
+def slab_grow(rect, by):
+    x, y, w, h = rect
+    return (x - by, y - by, x + w + by, y + h + by)
+
+
+def slab_frame(name, rect, out_by, in_by, z0, z1):
+    """A rectangular rim: rect grown by out_by, with rect grown by in_by (negative shrinks)
+    cut out of it."""
+    o = prism(name, rect_outline(*slab_grow(rect, out_by)), z0, z1)
+    hole = prism(name + "_hole", rect_outline(*slab_grow(rect, in_by)), z0 - 2, z1 + 2)
+    subtract(o, hole)
+    return o
+
+
+def slab_build(geo, cap, seed, small, TOP=6.0):
+    """The party Slab (party_slab.py), also drawn at target size (target_slab.py): a stone slab
+    with the socket and grooves cut in, and its metal: socket rim, groove lips, corner caps.
+    Returns slab, groove floors, metal objects."""
+    w, h = geo["size"]
+    random.seed(seed)
+    slab = prism("slab", rect_outline(0, 0, w, h), 0, TOP)
+    floors = []
+    # Recesses: a little larger than the openings, so the lips overhang their walls.
+    recesses = [(geo["socket"], 1.0, 3.2), (geo["health"], 0.9, 2.6)]
+    if "power" in geo:
+        recesses.append((geo["power"], 0.8, 2.0))
+    for rect, by, depth in recesses:
+        subtract(slab, prism("recess", rect_outline(*slab_grow(rect, by)), TOP - depth, TOP + 5))
+        floors.append(prism("floor", rect_outline(*slab_grow(rect, by + 0.2)), TOP - depth - 0.6, TOP - depth + 0.05))
+    # Chipped edges: a few bites out of the rim, deterministic.
+    for _ in range(4 if small else 7):
+        side = random.choice("tblr")
+        s = random.uniform(0.9, 1.8 if small else 2.4)
+        if side in "tb":
+            x, y = random.uniform(cap + 3, w - cap - 3), (0 if side == "t" else h)
+        else:
+            x, y = (0 if side == "l" else w), random.uniform(cap + 2, h - cap - 2)
+        chip = prism("chip", rect_outline(x - s, y - s, x + s, y + s), TOP - s * 0.8, TOP + 4)
+        chip.rotation_euler = (random.uniform(-0.5, 0.5), random.uniform(-0.5, 0.5), random.uniform(0, 3))
+        subtract(slab, chip)
+    bevel(slab, 0.9 if small else 1.3, 3, 40)
+
+    metal = []
+    rim_h = TOP + (2.0 if small else 2.5)
+    rim = slab_frame("socket_rim", geo["socket"], 1.6 if small else 2.4, 0.0, TOP - 0.6, rim_h)
+    bevel(rim, 0.45 if small else 0.6, 3, 40)
+    metal.append(rim)
+    grooves = [(geo["health"], 1.2 if small else 1.3)]
+    if "power" in geo:
+        grooves.append((geo["power"], 1.0))
+    for rect, out_by in grooves:
+        lip = slab_frame("lip", rect, out_by + 0.35, 0.35, TOP - 0.5, TOP + 1.3)
+        bevel(lip, 0.35, 2, 40)
+        metal.append(lip)
+    # Corner caps: square plates bent over the corners, a rivet in each.
+    for cx, cy in ((0, 0), (w - cap, 0), (0, h - cap), (w - cap, h - cap)):
+        c = prism("cap", rect_outline(cx, cy, cx + cap, cy + cap), TOP - 0.4, rim_h + 0.5)
+        bevel(c, 0.6, 3, 40)
+        metal.append(c)
+        metal.append(rivet("capr", cx + cap / 2, cy + cap / 2, cap * 0.16, rim_h + 0.5))
+    return slab, floors, metal

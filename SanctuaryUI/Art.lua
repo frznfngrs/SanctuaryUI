@@ -33,6 +33,7 @@ ns.Art.slots = {
 	targetStyleSlim = { file = "target-style-slim.png", lazy = true },
 	targetStyleBracket = { file = "target-style-bracket.png", lazy = true },
 	targetStyleTablet = { file = "target-style-tablet.png", lazy = true },
+	targetStyleSlab = { file = "target-style-slab.png", lazy = true }, -- the party Slab at target size (tools/blender/target_slab.py)
 	targetStyleParts = { file = "target-style-parts.png", lazy = true },
 	pipSockets = { file = "pip-sockets.png" },
 	liquidShimmer = { file = "liquid-shimmer.png" },
@@ -232,6 +233,15 @@ ns.Art.TARGET_STYLES = {
 		castBottom = -6, tot = { 306, 12 }, belowY = 60, aboveY = -2,
 		marks = { class = { 8, 8 }, faction = { 46, 8 }, raid = { 27, 5 } },
 		stretch = { 90, 270, 12, 28 },
+	},
+	-- The party Slab's stone and metal at target size (build_hud_art.py target_slab): iron, steel,
+	-- gold and ember-worn metal by rank. The cast bar rides a rail above it, as on the Slim.
+	slab = {
+		slot = "targetStyleSlab", size = { 330, 64 }, art = { -6, -6, 342, 76 },
+		portrait = { 7, 6, 59, 58 }, badge = { 9, 57 }, bar = { 72, 8, 322, 38 }, power = { 72, 45, 322, 53 },
+		castBottom = -6, tot = { 336, 8 }, belowY = 70, aboveY = -2,
+		marks = { class = { 10, 9 }, faction = { 56, 9 }, raid = { 33, 5 } },
+		stretch = { 110, 290, 15, 31 },
 	},
 	bracket = {
 		slot = "targetStyleBracket", size = { 334, 68 }, art = { -34, -34, 402, 112 },

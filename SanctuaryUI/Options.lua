@@ -159,10 +159,11 @@ local TARGET_STYLES = {
 	d3 = "Monster bar (Diablo III)",
 	lintel = "Lintel",
 	slim = "Slim Lintel",
+	slab = "Slab (matches the party Slab)",
 	bracket = "Forged Bracket",
 	tablet = "Tablet",
 }
-local TARGET_STYLE_ORDER = { "d3", "lintel", "slim", "bracket", "tablet" }
+local TARGET_STYLE_ORDER = { "d3", "lintel", "slim", "slab", "bracket", "tablet" }
 
 -- One-click arrangements of the debuffs and buffs; the settings under them fine-tune any of it.
 local AURA_LAYOUTS = {

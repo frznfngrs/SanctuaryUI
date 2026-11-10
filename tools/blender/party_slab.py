@@ -24,64 +24,8 @@ STONE_TEX = os.path.join(TEX, "stone.png")
 TOP = 6.0  # the slab's top face
 
 
-def grow(rect, by):
-    x, y, w, h = rect
-    return (x - by, y - by, x + w + by, y + h + by)
-
-
-def frame(name, rect, out_by, in_by, z0, z1):
-    """A rectangular rim: rect grown by out_by, with rect grown by in_by (negative shrinks)
-    cut out of it."""
-    o = L.prism(name, L.rect_outline(*grow(rect, out_by)), z0, z1)
-    hole = L.prism(name + "_hole", L.rect_outline(*grow(rect, in_by)), z0 - 2, z1 + 2)
-    L.subtract(o, hole)
-    return o
-
-
 def build(geo, cap, seed, small):
-    w, h = geo["size"]
-    random.seed(seed)
-    slab = L.prism("slab", L.rect_outline(0, 0, w, h), 0, TOP)
-    floors = []
-    # Recesses: a little larger than the openings, so the lips overhang their walls.
-    recesses = [(geo["socket"], 1.0, 3.2), (geo["health"], 0.9, 2.6)]
-    if "power" in geo:
-        recesses.append((geo["power"], 0.8, 2.0))
-    for rect, by, depth in recesses:
-        L.subtract(slab, L.prism("recess", L.rect_outline(*grow(rect, by)), TOP - depth, TOP + 5))
-        floors.append(L.prism("floor", L.rect_outline(*grow(rect, by + 0.2)), TOP - depth - 0.6, TOP - depth + 0.05))
-    # Chipped edges: a few bites out of the rim, deterministic.
-    for _ in range(4 if small else 7):
-        side = random.choice("tblr")
-        s = random.uniform(0.9, 1.8 if small else 2.4)
-        if side in "tb":
-            x, y = random.uniform(cap + 3, w - cap - 3), (0 if side == "t" else h)
-        else:
-            x, y = (0 if side == "l" else w), random.uniform(cap + 2, h - cap - 2)
-        chip = L.prism("chip", L.rect_outline(x - s, y - s, x + s, y + s), TOP - s * 0.8, TOP + 4)
-        chip.rotation_euler = (random.uniform(-0.5, 0.5), random.uniform(-0.5, 0.5), random.uniform(0, 3))
-        L.subtract(slab, chip)
-    L.bevel(slab, 0.9 if small else 1.3, 3, 40)
-
-    metal = []
-    rim_h = TOP + (2.0 if small else 2.5)
-    rim = frame("socket_rim", geo["socket"], 1.6 if small else 2.4, 0.0, TOP - 0.6, rim_h)
-    L.bevel(rim, 0.45 if small else 0.6, 3, 40)
-    metal.append(rim)
-    grooves = [(geo["health"], 1.2 if small else 1.3)]
-    if "power" in geo:
-        grooves.append((geo["power"], 1.0))
-    for rect, out_by in grooves:
-        lip = frame("lip", rect, out_by + 0.35, 0.35, TOP - 0.5, TOP + 1.3)
-        L.bevel(lip, 0.35, 2, 40)
-        metal.append(lip)
-    # Corner caps: square plates bent over the corners, a rivet in each.
-    for cx, cy in ((0, 0), (w - cap, 0), (0, h - cap), (w - cap, h - cap)):
-        c = L.prism("cap", L.rect_outline(cx, cy, cx + cap, cy + cap), TOP - 0.4, rim_h + 0.5)
-        L.bevel(c, 0.6, 3, 40)
-        metal.append(c)
-        metal.append(L.rivet("capr", cx + cap / 2, cy + cap / 2, cap * 0.16, rim_h + 0.5))
-    return slab, floors, metal
+    return L.slab_build(geo, cap, seed, small, TOP)
 
 
 L.setup(job.get("samples", 128))

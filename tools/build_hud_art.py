@@ -1846,6 +1846,10 @@ def _soft_halo(alpha: Image.Image, size: tuple, sigma: float, gain: float, hole=
 PARTY_METALS = {
     "iron": ((0.03, 0.033, 0.04), (0.12, 0.125, 0.14), (0.25, 0.26, 0.29), (0.6, 0.64, 0.71)),
     "gold": ((0.12, 0.065, 0.015), (0.37, 0.24, 0.075), (0.64, 0.46, 0.18), (0.96, 0.82, 0.5)),
+    # The target Slab's other ranks, after the rendered styles' metals: cold steel for rares,
+    # blackened iron worn through to ember red for bosses.
+    "steel": ((0.04, 0.05, 0.065), (0.17, 0.2, 0.25), (0.36, 0.41, 0.5), (0.78, 0.86, 1.0)),
+    "ember": ((0.02, 0.015, 0.015), (0.075, 0.052, 0.048), (0.17, 0.1, 0.085), (0.88, 0.3, 0.07)),
 }
 PARTY_FLOOR = (0.035, 0.032, 0.032)
 
@@ -2300,10 +2304,51 @@ def rendered_storm() -> None:
             raise SystemExit(f"GlobeAura.lua {name} should be {want}, is {have}")
 
 
+# Target frame, Slab style: the party Slab (party_lib.slab_build) at the target's size, so the two
+# match. Rects here are x, y, w, h in units; ns.Art.TARGET_STYLES.slab (SanctuaryUI/Art.lua) has the
+# same as x0, y0, x1, y1, and art = { -margin, -margin, w + 2 margin, h + 2 margin }.
+TARGET_SLAB = {"size": [330, 64], "socket": [7, 6, 52, 52], "health": [72, 8, 250, 30],
+               "power": [72, 45, 250, 8], "cap": 11.0, "margin": 6}
+TARGET_SLAB_RANKS = (("normal", "iron"), ("rare", "steel"), ("elite", "gold"), ("boss", "ember"))
+
+
+def target_slab() -> None:
+    """target-style-slab.png 1024x1024: a row per rank (normal, rare, elite, boss), each the
+    stone with that rank's metal over it, as the other target style atlases."""
+    import json
+    import os
+    import subprocess
+    import tempfile
+
+    blender = os.environ.get("BLENDER", str(Path.home() / "opt/blender-4.5.15-linux-x64/blender"))
+    work = Path(os.environ.get("TSLAB_WORK") or tempfile.mkdtemp(prefix="tslab-art-"))
+    tex = work / "tex"
+    tex.mkdir(parents=True, exist_ok=True)
+    # The party's own textures: D3's skill socket stone for grunge, the inventory footer's stone.
+    socket_png = Image.open(OUT / "socket.png").convert("RGB").crop((8, 11, 68, 71))
+    socket_png.resize((256, 256), Image.LANCZOS).save(tex / "grunge.png")
+    Image.open(OUT / "bag-frame.png").convert("RGB").crop((40, 476, 560, 616)).save(tex / "stone.png")
+    job = work / "job.json"
+    job.write_text(json.dumps({"out": str(work), "tex": str(tex), "geo": TARGET_SLAB,
+                               "samples": int(os.environ.get("PARTY_SAMPLES", 160))}))
+    here = Path(__file__).resolve().parent / "blender"
+    subprocess.run([blender, "-b", "--factory-startup", "-P", str(here / "target_slab.py"), "--", str(job)],
+                   check=True, stdout=subprocess.DEVNULL)
+    grunge = Image.open(tex / "grunge.png").convert("L")
+    stone = Image.open(work / "tslab-stone.png").convert("RGBA")
+    lit, norm, data = (Image.open(work / f"tslab-{p}.png") for p in ("lit", "norm", "data"))
+    atlas = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
+    for i, (_, kind) in enumerate(TARGET_SLAB_RANKS):
+        row = stone.copy()
+        row.alpha_composite(_party_paint(lit, norm, data, kind, grunge))
+        atlas.alpha_composite(row, (0, i * row.height))
+    atlas.save(OUT / "target-style-slab.png")
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     only = set(sys.argv[1:])
-    for step in (frame_and_glass, console_tiers, console_pods, liquid, liquid_halves, animated_liquid, surface_mask, hotline, xp_fills, menu, glow, blade, socket_glow, bag_frame, bank_frame, bag_cells, d3_button, pips, pip_frames, shimmer, socket, skill_timer, icon, unit_frames, menu_flyout, target_rings, globe_aura, globe_shell, globe_surge, globe_storm, party, rendered_liquid, pollution_art, rendered_break, surge_art, rendered_storm, heal_art, rendered_shields):
+    for step in (frame_and_glass, console_tiers, console_pods, liquid, liquid_halves, animated_liquid, surface_mask, hotline, xp_fills, menu, glow, blade, socket_glow, bag_frame, bank_frame, bag_cells, d3_button, pips, pip_frames, shimmer, socket, skill_timer, icon, unit_frames, menu_flyout, target_rings, globe_aura, globe_shell, globe_surge, globe_storm, party, rendered_liquid, pollution_art, rendered_break, surge_art, rendered_storm, heal_art, rendered_shields, target_slab):
         if only and step.__name__ not in only:
             continue
         step()
