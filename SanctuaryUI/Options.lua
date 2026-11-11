@@ -932,9 +932,22 @@ local VISIBILITY = {
 -- "Page 6", or "Page 6 (bar 3)" while something else shows it. Bar n itself doesn't count.
 -- Damage meter (Meter.lua)
 -- The minimap (Map.lua) and the overlay map (MapOverlay.lua)
+local ZOOMS = { [-1] = "As you leave it", [0] = "0 (widest)", [1] = "1", [2] = "2", [3] = "3", [4] = "4", [5] = "5 (tightest)" }
+local ZOOM_ORDER = { -1, 0, 1, 2, 3, 4, 5 }
 local function MapArgs()
 	local function off() return DB().map.style == "blizzard" end
 	local function noMarkers() return off() or not DB().map.markers end
+	local function B() return DB().map.buttons end
+	local function noButtons() return off() or B().show == "never" end
+	local function free() return B().side == "free" end
+	local function noHeader() return off() or not (DB().map.zone or DB().map.clock) end
+	-- A field of map.buttons with its own disabled rule.
+	local function ButtonField(option, key, disabled)
+		option.get = function() return B()[key] end
+		option.set = function(_, value) B()[key] = value Changed() end
+		option.disabled = disabled
+		return option
+	end
 	return {
 		intro = Note(1, "The game's own minimap in a SanctuaryUI setting, with markers on its rim for what lies off the map. Inside a dungeon the game hides positions from addons, so the markers and the trail rest there. Scroll the mouse wheel over the map to zoom."),
 		style = Width(Select(2, "Style", "Parchment: Diablo III's torn sheet, a little see-through. Scrying globe: the map under glass in a forged ring. Borderless: no frame, the map's edge fades into the world. Blizzard's: the game's minimap, untouched (changing to it needs a reload).", "map", "style", {
@@ -943,44 +956,122 @@ local function MapArgs()
 			fade = "Borderless",
 			blizzard = "Blizzard's own",
 		}, { "parchment", "globe", "fade", "blizzard" }), HALF),
-		look = Card(3, "Size", {
-			size = Range(1, "Map size", nil, "map", "size", 120, 360, 2),
-			scale = Range(2, "Scale", "Scales the map with its name, sockets and markers.", "map", "scale", 0.5, 2, 0.05, true),
-			opacity = Range(3, "Map opacity", "How solid the map itself is. Lower, and the world shows through it. Inside buildings and in cities built as interiors (Ironforge, Stormwind's districts) the map is always solid: the game can only draw a floor plan that way.", "map", "opacity", 0.3, 1, 0.01, true),
-		}, { disabled = off }),
-		around = Card(4, "Around the map", {
-			zone = Toggle(1, "Place name", nil, "map", "zone"),
-			clock = Toggle(2, "Time", nil, "map", "clock"),
-			sockets = Toggle(3, "Sockets", "Mail (while you have some), tracking and the calendar. The Borderless style keeps them out of sight until the mouse is over the map.", "map", "sockets"),
-			drawer = Toggle(4, "Gather addon buttons", "Other addons' minimap buttons leave the map's rim for one socket that opens on hover. Turning this off needs a reload to put them back.", "map", "drawer"),
-		}, { disabled = off }),
-		marks = Card(5, "Markers and trail", {
-			markers = Toggle(1, "Rim markers", "A marker on the map's edge pointing at each thing that lies beyond it.", "map", "markers"),
-			markerYards = Width({
-				type = "toggle", order = 2, name = "Distance in yards", disabled = noMarkers,
-				get = function() return DB().map.markerYards end,
-				set = function(_, value) DB().map.markerYards = value Changed() end,
-			}, HALF),
-			party = Width({
-				type = "toggle", order = 3, name = "Group members", desc = "Your party, in their class colours. Not shown in a raid.", disabled = noMarkers,
-				get = function() return DB().map.party end,
-				set = function(_, value) DB().map.party = value Changed() end,
-			}, HALF),
-			rangeYards = Width({
-				type = "range", order = 3.5, name = "Within reach", desc = "A group member's distance turns green when they are within this many yards, on the minimap and the overlay. 0 for never.",
-				min = 0, max = 100, step = 1,
-				get = function() return DB().map.rangeYards end,
-				set = function(_, value) DB().map.rangeYards = value Changed() end,
-			}, HALF),
-			quests = Width({
-				type = "toggle", order = 4, name = "Quests", desc = "The nearest quests the zone map shows for you.", disabled = noMarkers,
-				get = function() return DB().map.quests end,
-				set = function(_, value) DB().map.quests = value Changed() end,
-			}, HALF),
-			trail = Toggle(5, "Trail", "A dotted line where you have walked, fading with distance. Also drawn on the overlay map.", "map", "trail"),
-			trailLength = Range(6, "Trail length", "In yards.", "map", "trailLength", 50, 1500, 50),
-		}, { disabled = off }),
-		place = PositionCard(6, "Top right by default. " .. UNLOCK, function() ns.Map.ResetPosition() end, function() return not DB().map.moved end),
+		map = Tab(3, "Map", {
+			look = Card(1, "Size", {
+				size = Range(1, "Map size", nil, "map", "size", 120, 360, 2),
+				scale = Range(2, "Scale", "Scales the map with its name, buttons and markers.", "map", "scale", 0.5, 2, 0.05, true),
+				opacity = Range(3, "Map opacity", "How solid the map itself is. Lower, and the world shows through it. Inside buildings and in cities built as interiors (Ironforge, Stormwind's districts) the map is always solid: the game can only draw a floor plan that way.", "map", "opacity", 0.3, 1, 0.01, true),
+			}, { disabled = off }),
+			marks = Card(2, "Markers and trail", {
+				markers = Toggle(1, "Rim markers", "A marker on the map's edge pointing at each thing that lies beyond it.", "map", "markers"),
+				markerYards = Width({
+					type = "toggle", order = 2, name = "Distance in yards", disabled = noMarkers,
+					get = function() return DB().map.markerYards end,
+					set = function(_, value) DB().map.markerYards = value Changed() end,
+				}, HALF),
+				party = Width({
+					type = "toggle", order = 3, name = "Group members", desc = "Your party, in their class colours. Not shown in a raid.", disabled = noMarkers,
+					get = function() return DB().map.party end,
+					set = function(_, value) DB().map.party = value Changed() end,
+				}, HALF),
+				rangeYards = Width({
+					type = "range", order = 3.5, name = "Within reach", desc = "A group member's distance turns green when they are within this many yards, on the minimap and the overlay. 0 for never.",
+					min = 0, max = 100, step = 1,
+					get = function() return DB().map.rangeYards end,
+					set = function(_, value) DB().map.rangeYards = value Changed() end,
+				}, HALF),
+				quests = Width({
+					type = "toggle", order = 4, name = "Quests", desc = "The nearest quests the zone map shows for you.", disabled = noMarkers,
+					get = function() return DB().map.quests end,
+					set = function(_, value) DB().map.quests = value Changed() end,
+				}, HALF),
+				trail = Toggle(5, "Trail", "A dotted line where you have walked, fading with distance. Also drawn on the overlay map.", "map", "trail"),
+				trailLength = Range(6, "Trail length", "In yards.", "map", "trailLength", 50, 1500, 50),
+				deathView = Toggle(7, "Death view", "While you are dead: a cold wash over the map and a gold line to your corpse, with its distance. On the overlay map too.", "map", "deathView"),
+			}, { disabled = off }),
+			zoom = Card(2.5, "Zoom", {
+				autoZoom = Toggle(1, "Zoom by itself", "The map keeps a zoom for each way of getting about and changes to it as you mount up, step into a building or enter a city. Zoom with the mouse wheel and it remembers that for where you are.", "map", "autoZoom"),
+				note = Note(2, "0 is the widest view, 5 the tightest. \"As you leave it\" takes whatever zoom is in use the first time."),
+				foot = Width(Select(3, "On foot", nil, "map.zoom", "foot", ZOOMS, ZOOM_ORDER), THIRD),
+				mounted = Width(Select(4, "Riding or flying", nil, "map.zoom", "mounted", ZOOMS, ZOOM_ORDER), THIRD),
+				indoors = Width(Select(5, "Inside a building", nil, "map.zoom", "indoors", ZOOMS, ZOOM_ORDER), THIRD),
+				city = Width(Select(6, "In a city", "Cities built as interiors: Ironforge, Stormwind's districts.", "map.zoom", "city", ZOOMS, ZOOM_ORDER), THIRD),
+			}, { disabled = function() return off() end }),
+			place = PositionCard(3, "Top right by default. " .. UNLOCK, function() ns.Map.ResetPosition() end, function() return not DB().map.moved end),
+		}),
+		buttons = Tab(4, "Buttons", {
+			intro = Note(1, "Mail, tracking, the calendar and the drawer of addon buttons."),
+			shown = Card(2, "Shown", {
+				show = Width(ButtonField({
+					type = "select", order = 1, name = "When",
+					desc = "On mouseover: out of sight until the mouse is on the map or on the buttons' own spot. They stay up while frames are unlocked.",
+					values = { always = "Always", hover = "On mouseover", never = "Never" }, sorting = { "always", "hover", "never" },
+				}, "show", off), HALF),
+				mail = Third(ButtonField({ type = "toggle", order = 2, name = "Mail", desc = "Only while you have mail waiting." }, "mail", noButtons)),
+				tracking = Third(ButtonField({ type = "toggle", order = 3, name = "Tracking", desc = "Opens the game's tracking menu." }, "tracking", noButtons)),
+				calendar = Third(ButtonField({ type = "toggle", order = 4, name = "Calendar", desc = "Click for the calendar, right-click for the stopwatch and alarm." }, "calendar", noButtons)),
+				drawer = Width({
+					type = "toggle", order = 5, name = "Gather addon buttons", disabled = off,
+					desc = "Other addons' minimap buttons leave the map's rim for one button that opens on hover. Turning this off needs a reload to put them back.",
+					get = function() return DB().map.drawer end,
+					set = function(_, value) DB().map.drawer = value Changed() end,
+				}, HALF),
+			}),
+			where = Card(3, "Place", {
+				side = Width(ButtonField({
+					type = "select", order = 1, name = "Where",
+					desc = "Beside the map, or Anywhere: then they get a mover of their own while frames are unlocked.",
+					values = { below = "Below the map", above = "Above the map", left = "Left of the map", right = "Right of the map", free = "Anywhere" },
+					sorting = { "below", "above", "left", "right", "free" },
+				}, "side", noButtons), THIRD),
+				align = Width(ButtonField({
+					type = "select", order = 2, name = "Along that side",
+					desc = "Where along the map's edge they sit. Start is the left of a row or the top of a column. The style's own: to the right on the Parchment, centred otherwise.",
+					values = { style = "The style's own", start = "Start", center = "Middle", ["end"] = "End" }, sorting = { "style", "start", "center", "end" },
+				}, "align", function() return noButtons() or free() end), THIRD),
+				vertical = Third(ButtonField({ type = "toggle", order = 3, name = "In a column", desc = "For Anywhere: stacked rather than in a row." }, "vertical",
+					function() return noButtons() or not free() end)),
+				x = Width(ButtonField({ type = "range", order = 4, name = "Nudge across", min = -200, max = 200, step = 1 }, "x",
+					function() return noButtons() or free() end), THIRD),
+				y = Width(ButtonField({ type = "range", order = 5, name = "Nudge up", min = -200, max = 200, step = 1 }, "y",
+					function() return noButtons() or free() end), THIRD),
+				reset = {
+					type = "execute", order = 6, name = "Reset place", func = function() ns.Map.ResetButtons() end,
+					disabled = function() local b = B() return noButtons() or (not b.moved and b.x == 0 and b.y == 0) end,
+				},
+			}),
+			size = Card(4, "Size", {
+				size = Width(ButtonField({ type = "range", order = 1, name = "Button size", min = 14, max = 56, step = 1 }, "size", noButtons), THIRD),
+				gap = Width(ButtonField({ type = "range", order = 2, name = "Spacing", min = 0, max = 24, step = 1 }, "gap", noButtons), THIRD),
+			}),
+		}),
+		header = Tab(5, "Name and time", {
+			shown = Card(1, "Shown", {
+				zone = Toggle(1, "Place name", nil, "map", "zone"),
+				clock = Toggle(2, "Time", "With the zone's name beside it when the place name is a part of the zone.", "map", "clock"),
+			}, { disabled = off }),
+			where = Card(2, "Place and size", {
+				headerPlace = Width({
+					type = "select", order = 1, name = "Where", disabled = noHeader,
+					desc = "The style's own: above the map, or on the plaque under the Scrying globe.",
+					values = { style = "The style's own", above = "Above the map", below = "Below the map" }, sorting = { "style", "above", "below" },
+					get = function() return DB().map.headerPlace end,
+					set = function(_, value) DB().map.headerPlace = value Changed() end,
+				}, THIRD),
+				headerAlign = Width({
+					type = "select", order = 2, name = "Aligned", disabled = noHeader,
+					desc = "The style's own: to the right on the Parchment, centred otherwise. The globe's plaque is always centred.",
+					values = { style = "The style's own", left = "Left", center = "Centre", right = "Right" }, sorting = { "style", "left", "center", "right" },
+					get = function() return DB().map.headerAlign end,
+					set = function(_, value) DB().map.headerAlign = value Changed() end,
+				}, THIRD),
+				headerScale = Width({
+					type = "range", order = 3, name = "Text size", disabled = noHeader, min = 0.6, max = 2.5, step = 0.05, isPercent = true,
+					get = function() return DB().map.headerScale end,
+					set = function(_, value) DB().map.headerScale = value Changed() end,
+				}, THIRD),
+			}),
+		}),
 	}
 end
 
@@ -1014,10 +1105,17 @@ local function AllyRingArgs()
 			inner = Range(2, "Clear middle", "How far from the middle the nearest allies sit, so they don't cover your character.", "allyRing", "inner", 0, 200, 5),
 			scale = Range(3, "Scale", "Pips and numbers.", "allyRing", "scale", 0.5, 2, 0.05, true),
 			opacity = Range(4, "Opacity", nil, "allyRing", "opacity", 0.2, 1, 0.01, true),
-			offsetY = Range(5, "Up or down", "Moves the ring off the middle of the screen, to sit on your character.", "allyRing", "offsetY", -400, 400, 5),
+			offsetY = Width({
+				type = "range", order = 5, name = "Up or down", desc = "Moves the ring off the middle of the screen, to sit on your character. Not used once you have dragged the ring somewhere.",
+				min = -400, max = 400, step = 5, disabled = function() return off() or DB().allyRing.moved end,
+				get = function() return DB().allyRing.offsetY end,
+				set = function(_, value) DB().allyRing.offsetY = value Changed() end,
+			}, THIRD),
 			circle = Third(Toggle(6, "Reach circle", nil, "allyRing", "circle")),
 			names = Third(Toggle(7, "Names", nil, "allyRing", "names")),
 		}, { disabled = off }),
+		place = PositionCard(6, "On the middle of the screen by default. While frames are unlocked the ring shows, with stand-ins if you have no group, and a handle at its middle to drag. " .. UNLOCK,
+			function() ns.AllyRing.ResetPosition() end, function() local o = DB().allyRing return not o.moved and o.offsetY == 0 end),
 	}
 end
 
@@ -1034,6 +1132,13 @@ local function OverlayArgs()
 				ink = "The zone's map",
 				live = "The live minimap",
 			}, { "ink", "live" }), HALF),
+			cityInk = Width({
+				type = "toggle", order = 3, name = "Zone's map in cities and buildings",
+				desc = "There the minimap is a coarse floor plan on solid black, which the game will not draw see-through. With this on, the live minimap gives way to the zone's map while you are in a city or a building.",
+				disabled = function() return off() or DB().map.overlay.mode ~= "live" end,
+				get = function() return DB().map.overlay.cityInk end,
+				set = function(_, value) DB().map.overlay.cityInk = value Changed() end,
+			}, 1),
 		}, { disabled = off }),
 		look = Card(5, "Look", {
 			size = Range(1, "Size", "Of the screen's height.", "map.overlay", "size", 0.4, 1, 0.01, true),
@@ -2088,7 +2193,7 @@ local function Build()
 			trinkets = Page(38.5, "Trinkets", TrinketArgs()),
 			gapMap = Gap(39),
 			sectionMap = Section(39.2, "Map"),
-			map = Page(39.4, "Minimap", MapArgs()),
+			map = Page(39.4, "Minimap", MapArgs(), "tab"),
 			mapOverlay = Page(39.6, "Overlay map", OverlayArgs()),
 			allyRing = Page(39.7, "Ally ring", AllyRingArgs()),
 			gap40 = Gap(39.8),

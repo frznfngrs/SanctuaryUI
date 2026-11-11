@@ -50,7 +50,9 @@ end
 local function Wanted()
 	local opt = Opt()
 	if R.preview then return true end
-	if not opt.enabled or not IsInGroup() then return false end
+	if not opt.enabled then return false end
+	if R.unlocked then return true end -- frames unlocked: up, to be placed
+	if not IsInGroup() then return false end
 	if opt.show == "group" then return true end
 	if opt.show == "combat" then return InCombatLockdown() and true or false end
 	-- "pvp": flagged, or in a battleground or arena
@@ -73,7 +75,7 @@ end
 local function Gather(north, west, instance)
 	local opt = Opt()
 	local n = 0
-	if R.preview then
+	if R.preview or (R.unlocked and not IsInGroup()) then
 		-- Four stand-ins that drift, to place and size the ring without a group.
 		local t = GetTime()
 		local fake = { { 14, 0.5, { 0.96, 0.55, 0.73 }, "Paladin" }, { 31, 2.2, { 0.25, 0.78, 0.92 }, "Mage" },
@@ -137,7 +139,7 @@ end
 local function Draw()
 	local opt = Opt()
 	local north, west, instance, facing = P.Here()
-	if not north and not R.preview then
+	if not north and not (R.preview or R.unlocked) then
 		frame.rest:Show() -- no positions here (a dungeon): nothing to show
 		for i = 1, MAX_PIPS do pips[i]:Hide() end
 		for i = 1, SEGMENTS do circle[i]:Hide() end
@@ -189,7 +191,11 @@ local function Place()
 	frame:SetAlpha(opt.opacity)
 	frame:SetSize(opt.radius * 2, opt.radius * 2)
 	frame:ClearAllPoints()
-	frame:SetPoint("CENTER", UIParent, "CENTER", 0, opt.offsetY / opt.scale)
+	if opt.moved then
+		frame:SetPoint("CENTER", UIParent, "BOTTOMLEFT", ns.MovedPoint(frame, opt))
+	else
+		frame:SetPoint("CENTER", UIParent, "CENTER", 0, opt.offsetY / opt.scale)
+	end
 end
 
 local function OnUpdate(self, elapsed)
@@ -253,6 +259,19 @@ function R.ApplySettings()
 	Refresh()
 end
 
+function R.UpdateMovers(unlocked)
+	if not frame then return end
+	R.unlocked = unlocked and Opt().enabled and true or nil
+	R.mover:SetShown(R.unlocked and true or false)
+	Refresh()
+end
+
+function R.ResetPosition()
+	local opt = Opt()
+	opt.moved, opt.mx, opt.my, opt.offsetY = false, 0, 0, 0
+	ns.Refresh()
+end
+
 -- Session-only: four drifting stand-ins, to place and size the ring.
 function R.SetPreview(on)
 	R.preview = on and true or nil
@@ -262,6 +281,13 @@ end
 function R.Init()
 	if frame then return end
 	Build()
+	Place()
+	-- The ring is mostly empty space, so its mover is a handle at its middle, not the whole
+	-- ring; and it lives on the screen, since the ring itself is usually hidden.
+	R.mover = ns.MakeMover(frame, "Ally ring", Opt, "Reset its position in /sanctuary > Ally ring.", UIParent)
+	R.mover:ClearAllPoints()
+	R.mover:SetPoint("CENTER", frame, "CENTER")
+	R.mover:SetSize(150, 44)
 	local events = CreateFrame("Frame")
 	for _, event in ipairs({ "GROUP_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED",
 		"PLAYER_FLAGS_CHANGED", "UNIT_FACTION", "ZONE_CHANGED_NEW_AREA" }) do

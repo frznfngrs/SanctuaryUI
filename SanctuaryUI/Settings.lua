@@ -352,8 +352,27 @@ ns.DEFAULTS = {
 			opacity = 0.92,
 			zone = true,
 			clock = true,
-			sockets = true, -- mail, tracking, calendar
+			headerPlace = "style", -- style (above; below on the globe's plaque) | above | below
+			headerAlign = "style", -- style (right on the parchment, else centred) | left | center | right
+			headerScale = 1,
 			drawer = true, -- gather other addons' minimap buttons into one socket
+			-- the buttons: mail, tracking, the calendar and the drawer
+			buttons = {
+				show = "always", -- always | hover (while the mouse is on the map or on them) | never
+				side = "below", -- below | above | left | right | free (anywhere, with its own mover)
+				align = "style", -- style (to the right on the parchment, else centred) | start | center | end
+				vertical = false, -- for "free": a column rather than a row
+				size = 26,
+				gap = 4,
+				x = 0, -- nudges from its place by the map
+				y = 0,
+				mail = true,
+				tracking = true,
+				calendar = true,
+				moved = false,
+				mx = 0,
+				my = 0,
+			},
 			markers = true, -- things off the map, on its rim
 			markerYards = true,
 			party = true,
@@ -361,6 +380,11 @@ ns.DEFAULTS = {
 			quests = true,
 			trail = true,
 			trailLength = 300, -- yards
+			deathView = true, -- dead: a cold wash over the map and a gold line to your corpse
+			autoZoom = true,
+			-- the zoom kept for each way of getting about, 0 (widest) to 5; -1: not chosen yet, so
+			-- the zoom in use the first time is taken. The wheel rewrites the one in force.
+			zoom = { mounted = 0, indoors = 4, city = 2, foot = -1 },
 			moved = false,
 			mx = 0,
 			my = 0,
@@ -369,6 +393,7 @@ ns.DEFAULTS = {
 				mode = "ink", -- ink (the zone's map art) | live (the real minimap, enlarged)
 				look = "ghost", -- ghost (grey light over the world) | painted (the art as it is)
 				hold = true, -- shown while the key is held; off: the key toggles it
+				cityInk = true, -- live mode: in cities and buildings, draw the zone's map instead
 				size = 0.8, -- of the screen's height
 				reach = 700, -- yards across, for ink
 				opacity = 0.55,
@@ -390,6 +415,9 @@ ns.DEFAULTS = {
 			offsetY = 0,
 			circle = true, -- the dashed "within reach" circle
 			names = false,
+			moved = false,
+			mx = 0,
+			my = 0,
 		},
 
 		-- damage meter (Meter.lua): the client's own tallies on forged rails

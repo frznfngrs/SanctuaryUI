@@ -290,6 +290,15 @@ local function DrawPins(north, west, instance, facing, k, turn)
 				m.text:SetTextColor(0.91, 0.87, 0.77)
 			end
 			m:Show()
+			-- The death view's gold line to your corpse.
+			if t.kind == "corpse" and mapOpt.deathView then
+				usedLines = usedLines + 1
+				local l = Line(usedLines)
+				l:SetStartPoint("CENTER", pinLayer, 0, 0)
+				l:SetEndPoint("CENTER", pinLayer, east, up)
+				l:SetColorTexture(1, 0.81, 0.33, 0.85)
+				l:Show()
+			end
 			-- A thread to a group member who has fallen behind.
 			if t.kind == "party" and opt.tether > 0 and yards >= opt.tether then
 				usedLines = usedLines + 1
@@ -314,12 +323,17 @@ local function Draw()
 	local want = opt.mode
 	local mapID = north and P.MapID()
 	if want == "ink" and not (north and LoadMap(mapID)) then want = "live" end
+	-- In a city or a building the minimap is a coarse floor plan on solid black (the game's
+	-- own art, and it cannot be see-through there: Map.UpdateAlpha). Blown up to overlay
+	-- size that is blocks on a black disc, so the zone's painted map stands in.
+	if want == "live" and opt.cityInk and north and ns.Map.Interior() and LoadMap(mapID) then want = "ink" end
 
 	if want ~= mode then
 		mode = want
 		canvas:SetShown(mode == "ink")
 		if mode == "live" then Borrow() else GiveBack() end
 		note:SetShown(mode == "live" and opt.mode == "ink")
+		if mode == "ink" then Restyle() end
 	end
 
 	local zone = GetRealZoneText and GetRealZoneText() or ""
