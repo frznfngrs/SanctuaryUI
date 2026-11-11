@@ -1127,6 +1127,7 @@ local function AllyRingArgs()
 			}, THIRD),
 			circle = Third(Toggle(6, "Reach circle", nil, "allyRing", "circle")),
 			names = Third(Toggle(7, "Names", nil, "allyRing", "names")),
+			target = Third(Toggle(8, "Targeted member", "A pale gold halo round the pip of the group member you have targeted. Only group members can be marked: the game gives addons no position for an enemy or a stranger.", "allyRing", "target")),
 		}, { disabled = off }),
 		place = PositionCard(6, "On the middle of the screen by default. While frames are unlocked the ring shows, with stand-ins if you have no group, and a handle at its middle to drag. " .. UNLOCK,
 			function() ns.AllyRing.ResetPosition() end, function() local o = DB().allyRing return not o.moved and o.offsetY == 0 end),

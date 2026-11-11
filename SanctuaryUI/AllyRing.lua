@@ -143,6 +143,7 @@ local function Draw()
 		frame.rest:Show() -- no positions here (a dungeon): nothing to show
 		for i = 1, MAX_PIPS do pips[i]:Hide() end
 		for i = 1, SEGMENTS do circle[i]:Hide() end
+		frame.target:Hide()
 		return
 	end
 	frame.rest:Hide()
@@ -183,6 +184,35 @@ local function Draw()
 		end
 	end
 	DrawCircle()
+
+	-- The group member you have targeted: a pale gold halo round their pip. Only group members
+	-- can be marked; the client gives no position for anyone else (an enemy, a stranger).
+	local dot = frame.target
+	local te, tu
+	if opt.target then
+		if R.preview or (R.unlocked and not IsInGroup()) then
+			if n > 0 then te, tu = found[1].east, found[1].north end
+		elseif north and UnitExists("target") then
+			local me = UnitIsUnit("target", "player")
+			local tn, tw, _, tinst = UnitPosition("target")
+			if Plain(tn) and Plain(tw) and tinst == instance and not (Plain(me) and me) then
+				te, tu = -(tw - west), tn - north
+			end
+		end
+	end
+	-- Beyond the ring's sight their pip is not drawn, so neither is the halo.
+	if te and math.sqrt(te * te + tu * tu) > opt.maxYards then te = nil end
+	if te then
+		local yards = math.sqrt(te * te + tu * tu)
+		local east, up = te * c + tu * s, -te * s + tu * c
+		local len = math.max(0.01, yards)
+		local r = RadiusFor(yards)
+		dot:ClearAllPoints()
+		dot:SetPoint("CENTER", frame, "CENTER", east / len * r, up / len * r)
+		dot:Show()
+	else
+		dot:Hide()
+	end
 end
 
 local function Place()
@@ -224,6 +254,7 @@ local function Build()
 	for i = 1, MAX_PIPS do
 		local pip = CreateFrame("Frame", nil, frame)
 		pip:SetSize(PIP, PIP)
+		pip:SetFrameLevel(frame:GetFrameLevel() + 4) -- over the target's halo
 		pip:EnableMouse(false)
 		pip.icon = pip:CreateTexture(nil, "ARTWORK")
 		pip.icon:SetAllPoints()
@@ -237,6 +268,15 @@ local function Build()
 		pip:Hide()
 		pips[i] = pip
 	end
+	local dot = CreateFrame("Frame", nil, frame)
+	dot:SetSize(PIP + 12, PIP + 12)
+	dot:EnableMouse(false)
+	dot.icon = dot:CreateTexture(nil, "BACKGROUND") -- under the pips, which are frames above it
+	dot.icon:SetAllPoints()
+	P.SetCell(dot.icon, "pip")
+	dot.icon:SetVertexColor(1, 0.86, 0.45, 0.95)
+	dot:Hide()
+	frame.target = dot
 	-- Nothing to say when positions are hidden: an empty frame, kept for the check above.
 	frame.rest = CreateFrame("Frame", nil, frame)
 	frame.rest:Hide()

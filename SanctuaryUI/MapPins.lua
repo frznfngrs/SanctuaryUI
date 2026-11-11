@@ -172,22 +172,23 @@ local pings = {} -- by key: { north, west, untilTime, name }
 local lastPingX, lastPingY
 local pingQuietUntil = 0
 
--- x and y: parts of the minimap's width from its middle, right and up.
-local function KeepPing(key, x, y, name)
+-- Where a spot on the minimap is in the world. x and y: parts of the minimap's width from its
+-- middle, right and up. Nil where the client hides positions.
+local function PingWorld(x, y)
 	local north, west, _, facing = P.Here()
-	if not north or not (C_Minimap and C_Minimap.GetViewRadius) then return end
+	if not north or not (C_Minimap and C_Minimap.GetViewRadius) then return nil end
 	local radius = C_Minimap.GetViewRadius()
-	if not Plain(radius) then return end
+	if not Plain(radius) then return nil end
 	local east, up = x * 2 * radius, y * 2 * radius
 	if GetCVar("rotateMinimap") == "1" then
 		-- The map was turned so that facing is up: turn the click back to north-up.
 		local c, s = math.cos(facing), math.sin(facing)
 		east, up = east * c - up * s, east * s + up * c
 	end
-	local ping = pings[key] or {}
-	pings[key] = ping
-	ping.north, ping.west, ping.untilTime, ping.name = north + up, west - east, GetTime() + PING_LIFE, name
+	return north + up, west - east
 end
+
+local lastPingNorth, lastPingWest -- where the minimap's last ping is in the world
 
 local function PollPing()
 	local opt = Opt()
@@ -197,14 +198,23 @@ local function PollPing()
 	if x == lastPingX and y == lastPingY then return end
 	local first = lastPingX == nil
 	lastPingX, lastPingY = x, y
-	if first then return end -- whatever it held at login is not a ping
-	local now = GetTime()
-	if now < pingQuietUntil then return end -- in case the reading drifts while a ping is up
-	pingQuietUntil = now + 1.5
 	-- In case the reading is in the frame's own units rather than parts of its width.
 	local width = Minimap:GetWidth()
 	if (math.abs(x) > 1.5 or math.abs(y) > 1.5) and width and width > 0 then x, y = x / width, y / width end
-	KeepPing("ping", x, y, "Ping")
+	local north, west = PingWorld(x, y)
+	if not north then return end
+	-- The reading is where the last ping lies from you, so it changes as you walk, turn or
+	-- zoom while the ping itself stays put. Only a spot somewhere else in the world is a
+	-- new ping. (Walking used to raise one: found in game on 2026-11-11.)
+	local same = lastPingNorth and math.abs(north - lastPingNorth) < 8 and math.abs(west - lastPingWest) < 8
+	lastPingNorth, lastPingWest = north, west
+	if first or same then return end -- whatever it held at login is not a ping either
+	local now = GetTime()
+	if now < pingQuietUntil then return end
+	pingQuietUntil = now + 1.5
+	local ping = pings.ping or {}
+	pings.ping = ping
+	ping.north, ping.west, ping.untilTime, ping.name = north, west, now + PING_LIFE, "Ping"
 end
 P.PollPing = PollPing
 

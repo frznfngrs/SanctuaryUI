@@ -586,6 +586,14 @@ function ns.MapProbe.Check()
 	end
 	Family(MinimapCluster, "cluster", 2)
 	Out("MinimapBackdrop: %s", Describe(MinimapBackdrop))
+	-- The target: does the client say where it is, friend or foe?
+	if UnitExists("target") then
+		Out("target: position %s; player %s, can attack %s, in my group %s, visible %s, distance squared %s", All(UnitPosition, "target"),
+			V(UnitIsPlayer("target")), V(UnitCanAttack("player", "target")), V(UnitInParty("target") or UnitInRaid("target")),
+			V(UnitIsVisible("target")), All(UnitDistanceSquared, "target"))
+	else
+		Out("target: none")
+	end
 	-- The queue eye: which frame it is on this client, and where it hangs.
 	for _, name in ipairs({ "QueueStatusButton", "MiniMapLFGFrame", "LFGMinimapFrame", "MiniMapBattlefieldFrame", "QueueStatusFrame" }) do
 		local frame = _G[name]

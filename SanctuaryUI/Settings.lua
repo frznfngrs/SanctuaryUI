@@ -418,6 +418,7 @@ ns.DEFAULTS = {
 			opacity = 0.9,
 			offsetY = 0,
 			circle = true, -- the dashed "within reach" circle
+			target = true, -- a halo round the pip of the group member you have targeted
 			names = false,
 			moved = false,
 			mx = 0,
