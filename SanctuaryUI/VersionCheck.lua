@@ -1,4 +1,5 @@
-local _, ns = ...
+SanctuaryUI = SanctuaryUI or {}
+local ns = SanctuaryUI
 
 -- Update notices. An addon can't reach the internet, so it learns about new releases from other
 -- players: each copy says its version over the hidden addon channel to the group and guild, and
