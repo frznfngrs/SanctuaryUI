@@ -797,7 +797,48 @@ local function DressAura(button, kind)
 	local count = over:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
 	count:SetPoint("BOTTOMRIGHT", 1, 1)
 	button:SetApplicationCount(count)
-	if button.SetTooltipAnchorPoint then button:SetTooltipAnchorPoint("ANCHOR_BOTTOMRIGHT", 0, 0) end
+	-- No hover of the client's own: its tooltip looks the aura up by instance ID, which this
+	-- client gets wrong for party members (another aura's text, or nothing). Ours is below.
+	button:EnableMouse(false)
+end
+
+-- Our own hover areas, one over each place an icon can take, asking for the tooltip by the
+-- aura's index instead. Only mouse motion: clicks fall through to what is behind.
+local TIP_FILTER = { debuffs = "HARMFUL", mine = "HELPFUL" } -- what each row really shows
+
+local function ShowAuraTip(self)
+	if GameTooltip:IsForbidden() then return end
+	GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
+	local ok = pcall(GameTooltip.SetUnitAura, GameTooltip, self.unit, self.index, self.filter)
+	local lines = ok and GameTooltip:NumLines() or 0
+	if Readable(lines) and lines > 0 then GameTooltip:Show() else GameTooltip:Hide() end
+end
+
+local function PlaceTips(b, key, at, count, size, unit, filter)
+	b.tips = b.tips or {}
+	local tips = b.tips[key] or {}
+	b.tips[key] = tips
+	for i = 1, math.max(count, #tips) do
+		local tip = tips[i]
+		if not tip then
+			tip = CreateFrame("Frame", nil, b)
+			tip:SetScript("OnEnter", ShowAuraTip)
+			tip:SetScript("OnLeave", GameTooltip_Hide)
+			if tip.SetMouseClickEnabled then tip:SetMouseClickEnabled(false) end
+			tip.index = i
+			tips[i] = tip
+		end
+		if i <= count then
+			tip.unit, tip.filter = unit, filter
+			tip:SetFrameLevel(b:GetFrameLevel() + 30)
+			tip:SetSize(size, size)
+			tip:ClearAllPoints()
+			tip:SetPoint(at[1], b, "TOPLEFT", at[2] + (i - 1) * (size + AURA_GAP), at[3])
+			tip:Show()
+		else
+			tip:Hide()
+		end
+	end
 end
 
 local function GroupLayout(size)
@@ -945,6 +986,7 @@ local function ConfigureAuras(b)
 			Flow(box, max, size)
 			box:ClearAllPoints()
 			box:SetPoint(v.debuffAt[1], b, "TOPLEFT", v.debuffAt[2], v.debuffAt[3])
+			PlaceTips(b, "debuffs", v.debuffAt, on and max or 0, size, unit, standIn and "HELPFUL" or TIP_FILTER.debuffs)
 			box:SetUnit(unit)
 			box:SetShown(on)
 			box:UpdateAllAuras()
@@ -962,6 +1004,7 @@ local function ConfigureAuras(b)
 			Flow(box, max, size)
 			box:ClearAllPoints()
 			box:SetPoint(v.buffAt[1], b, "TOPLEFT", v.buffAt[2], v.buffAt[3])
+			PlaceTips(b, "mine", v.buffAt, on and max or 0, size, unit, TIP_FILTER.mine)
 			box:SetUnit(unit)
 			box:SetShown(on)
 			box:UpdateAllAuras()
