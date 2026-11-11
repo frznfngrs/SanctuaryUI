@@ -70,6 +70,24 @@ local function Restyle()
 	for _, t in ipairs(pieces) do if t:IsShown() then Look(t, t.strength) end end
 end
 
+-- Size and place the art for a zoom (screen units per art pixel). The pieces are sized
+-- themselves and the canvas is never scaled: its mask is anchored to the overlay's frame, and
+-- with a scaled canvas the mask wandered when the size or reach was changed.
+local function Zoom(zoom)
+	if canvas.zoom == zoom or not cal then return end
+	canvas.zoom = zoom
+	canvas:SetSize(cal.W * zoom, cal.H * zoom)
+	for _, pool in ipairs({ tiles, pieces }) do
+		for _, t in ipairs(pool) do
+			if t:IsShown() then
+				t:SetSize(t.w * zoom, t.h * zoom)
+				t:ClearAllPoints()
+				t:SetPoint("TOPLEFT", canvas, "TOPLEFT", t.x * zoom, -t.y * zoom)
+			end
+		end
+	end
+end
+
 -- Lay a map's art on the canvas. Returns false when this place has no map to draw.
 local function LoadMap(mapID)
 	if mapID == shownMap then return cal ~= nil end
@@ -86,7 +104,7 @@ local function LoadMap(mapID)
 	if not n0 or not n1 or n0 == n1 or w0 == w1 then return false end
 	local W, H, tw, th = layer.layerWidth, layer.layerHeight, layer.tileWidth, layer.tileHeight
 	local cols, rows = math.ceil(W / tw), math.ceil(H / th)
-	canvas:SetSize(W, H)
+	canvas.zoom = nil -- the pieces are laid out by Zoom, once their places are noted
 
 	-- Unexplored ground shows in the base art; the explored pieces lie over it. In the ghost
 	-- look both add up, so explored ground reads brighter.
@@ -102,9 +120,7 @@ local function LoadMap(mapID)
 				local t = Texture(tiles, index, 0)
 				t:SetTexture(file)
 				t:SetTexCoord(0, 1, 0, 1)
-				t:SetSize(tw, th)
-				t:ClearAllPoints()
-				t:SetPoint("TOPLEFT", canvas, "TOPLEFT", (col - 1) * tw, -(row - 1) * th)
+				t.x, t.y, t.w, t.h = (col - 1) * tw, (row - 1) * th, tw, th
 				t.strength = hasPieces and 0.5 or 1
 				t:Show()
 			end
@@ -136,9 +152,7 @@ local function LoadMap(mapID)
 						local t = Texture(pieces, used, 1)
 						t:SetTexture(file)
 						t:SetTexCoord(0, pw / fw, 0, ph / fh)
-						t:SetSize(pw, ph)
-						t:ClearAllPoints()
-						t:SetPoint("TOPLEFT", canvas, "TOPLEFT", info.offsetX + (k - 1) * tw, -(info.offsetY + (j - 1) * th))
+						t.x, t.y, t.w, t.h = info.offsetX + (k - 1) * tw, info.offsetY + (j - 1) * th, pw, ph
 						t.strength = 0.75
 						t:Show()
 					end
@@ -172,6 +186,7 @@ local function Borrow()
 	Minimap:SetMaskTexture(ns.Map.MaskFor("fade"))
 	Minimap:EnableMouse(false)
 	ns.Map.SetMapAlpha(Opt().opacity) -- solid in a city's interior: see Map.UpdateAlpha
+	ns.Map.Nudge() -- draw the terrain at the new size
 end
 
 local function GiveBack()
@@ -192,6 +207,7 @@ local function GiveBack()
 		Minimap:ClearAllPoints()
 		for _, p in ipairs(was.points) do Minimap:SetPoint(unpack(p)) end
 		Minimap:SetMaskTexture(ns.Map.MaskFor("globe"))
+		ns.Map.Nudge()
 	end
 end
 
@@ -343,11 +359,12 @@ local function Draw()
 	if mode == "ink" then
 		local k = size / opt.reach -- screen units per yard
 		local worldWide = math.abs(cal.w1 - cal.w0)
-		canvas:SetScale(k * worldWide / cal.W)
+		local zoom = k * worldWide / cal.W
+		Zoom(zoom)
 		local x = (cal.w0 - west) / (cal.w0 - cal.w1)
 		local y = (cal.n0 - north) / (cal.n0 - cal.n1)
 		canvas:ClearAllPoints()
-		canvas:SetPoint("TOPLEFT", frame, "CENTER", -x * cal.W, y * cal.H)
+		canvas:SetPoint("TOPLEFT", frame, "CENTER", -x * cal.W * zoom, y * cal.H * zoom)
 		DrawPins(north, west, instance, facing, k, false)
 	elseif north and C_Minimap and C_Minimap.GetViewRadius then
 		local radius = C_Minimap.GetViewRadius()
@@ -475,6 +492,7 @@ function O.ApplySettings()
 		if lent then
 			Minimap:SetSize(size, size)
 			ns.Map.SetMapAlpha(Opt().opacity)
+			ns.Map.Nudge()
 		end
 	end
 end

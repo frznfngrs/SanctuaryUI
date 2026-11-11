@@ -586,6 +586,19 @@ function ns.MapProbe.Check()
 	end
 	Family(MinimapCluster, "cluster", 2)
 	Out("MinimapBackdrop: %s", Describe(MinimapBackdrop))
+	-- The queue eye: which frame it is on this client, and where it hangs.
+	for _, name in ipairs({ "QueueStatusButton", "MiniMapLFGFrame", "LFGMinimapFrame", "MiniMapBattlefieldFrame", "QueueStatusFrame" }) do
+		local frame = _G[name]
+		if frame then
+			Out("%s: %s", name, Describe(frame))
+			for i = 1, frame:GetNumPoints() do
+				local point, rel, relPoint, x, y = frame:GetPoint(i)
+				Out("  point %d: %s to %s %s, %s, %s", i, tostring(point), tostring(rel and (rel:GetName() or "unnamed")), tostring(relPoint), V(x), V(y))
+			end
+		else
+			Out("%s: missing", name)
+		end
+	end
 	local n = 0
 	for _, child in ipairs({ Minimap:GetChildren() }) do
 		local name = child:GetName()

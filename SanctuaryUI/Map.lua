@@ -60,13 +60,20 @@ local function AnchorMinimap()
 	placing = false
 end
 
--- Zoom one step and back: makes the game draw the map afresh. See Map.UpdateAlpha for why.
+-- Zoom one step and back: makes the game draw the map afresh. Needed after the map changes
+-- size (without it the enlarged overlay showed blips on no terrain) and after its opacity is
+-- raised in a city (Map.UpdateAlpha). Only ever with the opacity already right for the
+-- place: a redraw at less than full opacity is what blacks out a city's floor plan.
 local function Nudge()
+	if Map.nudging then return end
+	Map.nudging = true -- the zoom event this fires must not start another, or move the zoom
 	local zoom = Minimap:GetZoom()
 	local top = (Minimap.GetZoomLevels and Minimap:GetZoomLevels() or 6) - 1
 	Minimap:SetZoom(zoom > 0 and zoom - 1 or math.min(top, zoom + 1))
 	Minimap:SetZoom(zoom)
+	Map.nudging = nil
 end
+Map.Nudge = Nudge
 
 local function TakeOver()
 	if taken or not Minimap or not MinimapCluster then return false end
@@ -147,7 +154,7 @@ local function MakeSocket(key, cell, tip)
 		self.glyph:SetSize(size * 0.7, size * 0.7)
 	end
 	b:Resize(SOCKET)
-	P.SetCell(b.glyph, cell)
+	if cell then P.SetCell(b.glyph, cell) else b.glyph:Hide() end
 	b.glyph:SetVertexColor(0.84, 0.75, 0.54)
 	-- lit: the glyph in bright gold, for a socket with something waiting (mail).
 	function b:Tint(hover)
@@ -367,6 +374,7 @@ local function Build()
 			GameTimeFrame:Click()
 		end
 	end)
+	MakeSocket("queue") -- the game's queue eye sits in it: see SeatQueue
 	local more = MakeSocket("more", "more", function(tip)
 		tip:AddLine("Addon buttons", 1, 0.82, 0.4)
 	end)
@@ -429,6 +437,94 @@ local function ButtonAlign(b, style)
 	return style == "parchment" and "end" or "center"
 end
 
+-- The game's queue button (the eye, while you are queued for a battleground or a dungeon). It
+-- normally sits on Blizzard's micro menu; with that hidden it is left floating in the middle
+-- of the screen. It gets a seat among the minimap's buttons, and goes back where the game had
+-- it when that seat is turned off.
+local queue = {}
+
+-- Which frame that is differs between clients. Once one is seated it stays the one; until
+-- then, whichever is showing wins.
+local QUEUE_NAMES = { "QueueStatusButton", "MiniMapLFGFrame", "LFGMinimapFrame", "MiniMapBattlefieldFrame" }
+
+local function QueueButton()
+	if queue.button then return queue.button end
+	local first
+	for _, name in ipairs(QUEUE_NAMES) do
+		local frame = _G[name]
+		if frame and frame.IsShown then
+			first = first or frame
+			if frame:IsShown() then return frame end
+		end
+	end
+	return first
+end
+
+local function QueueWanted()
+	local b = Opt().buttons
+	return taken and b.queue and b.show ~= "never" and Style() ~= "blizzard"
+end
+
+local function QueueShowing()
+	local button = queue.seated and QueueButton()
+	return button and button:IsShown() and true or false
+end
+
+local function CentreQueue()
+	local button, seat = QueueButton(), sockets.queue
+	placing = true
+	local w = button:GetWidth()
+	button:SetScale((w and w > 0) and (seat:GetWidth() * 1.15 / w) or 1)
+	button:ClearAllPoints()
+	button:SetPoint("CENTER", seat, "CENTER")
+	placing = false
+end
+
+local function SeatQueue()
+	local button = QueueButton()
+	if not button or not sockets or not sockets.queue then return end
+	-- A different one has come up than the one first found (nothing was queued at login).
+	if queue.seated and queue.home and queue.homeOf ~= button then return end
+	if QueueWanted() then
+		if not queue.seated then
+			if queue.homeOf ~= button then queue.home, queue.homeOf, queue.hooked = nil, button, nil end
+			if InCombatLockdown() and button.IsProtected and button:IsProtected() then return end
+			queue.home = queue.home or { parent = button:GetParent(), scale = button:GetScale(), strata = button:GetFrameStrata(), points = {} }
+			if #queue.home.points == 0 then
+				for i = 1, button:GetNumPoints() do queue.home.points[i] = { button:GetPoint(i) } end
+			end
+			queue.seated = true
+			queue.button = button
+			button:SetParent(sockets.queue)
+			button:SetFrameLevel(sockets.queue:GetFrameLevel() + 2)
+			if not queue.hooked then
+				queue.hooked = true
+				hooksecurefunc(button, "SetPoint", function()
+					if queue.seated and not placing then CentreQueue() end
+				end)
+				-- The bar makes room for it, and closes up after it.
+				local function Relayout()
+					C_Timer.After(0, function() if queue.seated and taken then Map.Layout() end end)
+				end
+				button:HookScript("OnShow", Relayout)
+				button:HookScript("OnHide", Relayout)
+			end
+		end
+		CentreQueue()
+	elseif queue.seated then
+		queue.seated = nil
+		queue.button = nil
+		local home = queue.home
+		placing = true
+		button:SetParent(home.parent)
+		button:SetFrameStrata(home.strata)
+		button:SetScale(home.scale)
+		button:ClearAllPoints()
+		for _, p in ipairs(home.points) do button:SetPoint(unpack(p)) end
+		placing = false
+	end
+end
+
 -- The buttons that are on right now, in order.
 local function ShownSockets()
 	local opt = Opt()
@@ -439,9 +535,10 @@ local function ShownSockets()
 		mail = on and b.mail and HasMail(),
 		track = on and b.tracking and sockets.track.blizzard ~= nil,
 		calendar = on and b.calendar,
+		queue = QueueShowing(),
 		more = on and opt.drawer and (drawer.count or 0) > 0,
 	}
-	for _, key in ipairs({ "mail", "track", "calendar", "more" }) do
+	for _, key in ipairs({ "mail", "track", "calendar", "queue", "more" }) do
 		local socket = sockets[key]
 		socket:SetShown(want[key] and true or false)
 		if want[key] then list[#list + 1] = socket end
@@ -466,6 +563,7 @@ local function FillBar(list, vertical)
 	end
 	local w, h = vertical and size or math.max(long, 1), vertical and math.max(long, 1) or size
 	bar:SetSize(w, h)
+	if queue.seated then CentreQueue() end -- at the size just set
 	sockets.mail.lit = HasMail()
 	sockets.mail:Tint(false)
 	return w, h
@@ -509,6 +607,7 @@ function Map.Layout()
 	end
 
 	-- The buttons
+	SeatQueue()
 	local list = ShownSockets()
 	local side = b.side
 	local vertical = side == "left" or side == "right" or (side == "free" and b.vertical)
@@ -620,7 +719,8 @@ function Map.Layout()
 		local mask = MaskFor(style)
 		local set = Map.applied or {}
 		Map.applied = set
-		if set.size ~= size then
+		local resized = set.size ~= size
+		if resized then
 			set.size = size
 			Minimap:SetSize(size, size)
 		end
@@ -630,6 +730,7 @@ function Map.Layout()
 		end
 		Map.UpdateAlpha()
 		AnchorMinimap()
+		if resized then Nudge() end -- after the opacity is right for this place
 	end
 	-- A font string keeps its old alignment until its text changes.
 	zone:SetText("")
@@ -669,11 +770,7 @@ function Map.SetMapAlpha(wanted)
 	local was = Minimap:GetAlpha()
 	if math.abs(was - alpha) < 0.001 then return end
 	Minimap:SetAlpha(alpha)
-	if alpha == 1 and not Map.nudging then
-		Map.nudging = true -- the nudge fires the zoom event that brings us back here
-		Nudge()
-		Map.nudging = nil
-	end
+	if alpha == 1 then Nudge() end
 end
 
 function Map.UpdateAlpha()
@@ -915,7 +1012,7 @@ local function OnUpdate(self, elapsed)
 	if self.hoverWait >= 0.1 then
 		self.hoverWait = 0
 		local hide = Opt().buttons.show == "hover" and ns.DB().locked
-			and not (holder:IsMouseOver() or bar:IsMouseOver() or drawer:IsShown())
+			and not (holder:IsMouseOver() or bar:IsMouseOver() or drawer:IsShown() or QueueShowing())
 		local alpha = bar:GetAlpha()
 		local want = hide and 0 or 1
 		if alpha ~= want then

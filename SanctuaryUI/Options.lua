@@ -1022,6 +1022,7 @@ local function MapArgs()
 				mail = Third(ButtonField({ type = "toggle", order = 2, name = "Mail", desc = "Only while you have mail waiting." }, "mail", noButtons)),
 				tracking = Third(ButtonField({ type = "toggle", order = 3, name = "Tracking", desc = "Opens the game's tracking menu." }, "tracking", noButtons)),
 				calendar = Third(ButtonField({ type = "toggle", order = 4, name = "Calendar", desc = "Click for the calendar, right-click for the stopwatch and alarm." }, "calendar", noButtons)),
+				queue = Third(ButtonField({ type = "toggle", order = 4.5, name = "Queue eye", desc = "While you are queued for a battleground or a dungeon, the game's queue eye sits here: hover it for the wait, click it to leave or enter. It stays in view even when the buttons show on mouseover. Off, it goes back where the game puts it." }, "queue", noButtons)),
 				drawer = Width({
 					type = "toggle", order = 5, name = "Gather addon buttons", disabled = off,
 					desc = "Other addons' minimap buttons leave the map's rim for one button that opens on hover. Turning this off needs a reload to put them back.",

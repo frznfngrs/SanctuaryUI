@@ -369,6 +369,7 @@ ns.DEFAULTS = {
 				mail = true,
 				tracking = true,
 				calendar = true,
+				queue = true, -- the game's queue eye, while you are queued
 				moved = false,
 				mx = 0,
 				my = 0,
