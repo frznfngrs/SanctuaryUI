@@ -800,12 +800,6 @@ function ns.ActionBar.Layout()
 	if ns.Menu and ns.Menu.Layout then
 		ns.Menu.Layout(metrics, base)
 	end
-	if ns.LeaveButton then
-		ns.LeaveButton:SetSize(28, 28)
-		ns.LeaveButton:ClearAllPoints()
-		ns.LeaveButton:SetPoint("CENTER", cluster, "BOTTOM", metrics.resource.x + metrics.resource.size * 0.72, base + metrics.resource.y)
-	end
-
 	local petSize, petGap = 28, 4
 	local petWidth = PETS * petSize + (PETS - 1) * petGap
 	local petLeft = -petWidth / 2 + petSize / 2
@@ -820,6 +814,21 @@ function ns.ActionBar.Layout()
 		ns.ExtraActionHost:SetSize(68, 68)
 		ns.ExtraActionHost:ClearAllPoints()
 		ns.ExtraActionHost:SetPoint("CENTER", cluster, "BOTTOM", 0, extraY + petSize + 46)
+	end
+	-- The vehicle exit and flight path stop sit just right of the extra action button, above
+	-- the rows, where they can't be missed (beside the resource globe they hid on the statue),
+	-- or wherever they were dragged.
+	if ns.LeaveButton then
+		local opt = ns.DB().leaveButton
+		local size = opt.size
+		local leave = ns.LeaveButton
+		leave:SetSize(size, size)
+		leave:ClearAllPoints()
+		if opt.moved then
+			leave:SetPoint("CENTER", UIParent, "BOTTOMLEFT", ns.MovedPoint(leave, opt))
+		else
+			leave:SetPoint("CENTER", cluster, "BOTTOM", 68 / 2 + 10 + size / 2, extraY + petSize + 46)
+		end
 	end
 end
 
@@ -1214,6 +1223,15 @@ function ns.MakeMover(anchor, label, opt, hint, parent)
 	return mover
 end
 
+-- The vehicle exit / flight path stop button: options for its preview and position.
+ns.ExitButton = ns.ExitButton or {}
+
+function ns.ExitButton.ResetPosition()
+	local opt = ns.DB().leaveButton
+	opt.moved, opt.mx, opt.my = false, 0, 0
+	ns.Refresh()
+end
+
 local function MakeMover(n, row)
 	return ns.MakeMover(row.anchor, "Bar " .. n, function() return ns.DB().rows[n] end, "Reset its position in /sanctuary > Bars 2-9.")
 end
@@ -1435,6 +1453,9 @@ function ns.ActionBar.UpdateMovers(hide)
 	end
 	if ns.Stance and ns.Stance.mover then
 		ns.Stance.mover:SetShown(unlocked and ns.Stance.HasForms())
+	end
+	if ns.LeaveMover then
+		ns.LeaveMover:SetShown(unlocked)
 	end
 	if ns.Totem and ns.Totem.UpdateMovers then
 		ns.Totem.UpdateMovers(unlocked)
@@ -1900,26 +1921,36 @@ function ns.ActionBar.Init()
 			return
 		end
 		self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-		local onTaxi = UnitOnTaxi("player")
-		if onTaxi and not self:IsShown() then
+		local onTaxi = UnitOnTaxi("player") and true or false
+		local show = onTaxi or ns.ExitButton.preview or false
+		if show == self:IsShown() then return end
+		if show then
 			self.requested = nil
 			self.icon:SetDesaturated(false)
 			self.icon:SetVertexColor(1, 1, 1)
 		end
-		self:SetShown(onTaxi)
+		self:SetShown(show)
+		ns.Log("taxi: %s, stop button shown %s, visible %s, alpha %.2f, size %.0fx%.0f",
+			tostring(onTaxi), tostring(self:IsShown()), tostring(self:IsVisible()),
+			self:GetEffectiveAlpha(), self:GetWidth(), self:GetHeight())
 	end
-	local taxiEvents = CreateFrame("Frame")
-	for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_CONTROL_LOST", "PLAYER_CONTROL_GAINED",
-		"UPDATE_BONUS_ACTIONBAR", "UPDATE_MULTI_CAST_ACTIONBAR", "TAXIMAP_CLOSED" }) do
-		pcall(taxiEvents.RegisterEvent, taxiEvents, event)
-	end
-	taxiEvents:SetScript("OnEvent", function()
-		UpdateTaxi(taxi)
-		-- UnitOnTaxi turns true a moment after the flight starts.
-		C_Timer.After(0.5, function() UpdateTaxi(taxi) end)
-	end)
+	-- UnitOnTaxi turns true some time after the flight starts, and no event says when, so
+	-- check twice a second; it's one cheap call.
 	taxi:SetScript("OnEvent", UpdateTaxi)
+	C_Timer.NewTicker(0.5, function() UpdateTaxi(taxi) end)
 	ns.TaxiButton = taxi
+	ns.LeaveMover = ns.MakeMover(leave, "Exit button", function() return ns.DB().leaveButton end,
+		"Reset its position in /sanctuary > Exit button.", cluster)
+	-- Options' Preview: the stop button shows (clicks do nothing off a flight) so its size and
+	-- place can be judged.
+	function ns.ExitButton.SetPreview(on)
+		if InCombatLockdown() then
+			ns.Print("cannot change the exit button preview in combat")
+			return
+		end
+		ns.ExitButton.preview = on and true or nil
+		UpdateTaxi(taxi)
+	end
 
 	local pets = CreateFrame("Frame", "SanctuaryUIPetBar", cluster, "SecureHandlerStateTemplate")
 	pets:SetAllPoints(cluster)

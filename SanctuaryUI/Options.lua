@@ -1775,6 +1775,21 @@ local function Build()
 					pets = Toggle(1, "Show the pet bar", "Pet actions above the bars when you have a pet.", nil, "pets"),
 				}),
 			}),
+			exit = Page(24.5, "Exit button", {
+				intro = Note(1, "Shows in a vehicle (or while you control something) to leave it, and on a flight path to land at the next flight point."),
+				preview = Width({
+					type = "toggle",
+					order = 2,
+					name = "Preview",
+					desc = "Show the button now, to judge its size and place. Clicking it does nothing off a flight. Turns off when this window closes.",
+					get = function() return ns.ExitButton.preview and true or false end,
+					set = OwningFlag("exit", ns.ExitButton, function(_, value) ns.ExitButton.SetPreview(value) end),
+				}, HALF),
+				size = Card(3, "Size", {
+					size = Range(1, "Button size", nil, "leaveButton", "size", 24, 96, 1),
+				}),
+				place = PositionCard(4, "Above the bars, right of centre, by default. " .. UNLOCK, function() ns.ExitButton.ResetPosition() end, function() return not DB().leaveButton.moved end),
+			}),
 			totems = Page(25, "Totem bar", {
 				intro = Note(1, "One socket per element, shown once you know a totem. A totem that is down lights its socket, and a round sweep runs out its time."),
 				enabled = Toggle(2, "Enabled", nil, "totems", "enabled"),

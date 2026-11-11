@@ -277,6 +277,14 @@ ns.DEFAULTS = {
 			my = 0,
 		},
 
+		-- the vehicle exit / flight path stop button (ActionBar.lua)
+		leaveButton = {
+			size = 40,
+			moved = false,
+			mx = 0,
+			my = 0,
+		},
+
 		-- totem bar: one socket per element (earth, fire, water, air)
 		totems = {
 			enabled = true,
