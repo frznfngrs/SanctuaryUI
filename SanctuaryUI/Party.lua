@@ -320,19 +320,21 @@ local function UpdateHealth(b)
 	end
 
 	-- Incoming heals and shields, as the globes pour them.
-	local amount, shield, clamped = 0, 0, false
+	local amount, shield, clamped, hot = 0, 0, false, 0
 	if pv then
 		amount, shield = (pv.heal or 0) * maxHealth, (pv.absorb or 0) * maxHealth
 	elseif not state and Opt().healPrediction ~= false then
 		amount, shield, clamped = ns.IncomingHeals(unit, health, maxHealth)
+		hot, shield, clamped = ns.IncomingHot(unit, health, maxHealth, amount, shield, clamped)
 	end
 	if v.pool and v.pool.bands then
 		v.pool:SetBand("heal", ns.Or(amount, 0), maxHealth)
+		v.pool:SetBand("hot", hot, maxHealth)
 		v.pool:SetBand("absorb", ns.Or(shield, 0), maxHealth)
 		v.pool:SetShield(clamped)
 	elseif v.heal then
 		local top = ns.Or(maxHealth, 1)
-		for _, pair in ipairs({ { v.heal, amount }, { v.absorb, shield } }) do
+		for _, pair in ipairs({ { v.heal, amount }, { v.hot, hot }, { v.absorb, shield } }) do
 			pcall(pair[1].SetMinMaxValues, pair[1], 0, top)
 			if not pcall(pair[1].SetValue, pair[1], ns.Or(pair[2], 0)) then pair[1]:SetValue(0) end
 		end
@@ -1330,6 +1332,15 @@ function P.Init()
 	for _, event in ipairs(GROUP_EVENTS) do pcall(events.RegisterEvent, events, event) end
 	for event in pairs(UNIT_EVENTS) do pcall(events.RegisterEvent, events, event) end
 	events:SetScript("OnEvent", OnEvent)
+	-- Your cast starting or ending moves the HoT band on whoever it's aimed at.
+	if ns.OnHotChanged then
+		ns.OnHotChanged(function()
+			if not P.Style() then return end
+			for _, b in ipairs(P.all or {}) do
+				if b:IsShown() then UpdateHealth(b) end
+			end
+		end)
+	end
 	events:SetScript("OnUpdate", OnUpdate)
 	P.events = events
 

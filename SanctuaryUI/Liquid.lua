@@ -962,7 +962,8 @@ end
 
 -- Prediction bands, ridden on the fill guide so they follow the animated level:
 --   heal    incoming heals, a pale green liquid poured on top of the level
---   absorb  damage shields, pale silver liquid on top of the heal (what fits in missing
+--   hot     the heal-over-time part of your cast (Regrowth's), a paler green on the heal
+--   absorb  damage shields, pale silver liquid on top of the heals (what fits in missing
 --           health; the rest lights the shield glow, see Pool:SetShield)
 --   cost  the cast's power cost, the top of the liquid lit from the level down to where it
 --         will settle
@@ -972,9 +973,27 @@ end
 -- below. A zero band clips to nothing, edge glow and all.
 local BAND = {
 	heal = { color = { 0.42, 1.0, 0.36 }, alpha = 0.55, edge = 0.75 },
+	hot = { color = { 0.72, 1.0, 0.6 }, alpha = 0.4, edge = 0.6 },
 	absorb = { color = { 0.8, 0.88, 1.0 }, alpha = 0.5, edge = 0.85 },
 	cost = { alpha = 0.32, edge = 0.6 },
 }
+-- Heal, then the HoT, then the shield: each sits on the top of whichever below it the pool has.
+local STACKED = { heal = 1, hot = 2, absorb = 3 }
+local STACK_ORDER = { "heal", "hot", "absorb" }
+
+local function Stack(pool)
+	local below = pool.guide
+	for _, kind in ipairs(STACK_ORDER) do
+		local band = pool.bands[kind]
+		if band then
+			band.bar:ClearAllPoints()
+			band.bar:SetPoint("BOTTOMLEFT", below, "TOPLEFT")
+			band.bar:SetPoint("BOTTOMRIGHT", below, "TOPRIGHT")
+			below = band.bar:GetStatusBarTexture()
+		end
+	end
+end
+
 local BAND_EDGE = 0.07 -- edge glow height, of the globe
 local BAND_BREATHE = 2.2 -- rad/s
 
@@ -991,11 +1010,8 @@ function ns.Liquid.Band(pool, kind)
 	pb:SetStatusBarColor(1, 1, 1, 0)
 	pb:SetMinMaxValues(0, 1)
 	pb:SetValue(0)
-	if kind == "heal" or kind == "absorb" then
-		-- The shield stacks on the heal when there is one.
-		local below = kind == "absorb" and pool.bands.heal and pool.bands.heal.bar:GetStatusBarTexture() or guide
-		pb:SetPoint("BOTTOMLEFT", below, "TOPLEFT")
-		pb:SetPoint("BOTTOMRIGHT", below, "TOPRIGHT")
+	if STACKED[kind] then
+		-- Placed by Stack, once the band is made.
 	else
 		-- Fills down from the level.
 		pb:SetReverseFill(true)
@@ -1042,6 +1058,7 @@ function ns.Liquid.Band(pool, kind)
 
 	local band = { kind = kind, bar = pb, clip = clip, frame = frame, tex = tex, edge = edge, spec = spec, vel = 0 }
 	pool.bands[kind] = band
+	if STACKED[kind] then Stack(pool) end
 	pool:SizeBands()
 	pool:SetColor(unpack(pool.color))
 	return band

@@ -279,6 +279,7 @@ local function FitBars(plate, w, h)
 	plate.barW, plate.barH = w, h
 	if plate.HealBand then
 		plate.HealBand:SetWidth(w)
+		plate.HotBand:SetWidth(w)
 		plate.AbsorbBand:SetWidth(w)
 	end
 	if plate.edgeGlow then
@@ -772,9 +773,9 @@ end
 local PREVIEW_HEAL, PREVIEW_ABSORB = 0.12, 0.08
 
 local function SetPrediction(plate, health, maxHealth)
-	local heal, absorb = plate.HealBand, plate.AbsorbBand
+	local heal, hotBand, absorb = plate.HealBand, plate.HotBand, plate.AbsorbBand
 	if not heal then return end
-	local amount, shield, clamped = 0, 0, false
+	local amount, shield, clamped, hot = 0, 0, false, 0
 	if Opt().healPrediction ~= false then
 		if Previewing() then
 			-- The stand-in's falling health, with a heal on the way and a shield on top.
@@ -785,12 +786,15 @@ local function SetPrediction(plate, health, maxHealth)
 			maxHealth = 1
 		else
 			amount, shield, clamped = ns.IncomingHeals(U(), health, maxHealth)
+			hot, shield, clamped = ns.IncomingHot(U(), health, maxHealth, amount, shield, clamped)
 		end
 	end
 	local top = ns.Or(maxHealth, 1)
 	pcall(heal.SetMinMaxValues, heal, 0, top)
+	pcall(hotBand.SetMinMaxValues, hotBand, 0, top)
 	pcall(absorb.SetMinMaxValues, absorb, 0, top)
 	SecretValue(heal, ns.Or(amount, 0), Ease())
+	SecretValue(hotBand, hot, Ease())
 	SecretValue(absorb, ns.Or(shield, 0), Ease())
 	local glow = plate.OverShield
 	if Secret(clamped) then
@@ -2396,7 +2400,8 @@ function M.Init()
 	end
 	-- The globes' colours: green heal, silver shield.
 	plate.HealBand = Band(plate.Health:GetStatusBarTexture(), 0.42, 1.0, 0.36, 0.6)
-	plate.AbsorbBand = Band(plate.HealBand:GetStatusBarTexture(), 0.8, 0.88, 1.0, 0.6)
+	plate.HotBand = Band(plate.HealBand:GetStatusBarTexture(), 0.72, 1.0, 0.6, 0.45) -- your HoT
+	plate.AbsorbBand = Band(plate.HotBand:GetStatusBarTexture(), 0.8, 0.88, 1.0, 0.6)
 	local over = predict:CreateTexture(nil, "OVERLAY")
 	over:SetTexture("Interface\\RaidFrame\\Shield-Overshield")
 	over:SetBlendMode("ADD")
@@ -2706,6 +2711,15 @@ function M.Init()
 			if event == "PLAYER_ENTERING_WORLD" then ConfigureWithoutTarget() end
 		end
 	end)
+
+	-- Your cast starting or ending moves the HoT band.
+	if ns.OnHotChanged then
+		ns.OnHotChanged(function()
+			if plate:IsShown() and UnitExists(U()) then
+				SetPrediction(plate, UnitHealth(U()), UnitHealthMax(U()))
+			end
+		end)
+	end
 
 	plate:Hide()
 	M.Layout()

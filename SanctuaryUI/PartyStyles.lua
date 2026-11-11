@@ -9,7 +9,7 @@ local S = ns.PartyStyles
 --   view.root            everything drawn, a child of the button (shown for the active style)
 --   view.health          the health StatusBar (vertical in a globe, horizontal in a groove)
 --   view.pool            its Liquid pool (globes), or nil
---   view.heal/.absorb    prediction StatusBars riding the fill (slab; globes use pool bands)
+--   view.heal/.hot/.absorb prediction StatusBars riding the fill (slab; globes use pool bands)
 --   view.overShield      a glow for "more shield than room"
 --   view.power           the resource StatusBar, or nil (pets)
 --   view.name, .pct, .status   font strings (some nil)
@@ -192,6 +192,7 @@ local function MiniGlobe(view, parent, d, zoom)
 	view.pool = ns.Liquid and ns.Liquid.Attach(globe, bar, { zoom = zoom, slices = 6, motes = 0, ghost = true })
 	if view.pool then
 		ns.Liquid.Band(view.pool, "heal")
+		ns.Liquid.Band(view.pool, "hot")
 		ns.Liquid.Band(view.pool, "absorb")
 		ns.Liquid.Shield(view.pool)
 	else
@@ -449,8 +450,10 @@ function S.BuildSlab(button, isPet)
 	view.health = health
 	view.liquid = GrooveLiquid(health, h[3], h[4])
 	view.heal = Band(health, health:GetStatusBarTexture(), 0.42, 1.0, 0.36, 0.6)
-	view.absorb = Band(health, view.heal:GetStatusBarTexture(), 0.8, 0.88, 1.0, 0.6)
+	view.hot = Band(health, view.heal:GetStatusBarTexture(), 0.72, 1.0, 0.6, 0.45)
+	view.absorb = Band(health, view.hot:GetStatusBarTexture(), 0.8, 0.88, 1.0, 0.6)
 	view.heal:SetWidth(h[3])
+	view.hot:SetWidth(h[3])
 	view.absorb:SetWidth(h[3])
 	-- The bands may run past the groove's end; clip them to it.
 	if health.SetClipsChildren then health:SetClipsChildren(true) end
@@ -526,6 +529,7 @@ function S.BuildSlab(button, isPet)
 		health:SetFrameLevel(base + 1)
 		if view.liquid then view.liquid.clip:SetFrameLevel(base + 2) end
 		view.heal:SetFrameLevel(base + 2)
+		view.hot:SetFrameLevel(base + 2)
 		view.absorb:SetFrameLevel(base + 2)
 		if view.power then view.power:SetFrameLevel(base + 1) end
 		art:SetFrameLevel(base + 5)
@@ -602,8 +606,10 @@ local function StyledHealth(view, root, x, y, w, h, well)
 	view.health = health
 	view.liquid = GrooveLiquid(health, w, h)
 	view.heal = Band(health, health:GetStatusBarTexture(), 0.42, 1.0, 0.36, 0.6)
-	view.absorb = Band(health, view.heal:GetStatusBarTexture(), 0.8, 0.88, 1.0, 0.6)
+	view.hot = Band(health, view.heal:GetStatusBarTexture(), 0.72, 1.0, 0.6, 0.45)
+	view.absorb = Band(health, view.hot:GetStatusBarTexture(), 0.8, 0.88, 1.0, 0.6)
 	view.heal:SetWidth(w)
+	view.hot:SetWidth(w)
 	view.absorb:SetWidth(w)
 	if health.SetClipsChildren then health:SetClipsChildren(true) end
 	local over = Tex(health, "OVERLAY", 2)
@@ -701,6 +707,7 @@ local function StyledLevels(view, parts)
 		if view.model then view.model:SetFrameLevel(base + 3) end
 		if view.liquid then view.liquid.clip:SetFrameLevel(base + 3) end
 		view.heal:SetFrameLevel(base + 3)
+		view.hot:SetFrameLevel(base + 3)
 		view.absorb:SetFrameLevel(base + 3)
 		if parts.over then parts.over:SetFrameLevel(base + 4) end
 		if parts.frameBox then parts.frameBox:SetFrameLevel(base + 4) end

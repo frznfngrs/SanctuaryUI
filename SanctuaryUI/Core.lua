@@ -63,6 +63,101 @@ function ns.IncomingHeals(unit, health, maxHealth)
 	return amount, absorb, clamped
 end
 
+-- The heal-over-time part of a heal you're casting (Regrowth: "Heals a friendly target for 93
+-- to 107 and another 98 over 21 sec."). The client predicts only the direct heal, so this is
+-- the rest, from the spell's text (English clients). Ticks yet to come from HoTs already up
+-- are not counted: their auras say neither the amount nor how much is left.
+local castHot = {} -- spellID -> HoT total, or false for none
+local sentTarget -- the target name UNIT_SPELLCAST_SENT gave the cast going now (nil: hidden)
+local GetDescriptionText = (C_Spell and C_Spell.GetSpellDescription) or GetSpellDescription
+
+local function HotTotal(spellID)
+	local known = castHot[spellID]
+	if known ~= nil then return known end
+	if not GetDescriptionText then return false end
+	local ok, text = pcall(GetDescriptionText, spellID)
+	-- The text can come back empty before the spell's data has loaded: don't remember that.
+	if not ok or ns.Secret(text) or type(text) ~= "string" or text == "" then return false end
+	local amount = text:lower():match("another (%d[%d,]*) over %d")
+	amount = amount and tonumber((amount:gsub(",", ""))) or false
+	castHot[spellID] = amount
+	return amount
+end
+
+-- The spell you're casting, if it has a HoT part: its total.
+local function CastingHot()
+	if not UnitCastingInfo then return end
+	local ok, spellID = pcall(function() return select(9, UnitCastingInfo("player")) end)
+	if not ok or spellID == nil or ns.Secret(spellID) then return end
+	return HotTotal(spellID) or nil
+end
+
+-- Is your cast landing on unit? The client's own prediction from you says so; hidden (in
+-- combat), the name the cast was sent at.
+local function CastAt(unit)
+	if UnitGetIncomingHeals then
+		local ok, mine = pcall(UnitGetIncomingHeals, unit, "player")
+		if ok and not ns.Secret(mine) then return (mine or 0) > 0 end
+	end
+	if not sentTarget or not UnitName then return false end
+	local ok, name = pcall(UnitName, unit)
+	if not ok or name == nil or ns.Secret(name) then return false end
+	return name == sentTarget or name == sentTarget:match("^([^%-]+)")
+end
+
+-- The HoT still to come on unit from your cast, fitted (when readable) into the missing health
+-- left after the heals; the shield, which the client fitted in before the HoT, gives it room.
+-- Takes and returns IncomingHeals' heal, shield and clamped; the HoT comes back readable, 0
+-- when there is none.
+function ns.IncomingHot(unit, health, maxHealth, heal, absorb, clamped)
+	local hot = CastingHot()
+	if not hot or hot <= 0 or not CastAt(unit) then return 0, absorb, clamped end
+	if health and maxHealth and heal and not (ns.Secret(health) or ns.Secret(maxHealth) or ns.Secret(heal)) then
+		local room = math.max(0, maxHealth - health - heal)
+		hot = math.min(hot, room)
+		if absorb and not ns.Secret(absorb) and absorb > room - hot then
+			absorb, clamped = math.max(0, room - hot), true
+		end
+	end
+	return hot, absorb, clamped
+end
+
+-- Frames showing heal prediction register here to be redrawn when your cast starts or ends:
+-- the client's prediction event can come before the cast info that says a HoT is on its way.
+local hotWatchers = {}
+function ns.OnHotChanged(fn)
+	hotWatchers[#hotWatchers + 1] = fn
+end
+
+do
+	local queued = false
+	local function Redraw()
+		queued = false
+		for i = 1, #hotWatchers do pcall(hotWatchers[i]) end
+	end
+	local events = CreateFrame("Frame")
+	for _, event in ipairs({ "UNIT_SPELLCAST_SENT", "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP",
+		"UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_INTERRUPTED" }) do
+		pcall(events.RegisterUnitEvent, events, event, "player")
+	end
+	pcall(events.RegisterEvent, events, "SPELLS_CHANGED")
+	events:SetScript("OnEvent", function(_, event, _, target)
+		if event == "UNIT_SPELLCAST_SENT" then
+			-- unit, target, castGUID, spellID
+			sentTarget = (target ~= nil and not ns.Secret(target) and target ~= "") and target or nil
+			return
+		elseif event == "SPELLS_CHANGED" then
+			wipe(castHot) -- new ranks and talents change the numbers
+			return
+		end
+		-- Next frame, once the cast info has settled; one redraw for a burst of events.
+		if not queued and C_Timer then
+			queued = true
+			C_Timer.After(0, Redraw)
+		end
+	end)
+end
+
 -- `value or default` that is safe on secrets: a secret comes back as is (for widgets to take).
 function ns.Or(value, default)
 	if ns.Secret(value) then return value end

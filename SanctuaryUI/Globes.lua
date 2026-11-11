@@ -663,24 +663,27 @@ function ns.Globes.UpdateHealPrediction(health, maxHealth)
 	if not pool or not pool.bands then return end
 	local db = ns.DB()
 	local demo = ns.Globes.demo
-	local heal, absorb, clamped
+	local heal, absorb, clamped, hot = nil, nil, nil, 0
 	if demo then
 		-- Same clamping as the client: heal into missing health, then the shield into the rest.
 		maxHealth = 1000
 		local missing = maxHealth - math.floor((ns.Globes.healthPreview or 1) * maxHealth + 0.5)
 		heal = math.min(demo.heal * maxHealth, missing)
-		absorb = math.min(demo.absorb * maxHealth, missing - heal)
-		clamped = demo.absorb * maxHealth > missing - heal
+		hot = math.min((demo.hot or 0) * maxHealth, missing - heal)
+		absorb = math.min(demo.absorb * maxHealth, missing - heal - hot)
+		clamped = demo.absorb * maxHealth > missing - heal - hot
 	elseif ns.Globes.healthPreview then
 		heal, absorb, clamped = 0, 0, false
 	else
 		health = health or UnitHealth("player")
 		maxHealth = maxHealth or UnitHealthMax("player")
 		heal, absorb, clamped = ns.IncomingHeals("player", health, maxHealth)
+		hot, absorb, clamped = ns.IncomingHot("player", health, maxHealth, heal, absorb, clamped)
 	end
-	if not db.healPrediction and not demo then heal = 0 end
+	if not db.healPrediction and not demo then heal, hot = 0, 0 end
 	if not db.absorbPrediction and not demo then absorb, clamped = 0, false end
 	pool:SetBand("heal", heal, maxHealth)
+	pool:SetBand("hot", hot, maxHealth)
 	pool:SetBand("absorb", absorb, maxHealth)
 	pool:SetShield(clamped)
 end
@@ -754,22 +757,22 @@ local function Power()
 	return UnitPower("player"), UnitPowerMax("player")
 end
 
--- /sanctuary predict: a heal on its way, a shield and a spell being cast, on preview levels;
--- then the heal and cast land, then health tops up so the shield overflows into its glow,
--- then the globes go back to your real values. Each run replaces the last.
+-- /sanctuary predict: a heal on its way (with a HoT part), a shield and a spell being cast, on
+-- preview levels; then the heal and cast land, then health tops up so the shield overflows into
+-- its glow, then the globes go back to your real values. Each run replaces the last.
 function ns.Globes.PredictDemo()
 	local G = ns.Globes
 	local run = {}
 	G.demoRun = run
-	local function Step(heal, absorb, cost, health, power)
+	local function Step(heal, absorb, cost, health, power, hot)
 		if G.demoRun ~= run then return end
-		G.demo = heal and { heal = heal, absorb = absorb, cost = cost } or nil
+		G.demo = heal and { heal = heal, absorb = absorb, cost = cost, hot = hot } or nil
 		G.healthPreview, G.powerPreview = health, power
 		G.UpdateHealth()
 		G.UpdatePower()
 	end
-	-- 40% health, 30% incoming and a 15% shield; 80% resource, a 25% cast.
-	Step(0.3, 0.15, 0.25, 0.4, 0.8)
+	-- 40% health, 30% incoming with 10% more over time and a 15% shield; 80% resource, a 25% cast.
+	Step(0.3, 0.15, 0.25, 0.4, 0.8, 0.1)
 	C_Timer.After(2.5, function() Step(0, 0.15, 0, 0.7, 0.55) end) -- heal and cast land
 	C_Timer.After(5, function() Step(0, 0.15, 0, 1, 0.55) end) -- topped up: the shield overflows
 	C_Timer.After(8, function() Step(nil, nil, nil, nil, nil) end)
@@ -1071,7 +1074,8 @@ function ns.Globes.Init()
 		end
 		-- Incoming heals on the health globe, the cast's cost on the resource globe.
 		ns.Liquid.Band(ns.HealthGlobe.pool, "heal")
-		ns.Liquid.Band(ns.HealthGlobe.pool, "absorb") -- after heal: it stacks on it
+		ns.Liquid.Band(ns.HealthGlobe.pool, "hot")
+		ns.Liquid.Band(ns.HealthGlobe.pool, "absorb")
 		ns.Liquid.Shield(ns.HealthGlobe.pool)
 		ns.Liquid.Band(ns.ResourceGlobe.pool, "cost")
 		for _, half in pairs(ns.ResourceGlobe.Halves) do
@@ -1131,6 +1135,7 @@ function ns.Globes.Init()
 			ns.Globes.UpdatePower()
 		end
 	end)
+	if ns.OnHotChanged then ns.OnHotChanged(function() ns.Globes.UpdateHealPrediction() end) end
 	ns.Globes.SetCombat(UnitAffectingCombat and UnitAffectingCombat("player") or false)
 	ns.Globes.UpdateHealth()
 	ns.Globes.UpdatePower()
