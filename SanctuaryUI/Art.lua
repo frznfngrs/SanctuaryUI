@@ -37,6 +37,15 @@ ns.Art.slots = {
 	targetStyleSlab = { file = "target-style-slab.png", lazy = true }, -- the party Slab at target size (tools/blender/target_slab.py)
 	targetStyleParts = { file = "target-style-parts.png", lazy = true },
 	pipSockets = { file = "pip-sockets.png" },
+	-- The minimap (Map.lua, MapPins.lua, MapOverlay.lua; tools/build_minimap_art.py): lazy, so
+	-- a style that is off never loads its art.
+	mapRing = { file = "map-ring.png", lazy = true },
+	mapParchment = { file = "map-parchment.png", lazy = true },
+	mapMaskTorn = { file = "map-mask-torn.png", lazy = true },
+	mapMaskFade = { file = "map-mask-fade.png", lazy = true },
+	mapMaskRound = { file = "map-mask-round.png", lazy = true },
+	mapPins = { file = "map-pins.png", lazy = true },
+	mapPlaque = { file = "map-plaque.png", lazy = true },
 	liquidShimmer = { file = "liquid-shimmer.png" },
 	bagCells = { file = "bag-cells.png" },
 	d3Button = { file = "d3-button.png" },

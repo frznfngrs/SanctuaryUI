@@ -686,7 +686,7 @@ local function Slash(msg)
 			ns.Options.Open()
 		end
 	elseif cmd == "help" then
-		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n> (bars), globes <n>|match, bar 2-9 on|off, bind, pie [1-6] (pie menus), trinkets, swing (preview the swing timer), minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, meter [analysis|glory|awards|test|reset|probe] (damage meter), proc (preview the proc highlight), aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), debug on|off, log, report [on|off], request (suggest a feature)")
+		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n> (bars), globes <n>|match, bar 2-9 on|off, bind, pie [1-6] (pie menus), trinkets, swing (preview the swing timer), minimap, ring (preview the ally ring), map (overlay map; probe|peek for what the client allows), test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, meter [analysis|glory|awards|test|reset|probe] (damage meter), proc (preview the proc highlight), aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), debug on|off, log, report [on|off], request (suggest a feature)")
 	elseif cmd == "grid" then
 		-- grid: toggle; grid on|off; grid <spacing>. The grid only shows while frames are
 		-- unlocked, so showing it unlocks them.
@@ -826,6 +826,21 @@ local function Slash(msg)
 	elseif cmd == "minimap" then
 		if ns.Minimap then
 			ns.Minimap.SetShown(ns.db.global.minimap.hide)
+		end
+	elseif cmd == "ring" then
+		-- The ally ring with four stand-ins, to place and size it without a group.
+		ns.AllyRing.SetPreview(not ns.AllyRing.preview)
+		ns.Print(ns.AllyRing.preview and "ally ring preview on (/sanctuary ring again to turn off)" or "ally ring preview off")
+	elseif cmd == "map" then
+		-- What the client lets us read about positions, map art and hidden messages (MapProbe.lua).
+		local sub = rest:lower()
+		if sub == "probe" or sub == "peek" or sub == "check" then
+			local ok, err = pcall(sub == "peek" and ns.MapProbe.Peek or sub == "check" and ns.MapProbe.Check or ns.MapProbe.Run)
+			if not ok then ns.Print("map probe failed: " .. tostring(err)) end
+		elseif ns.DB().map.overlay.enabled then
+			ns.MapOverlay.Toggle()
+		else
+			ns.Print("the overlay map is turned off in /sanctuary > Overlay map")
 		end
 	elseif cmd == "test" then
 		if ns.Totem and ns.Totem.SetPreview then
@@ -1048,6 +1063,8 @@ loader:SetScript("OnEvent", function(_, event)
 		Safe("meter history", ns.MeterHistory and ns.MeterHistory.Init)
 		Safe("meter glory", ns.MeterGlory and ns.MeterGlory.Init)
 		Safe("pie menus", ns.Pie and ns.Pie.Init)
+		Safe("map", ns.Map and ns.Map.Init)
+		Safe("ally ring", ns.AllyRing and ns.AllyRing.Init)
 		Safe("auras", ns.Auras and ns.Auras.Init)
 		Safe("target plate", ns.TargetPlate and ns.TargetPlate.Init)
 		Safe("focus plate", ns.FocusPlate and ns.FocusPlate.Init)

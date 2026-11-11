@@ -48,6 +48,11 @@ MeterHistory.lua
 MeterGlory.lua
 MeterAnalysis.lua
 MeterProbe.lua
+MapProbe.lua
+MapPins.lua
+Map.lua
+MapOverlay.lua
+AllyRing.lua
 PieMenu.lua
 Auras.lua
 TargetPlate.lua

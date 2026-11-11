@@ -931,6 +931,136 @@ local VISIBILITY = {
 
 -- "Page 6", or "Page 6 (bar 3)" while something else shows it. Bar n itself doesn't count.
 -- Damage meter (Meter.lua)
+-- The minimap (Map.lua) and the overlay map (MapOverlay.lua)
+local function MapArgs()
+	local function off() return DB().map.style == "blizzard" end
+	local function noMarkers() return off() or not DB().map.markers end
+	return {
+		intro = Note(1, "The game's own minimap in a SanctuaryUI setting, with markers on its rim for what lies off the map. Inside a dungeon the game hides positions from addons, so the markers and the trail rest there. Scroll the mouse wheel over the map to zoom."),
+		style = Width(Select(2, "Style", "Parchment: Diablo III's torn sheet, a little see-through. Scrying globe: the map under glass in a forged ring. Borderless: no frame, the map's edge fades into the world. Blizzard's: the game's minimap, untouched (changing to it needs a reload).", "map", "style", {
+			parchment = "Parchment",
+			globe = "Scrying globe",
+			fade = "Borderless",
+			blizzard = "Blizzard's own",
+		}, { "parchment", "globe", "fade", "blizzard" }), HALF),
+		look = Card(3, "Size", {
+			size = Range(1, "Map size", nil, "map", "size", 120, 360, 2),
+			scale = Range(2, "Scale", "Scales the map with its name, sockets and markers.", "map", "scale", 0.5, 2, 0.05, true),
+			opacity = Range(3, "Map opacity", "How solid the map itself is. Lower, and the world shows through it. Inside buildings and in cities built as interiors (Ironforge, Stormwind's districts) the map is always solid: the game can only draw a floor plan that way.", "map", "opacity", 0.3, 1, 0.01, true),
+		}, { disabled = off }),
+		around = Card(4, "Around the map", {
+			zone = Toggle(1, "Place name", nil, "map", "zone"),
+			clock = Toggle(2, "Time", nil, "map", "clock"),
+			sockets = Toggle(3, "Sockets", "Mail (while you have some), tracking and the calendar. The Borderless style keeps them out of sight until the mouse is over the map.", "map", "sockets"),
+			drawer = Toggle(4, "Gather addon buttons", "Other addons' minimap buttons leave the map's rim for one socket that opens on hover. Turning this off needs a reload to put them back.", "map", "drawer"),
+		}, { disabled = off }),
+		marks = Card(5, "Markers and trail", {
+			markers = Toggle(1, "Rim markers", "A marker on the map's edge pointing at each thing that lies beyond it.", "map", "markers"),
+			markerYards = Width({
+				type = "toggle", order = 2, name = "Distance in yards", disabled = noMarkers,
+				get = function() return DB().map.markerYards end,
+				set = function(_, value) DB().map.markerYards = value Changed() end,
+			}, HALF),
+			party = Width({
+				type = "toggle", order = 3, name = "Group members", desc = "Your party, in their class colours. Not shown in a raid.", disabled = noMarkers,
+				get = function() return DB().map.party end,
+				set = function(_, value) DB().map.party = value Changed() end,
+			}, HALF),
+			rangeYards = Width({
+				type = "range", order = 3.5, name = "Within reach", desc = "A group member's distance turns green when they are within this many yards, on the minimap and the overlay. 0 for never.",
+				min = 0, max = 100, step = 1,
+				get = function() return DB().map.rangeYards end,
+				set = function(_, value) DB().map.rangeYards = value Changed() end,
+			}, HALF),
+			quests = Width({
+				type = "toggle", order = 4, name = "Quests", desc = "The nearest quests the zone map shows for you.", disabled = noMarkers,
+				get = function() return DB().map.quests end,
+				set = function(_, value) DB().map.quests = value Changed() end,
+			}, HALF),
+			trail = Toggle(5, "Trail", "A dotted line where you have walked, fading with distance. Also drawn on the overlay map.", "map", "trail"),
+			trailLength = Range(6, "Trail length", "In yards.", "map", "trailLength", 50, 1500, 50),
+		}, { disabled = off }),
+		place = PositionCard(6, "Top right by default. " .. UNLOCK, function() ns.Map.ResetPosition() end, function() return not DB().map.moved end),
+	}
+end
+
+local function AllyRingArgs()
+	local function off() return not DB().allyRing.enabled end
+	return {
+		intro = Note(1, "Your group around your character, in your field of view: each ally a pip in their class colour at their true bearing (up is the way you face), nearer the middle the nearer they are, with the distance under it. Allies inside the dashed circle are within reach, and their number turns green. Inside a dungeon the game hides positions from addons, so the ring rests there."),
+		enabled = Toggle(2, "Enabled", nil, "allyRing", "enabled"),
+		preview = Width({
+			type = "toggle", order = 3, name = "Preview",
+			desc = "Four stand-in allies drifting round the ring, to place and size it without a group. Also /sanctuary ring.",
+			get = function() return ns.AllyRing.preview and true or false end,
+			set = function(_, value) ns.AllyRing.SetPreview(value) end,
+		}, HALF),
+		when = Card(4, "Shown", {
+			show = Width(Select(1, "When", nil, "allyRing", "show", {
+				pvp = "In PvP: flagged, or in a battleground",
+				combat = "In combat",
+				group = "Whenever you are in a group",
+			}, { "pvp", "combat", "group" }), HALF),
+			maxYards = Range(2, "Farthest ally shown", "In yards. Allies beyond this are left off the ring.", "allyRing", "maxYards", 20, 200, 5),
+			reach = Width({
+				type = "range", order = 3, name = "Within reach", desc = "The dashed circle, and the distance at which an ally's number turns green. Shared with the minimap and the overlay map.",
+				min = 0, max = 100, step = 1,
+				get = function() return DB().map.rangeYards end,
+				set = function(_, value) DB().map.rangeYards = value Changed() end,
+			}, THIRD),
+		}, { disabled = off }),
+		look = Card(5, "Look", {
+			radius = Range(1, "Size", "How far from the middle the farthest allies sit.", "allyRing", "radius", 100, 500, 5),
+			inner = Range(2, "Clear middle", "How far from the middle the nearest allies sit, so they don't cover your character.", "allyRing", "inner", 0, 200, 5),
+			scale = Range(3, "Scale", "Pips and numbers.", "allyRing", "scale", 0.5, 2, 0.05, true),
+			opacity = Range(4, "Opacity", nil, "allyRing", "opacity", 0.2, 1, 0.01, true),
+			offsetY = Range(5, "Up or down", "Moves the ring off the middle of the screen, to sit on your character.", "allyRing", "offsetY", -400, 400, 5),
+			circle = Third(Toggle(6, "Reach circle", nil, "allyRing", "circle")),
+			names = Third(Toggle(7, "Names", nil, "allyRing", "names")),
+		}, { disabled = off }),
+	}
+end
+
+local function OverlayArgs()
+	local function off() return not DB().map.overlay.enabled end
+	local function notInk() return off() or DB().map.overlay.mode ~= "ink" end
+	return {
+		intro = Note(1, "A see-through map across the middle of the screen, centred on you, that you keep playing through. It marks your group with their distance, your quests and the trail you have walked. Give it a key below; /sanctuary map also toggles it. Inside a dungeon the game gives addons no zone map, so it shows the enlarged minimap there."),
+		enabled = Toggle(2, "Enabled", nil, "map.overlay", "enabled"),
+		key = Width(KeyField(3, "Key", "SANCTUARYUIMAP"), HALF),
+		how = Card(4, "How it opens", {
+			hold = Toggle(1, "Only while the key is held", "Off: the key opens it and closes it.", "map.overlay", "hold"),
+			mode = Width(Select(2, "Drawn from", "The zone's map: the whole zone within reach, ground you have explored brighter. The live minimap: the real minimap enlarged, which shows what the minimap shows (nodes, people) but only as far as it reaches.", "map.overlay", "mode", {
+				ink = "The zone's map",
+				live = "The live minimap",
+			}, { "ink", "live" }), HALF),
+		}, { disabled = off }),
+		look = Card(5, "Look", {
+			size = Range(1, "Size", "Of the screen's height.", "map.overlay", "size", 0.4, 1, 0.01, true),
+			opacity = Range(2, "Opacity", nil, "map.overlay", "opacity", 0.15, 1, 0.01, true),
+			offsetY = Range(3, "Up or down", "Moves the map's centre off the middle of the screen, to sit on your character.", "map.overlay", "offsetY", -300, 300, 5),
+			look = Width({
+				type = "select", order = 4, name = "Zone map look", disabled = notInk,
+				desc = "Ghost: the map as pale light over the world, its dark paint gone. Painted: the zone's map art as it is.",
+				values = { ghost = "Ghost", painted = "Painted" }, sorting = { "ghost", "painted" },
+				get = function() return DB().map.overlay.look end,
+				set = function(_, value) DB().map.overlay.look = value Changed() end,
+			}, THIRD),
+			reach = Width({
+				type = "range", order = 5, name = "Reach", desc = "How many yards the zone map shows from edge to edge.", disabled = notInk,
+				min = 200, max = 3000, step = 50,
+				get = function() return DB().map.overlay.reach end,
+				set = function(_, value) DB().map.overlay.reach = value Changed() end,
+			}, THIRD),
+		}, { disabled = off }),
+		marks = Card(6, "Marks", {
+			names = Toggle(1, "Names", "The name beside each mark, over its distance.", "map.overlay", "names"),
+			tether = Range(2, "Thread to stragglers", "A thread from you to any group member at least this many yards away. 0 for none.", "map.overlay", "tether", 0, 500, 10),
+			note = Note(3, "Which things are marked, and the trail, are set on the Minimap page."),
+		}, { disabled = off }),
+	}
+end
+
 local function MeterArgs()
 	local views, viewOrder = {}, {}
 	for _, v in ipairs(ns.Meter.VIEWS) do
@@ -1956,7 +2086,12 @@ local function Build()
 			meter = Page(37, "Damage meter", MeterArgs()),
 			swing = Page(38, "Swing timer", SwingArgs()),
 			trinkets = Page(38.5, "Trinkets", TrinketArgs()),
-			gap40 = Gap(39),
+			gapMap = Gap(39),
+			sectionMap = Section(39.2, "Map"),
+			map = Page(39.4, "Minimap", MapArgs()),
+			mapOverlay = Page(39.6, "Overlay map", OverlayArgs()),
+			allyRing = Page(39.7, "Ally ring", AllyRingArgs()),
+			gap40 = Gap(39.8),
 			sectionInventory = Section(40, "Inventory"),
 			bags = Page(41, "Bags", {
 				enabled = Width(Toggle(1, "Use the SanctuaryUI bag window", "Replaces Blizzard's bags. Turning it off needs a /reload to bring Blizzard's back.", "bags", "enabled"), 1),

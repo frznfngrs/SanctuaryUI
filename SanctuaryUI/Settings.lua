@@ -344,6 +344,54 @@ ns.DEFAULTS = {
 			my = 0,
 		},
 
+		-- the minimap (Map.lua), what it marks (MapPins.lua) and the overlay map (MapOverlay.lua)
+		map = {
+			style = "parchment", -- parchment | globe | fade | blizzard (the game's own, untouched)
+			size = 190, -- the map's side or width across
+			scale = 1,
+			opacity = 0.92,
+			zone = true,
+			clock = true,
+			sockets = true, -- mail, tracking, calendar
+			drawer = true, -- gather other addons' minimap buttons into one socket
+			markers = true, -- things off the map, on its rim
+			markerYards = true,
+			party = true,
+			rangeYards = 40, -- a group member's distance turns green within this; 0 for never
+			quests = true,
+			trail = true,
+			trailLength = 300, -- yards
+			moved = false,
+			mx = 0,
+			my = 0,
+			overlay = {
+				enabled = true,
+				mode = "ink", -- ink (the zone's map art) | live (the real minimap, enlarged)
+				look = "ghost", -- ghost (grey light over the world) | painted (the art as it is)
+				hold = true, -- shown while the key is held; off: the key toggles it
+				size = 0.8, -- of the screen's height
+				reach = 700, -- yards across, for ink
+				opacity = 0.55,
+				names = true,
+				tether = 100, -- a thread to group members this many yards away; 0 for none
+				offsetY = 0,
+			},
+		},
+
+		-- the ally ring (AllyRing.lua): your group around your character, with their distance
+		allyRing = {
+			enabled = true,
+			show = "pvp", -- pvp (flagged, or in a battleground) | combat | group (whenever grouped)
+			maxYards = 80, -- allies farther than this are left off
+			radius = 230, -- where the farthest sit, in screen units
+			inner = 70, -- where the nearest sit
+			scale = 1,
+			opacity = 0.9,
+			offsetY = 0,
+			circle = true, -- the dashed "within reach" circle
+			names = false,
+		},
+
 		-- damage meter (Meter.lua): the client's own tallies on forged rails
 		meter = {
 			enabled = true,
@@ -591,6 +639,9 @@ function ns.Refresh()
 	Run("trinkets", ns.Trinket and ns.Trinket.ApplySettings)
 	Run("swing timer", ns.Swing and ns.Swing.ApplySettings)
 	Run("damage meter", ns.Meter and ns.Meter.ApplySettings)
+	Run("minimap", ns.Map and ns.Map.ApplySettings)
+	Run("overlay map", ns.MapOverlay and ns.MapOverlay.ApplySettings)
+	Run("ally ring", ns.AllyRing and ns.AllyRing.ApplySettings)
 	Run("pie menus", ns.Pie and ns.Pie.ApplySettings)
 	-- Last: buttons are sized by the layout and the stance and totem settings.
 	Run("cooldown numbers", ns.ActionBar and ns.ActionBar.StyleCountdowns)

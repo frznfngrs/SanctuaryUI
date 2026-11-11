@@ -6,4 +6,7 @@
 	<Binding name="SANCTUARYUITOTEM4" category="ADDONS"/>
 	<Binding name="SANCTUARYUITRINKET1" category="ADDONS"/>
 	<Binding name="SANCTUARYUITRINKET2" category="ADDONS"/>
+	<Binding name="SANCTUARYUIMAP" category="ADDONS" runOnUp="true">
+		SanctuaryUI.MapOverlay.Key(keystate)
+	</Binding>
 </Bindings>
