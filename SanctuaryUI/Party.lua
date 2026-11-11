@@ -1259,6 +1259,9 @@ local function OnEvent(_, event, unit)
 				if b.v and b.v.pool then b.v.pool:Forget() end
 			end
 		end
+		-- Previewing, a stand-in's debuff slots show your own buffs; a real member taking that
+		-- place needs them pointed back at their debuffs (Layout waits for combat to end).
+		if P.Previewing() then P.Layout() end
 		for _, b in ipairs(P.members) do RefreshAuras(b) end
 		P.UpdateAll()
 	else
