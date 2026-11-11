@@ -54,3 +54,4 @@ Bags.lua
 Bank.lua
 Options.lua
 Minimap.lua
+VersionCheck.lua
