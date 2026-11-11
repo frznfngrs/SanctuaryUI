@@ -8,6 +8,9 @@ ns.Options = ns.Options or {}
 
 local APP = "SanctuaryUI"
 
+local getMeta = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
+local VERSION = getMeta and getMeta("SanctuaryUI", "Version") or "?"
+
 local function DB()
 	return ns.DB()
 end
@@ -1257,7 +1260,7 @@ end
 local function Build()
 	local options = {
 		type = "group",
-		name = "SanctuaryUI",
+		name = "SanctuaryUI  " .. Muted("v" .. VERSION),
 		childGroups = "tree",
 		args = {
 			sectionSetup = Section(0, "Setup"),
@@ -1322,6 +1325,7 @@ local function Build()
 						end,
 					}, THIRD),
 				}),
+				version = Note(4, "SanctuaryUI version " .. VERSION),
 			}),
 
 			gap10 = Gap(9),
