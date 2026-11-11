@@ -263,6 +263,7 @@ local function DrawPins(north, west, instance, facing, k, turn)
 			used = used + 1
 			local m = markers[used]
 			P.DressMarker(m, t, onRim)
+			P.Pulse(m, t.kind == "ping")
 			if onRim then
 				local f = limit / reach
 				east, up = east * f, up * f

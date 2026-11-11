@@ -834,7 +834,9 @@ local function Slash(msg)
 	elseif cmd == "map" then
 		-- What the client lets us read about positions, map art and hidden messages (MapProbe.lua).
 		local sub = rest:lower()
-		if sub == "probe" or sub == "peek" or sub == "check" then
+		if sub == "ping" then
+			ns.Print(ns.MapPins.TestPing() and "a test ping, ahead and to your right, for a few seconds" or "no position here, so no ping")
+		elseif sub == "probe" or sub == "peek" or sub == "check" then
 			local ok, err = pcall(sub == "peek" and ns.MapProbe.Peek or sub == "check" and ns.MapProbe.Check or ns.MapProbe.Run)
 			if not ok then ns.Print("map probe failed: " .. tostring(err)) end
 		elseif ns.DB().map.overlay.enabled then

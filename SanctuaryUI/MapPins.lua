@@ -127,10 +127,108 @@ local colors = {} -- unit -> its class colour, so a table isn't made every pass
 
 -- Everything worth pointing at from where the player stands. Returns the list and its length;
 -- the list is reused, so read it before the next call.
+-- In a raid: only the few nearest, so a battleground does not bury the map in arrows.
+local RAID_UNITS = {}
+for i = 1, 40 do RAID_UNITS[i] = "raid" .. i end
+local nearUnit, nearFar, nearNorth, nearWest = {}, {}, {}, {}
+
+local function AddNearestRaiders(north, west, instance, keep)
+	local n = 0
+	for i = 1, math.min(GetNumGroupMembers(), 40) do
+		local unit = RAID_UNITS[i]
+		if UnitExists(unit) and not UnitIsUnit(unit, "player") then
+			local un, uw, _, uinst = UnitPosition(unit)
+			if Plain(un) and Plain(uw) and uinst == instance then
+				local dn, dw = un - north, uw - west
+				local far = dn * dn + dw * dw
+				-- Kept in order, nearest first, never more than `keep`.
+				if n < keep or far < nearFar[n] then
+					local at = math.min(n + 1, keep)
+					while at > 1 and nearFar[at - 1] > far do
+						nearUnit[at], nearFar[at], nearNorth[at], nearWest[at] = nearUnit[at - 1], nearFar[at - 1], nearNorth[at - 1], nearWest[at - 1]
+						at = at - 1
+					end
+					nearUnit[at], nearFar[at], nearNorth[at], nearWest[at] = unit, far, un, uw
+					if n < keep then n = n + 1 end
+				end
+			end
+		end
+	end
+	for i = 1, n do
+		local unit = nearUnit[i]
+		colors[unit] = colors[unit] or ClassColor(unit)
+		local name = UnitName(unit)
+		Add("party", nearNorth[i], nearWest[i], colors[unit], Plain(name) and name or nil)
+	end
+end
+
+-- Minimap pings: where someone clicked their minimap, kept for a few seconds. This client
+-- has no MINIMAP_PING event (registering it fails), so the minimap is asked where its last
+-- ping landed, a few times a second, and a change in that is a new ping. It does not say who
+-- pinged. Confirmed working in game on 2026-11-11.
+local PING_LIFE = 6
+local PING_COLOR = { 1, 0.95, 0.6 }
+local pings = {} -- by key: { north, west, untilTime, name }
+local lastPingX, lastPingY
+local pingQuietUntil = 0
+
+-- x and y: parts of the minimap's width from its middle, right and up.
+local function KeepPing(key, x, y, name)
+	local north, west, _, facing = P.Here()
+	if not north or not (C_Minimap and C_Minimap.GetViewRadius) then return end
+	local radius = C_Minimap.GetViewRadius()
+	if not Plain(radius) then return end
+	local east, up = x * 2 * radius, y * 2 * radius
+	if GetCVar("rotateMinimap") == "1" then
+		-- The map was turned so that facing is up: turn the click back to north-up.
+		local c, s = math.cos(facing), math.sin(facing)
+		east, up = east * c - up * s, east * s + up * c
+	end
+	local ping = pings[key] or {}
+	pings[key] = ping
+	ping.north, ping.west, ping.untilTime, ping.name = north + up, west - east, GetTime() + PING_LIFE, name
+end
+
+local function PollPing()
+	local opt = Opt()
+	if not opt or not opt.pings or not Minimap or not Minimap.GetPingPosition then return end
+	local x, y = Minimap:GetPingPosition()
+	if not Plain(x) or not Plain(y) then return end
+	if x == lastPingX and y == lastPingY then return end
+	local first = lastPingX == nil
+	lastPingX, lastPingY = x, y
+	if first then return end -- whatever it held at login is not a ping
+	local now = GetTime()
+	if now < pingQuietUntil then return end -- in case the reading drifts while a ping is up
+	pingQuietUntil = now + 1.5
+	-- In case the reading is in the frame's own units rather than parts of its width.
+	local width = Minimap:GetWidth()
+	if (math.abs(x) > 1.5 or math.abs(y) > 1.5) and width and width > 0 then x, y = x / width, y / width end
+	KeepPing("ping", x, y, "Ping")
+end
+P.PollPing = PollPing
+
+-- A stand-in ping 60 yards ahead and to the right, to see what one looks like.
+function P.TestPing()
+	local north, west, _, facing = P.Here()
+	if not north then return false end
+	local a = facing - 0.6
+	pings.test = { north = north + math.cos(a) * 60, west = west + math.sin(a) * 60, untilTime = GetTime() + PING_LIFE, name = "Test ping" }
+	return true
+end
+
 function P.Targets(north, west, instance)
 	used = 0
 	local opt = Opt()
-	if opt.party and IsInGroup() and not IsInRaid() then
+	if opt.pings then
+		local now = GetTime()
+		for _, ping in pairs(pings) do
+			if ping.untilTime > now then Add("ping", ping.north, ping.west, PING_COLOR, ping.name) end
+		end
+	end
+	if opt.party and IsInRaid() then
+		if opt.raidCount > 0 then AddNearestRaiders(north, west, instance, opt.raidCount) end
+	elseif opt.party and IsInGroup() then
 		for i = 1, 4 do
 			local unit = "party" .. i
 			if UnitExists(unit) then
@@ -182,8 +280,13 @@ local events = CreateFrame("Frame")
 events:RegisterEvent("GROUP_ROSTER_UPDATE")
 events:RegisterEvent("QUEST_LOG_UPDATE")
 events:SetScript("OnEvent", function(_, event)
-	if event == "GROUP_ROSTER_UPDATE" then wipe(colors) else questsAt = 0 end
+	if event == "GROUP_ROSTER_UPDATE" then
+		wipe(colors)
+	else
+		questsAt = 0
+	end
 end)
+
 
 -- ---------------------------------------------------------------------------------------
 -- The trail: where the player has walked, newest last
@@ -231,6 +334,8 @@ function P.Init()
 	P.ticker = C_Timer.NewTicker(0.25, function()
 		local ok, err = pcall(Record)
 		if not ok and ns.LogError then ns.LogError("map trail", tostring(err)) end
+		ok, err = pcall(PollPing)
+		if not ok and ns.LogError then ns.LogError("map ping", tostring(err)) end
 	end)
 end
 
@@ -276,7 +381,7 @@ function P.MakeMarker(parent, size)
 	return m
 end
 
-local ICON_OF = { party = "pip", quest = "diamond", corpse = "corpse", flag = "flag" }
+local ICON_OF = { party = "pip", quest = "diamond", corpse = "corpse", flag = "flag", ping = "pip" }
 
 -- Dress a marker for a target: its own icon inside the map, the wedge when it sits on the rim.
 function P.DressMarker(m, target, onRim)
@@ -289,6 +394,25 @@ function P.DressMarker(m, target, onRim)
 	m.icon:SetVertexColor(c[1], c[2], c[3])
 	m.text:SetTextColor(c[1], c[2], c[3])
 	m.name:SetTextColor(c[1], c[2], c[3])
+end
+
+-- A ping's ripple: a ring of light that swells from the marker and fades, over and over.
+function P.Pulse(m, on)
+	if not on then
+		if m.pulse then m.pulse:Hide() end
+		return
+	end
+	if not m.pulse then
+		m.pulse = m:CreateTexture(nil, "ARTWORK")
+		m.pulse:SetPoint("CENTER")
+		P.SetCell(m.pulse, "pip")
+		m.pulse:SetBlendMode("ADD")
+	end
+	local phase = (GetTime() * 1.3) % 1
+	local size = m:GetWidth() * (1 + 3.2 * phase)
+	m.pulse:SetSize(size, size)
+	m.pulse:SetVertexColor(1, 0.92, 0.55, 0.85 * (1 - phase))
+	m.pulse:Show()
 end
 
 function P.Yards(yards)

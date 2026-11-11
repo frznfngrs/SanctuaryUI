@@ -940,7 +940,7 @@ local function MapArgs()
 	local function B() return DB().map.buttons end
 	local function noButtons() return off() or B().show == "never" end
 	local function free() return B().side == "free" end
-	local function noHeader() return off() or not (DB().map.zone or DB().map.clock) end
+	local function noHeader() return off() or not (DB().map.zone or DB().map.clock or DB().map.difficulty) end
 	-- A field of map.buttons with its own disabled rule.
 	local function ButtonField(option, key, disabled)
 		option.get = function() return B()[key] end
@@ -979,6 +979,18 @@ local function MapArgs()
 					min = 0, max = 100, step = 1,
 					get = function() return DB().map.rangeYards end,
 					set = function(_, value) DB().map.rangeYards = value Changed() end,
+				}, HALF),
+				raidCount = Width({
+					type = "range", order = 3.7, name = "In a raid, the nearest", desc = "In a raid or battleground only this many of the nearest members are marked, on the minimap and the overlay, so the map is not buried. 0 for none. The ally ring has its own limit.",
+					min = 0, max = 10, step = 1, disabled = function() return noMarkers() or not DB().map.party end,
+					get = function() return DB().map.raidCount end,
+					set = function(_, value) DB().map.raidCount = value Changed() end,
+				}, HALF),
+				pings = Width({
+					type = "toggle", order = 3.8, name = "Pings", disabled = noMarkers,
+					desc = "When someone in your group clicks their minimap: a ripple at the spot for a few seconds, and a marker on the rim with the distance when the spot lies off your map. The game does not tell addons who pinged. /sanctuary map ping shows one.",
+					get = function() return DB().map.pings end,
+					set = function(_, value) DB().map.pings = value Changed() end,
 				}, HALF),
 				quests = Width({
 					type = "toggle", order = 4, name = "Quests", desc = "The nearest quests the zone map shows for you.", disabled = noMarkers,
@@ -1049,6 +1061,7 @@ local function MapArgs()
 			shown = Card(1, "Shown", {
 				zone = Toggle(1, "Place name", nil, "map", "zone"),
 				clock = Toggle(2, "Time", "With the zone's name beside it when the place name is a part of the zone.", "map", "clock"),
+				difficulty = Toggle(3, "Instance difficulty", "Inside a dungeon or raid: its difficulty and size, on the time's line.", "map", "difficulty"),
 			}, { disabled = off }),
 			where = Card(2, "Place and size", {
 				headerPlace = Width({

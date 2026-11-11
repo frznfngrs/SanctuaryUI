@@ -327,6 +327,11 @@ local function Build()
 	art.ghost:AddMaskTexture(art.ghostMask)
 
 	pinLayer = CreateFrame("Frame", nil, holder)
+	-- Over everything the Minimap frame draws. The game puts its own arrow for a party member
+	-- on the map's edge and it cannot be turned off on this client; ours, in the member's
+	-- class colour, is simply drawn over it. (A dark stud to hide the game's arrow was tried
+	-- on 2026-11-11 and the user preferred it without.)
+	pinLayer:SetFrameStrata("MEDIUM")
 	pinLayer:SetFrameLevel(40)
 	pinLayer:EnableMouse(false)
 	pinLayer:SetAllPoints(mapBox)
@@ -490,14 +495,16 @@ function Map.Layout()
 
 	-- The name and the time
 	local hs = opt.headerScale
-	local showHead = opt.zone or opt.clock
+	-- The second line carries the time and, in an instance, its difficulty.
+	local second = opt.clock or opt.difficulty
+	local showHead = opt.zone or second
 	local headPlace = HeaderPlace(opt, style)
 	local headAlign = HeaderAlign(opt, style)
 	local plaque = style == "globe" and headPlace == "below" and showHead
 	local line1, line2 = 15 * hs, 13 * hs
 	local headH = 0
 	if showHead then
-		headH = (opt.zone and line1 or 0) + (opt.clock and line2 or 0) + 4
+		headH = (opt.zone and line1 or 0) + (second and line2 or 0) + 4
 		if plaque then headH = math.max(PLAQUE_H, headH + 14) - 6 end
 	end
 
@@ -556,7 +563,7 @@ function Map.Layout()
 		art.plaque:SetSize(pw, headH + 6)
 		art.plaque:SetPoint("TOP", outer, "BOTTOM", 0, 8)
 		art.plaque:Show()
-		zone:SetPoint("CENTER", art.plaque, "CENTER", 0, opt.clock and line2 / 2 or 0)
+		zone:SetPoint("CENTER", art.plaque, "CENTER", 0, second and line2 / 2 or 0)
 		time:SetPoint("CENTER", art.plaque, "CENTER", 0, opt.zone and -line1 / 2 or 0)
 		zone:SetJustifyH("CENTER")
 		time:SetJustifyH("CENTER")
@@ -566,7 +573,7 @@ function Map.Layout()
 		local inset = headAlign == "left" and 4 or headAlign == "right" and -4 or 0
 		if headPlace == "above" then
 			time:SetPoint("BOTTOM" .. edge, outer, "TOP" .. edge, inset, 3)
-			zone:SetPoint("BOTTOM" .. edge, outer, "TOP" .. edge, inset, 3 + (opt.clock and line2 or 0))
+			zone:SetPoint("BOTTOM" .. edge, outer, "TOP" .. edge, inset, 3 + (second and line2 or 0))
 		else
 			zone:SetPoint("TOP" .. edge, outer, "BOTTOM" .. edge, inset, -3)
 			time:SetPoint("TOP" .. edge, outer, "BOTTOM" .. edge, inset, -3 - (opt.zone and line1 or 0))
@@ -576,7 +583,7 @@ function Map.Layout()
 		time:SetJustifyH(justify)
 	end
 	zone:SetShown(opt.zone)
-	time:SetShown(opt.clock)
+	time:SetShown(second and true or false)
 
 	-- Place the buttons
 	bar:ClearAllPoints()
@@ -723,14 +730,22 @@ function Map.UpdateText()
 	local zone = GetMinimapZoneText and GetMinimapZoneText() or ""
 	if ns.Secret(zone) then zone = "" end
 	header.zone:SetText(zone:upper())
-	local now = GameTime_GetTime and GameTime_GetTime(false) or date("%H:%M")
+	local opt = Opt()
+	local parts = {}
 	local area = GetRealZoneText and GetRealZoneText() or ""
 	if ns.Secret(area) then area = "" end
-	if Opt().zone and area ~= "" and area ~= zone then
-		header.time:SetText(area .. "   " .. now)
-	else
-		header.time:SetText(now)
+	if opt.zone and area ~= "" and area ~= zone then parts[#parts + 1] = area end
+	-- Inside an instance: its difficulty and size, where Blizzard's minimap flies a flag.
+	if opt.difficulty and IsInInstance() then
+		local _, _, _, difficulty, players = GetInstanceInfo()
+		local flag = (difficulty and not ns.Secret(difficulty) and difficulty ~= "") and difficulty or nil
+		if players and not ns.Secret(players) and players > 0 then
+			flag = (flag and (flag .. ", ") or "") .. players .. " players"
+		end
+		if flag then parts[#parts + 1] = "|cffe0c070" .. flag .. "|r" end
 	end
+	if opt.clock then parts[#parts + 1] = GameTime_GetTime and GameTime_GetTime(false) or date("%H:%M") end
+	header.time:SetText(table.concat(parts, "   "))
 end
 
 -- ---------------------------------------------------------------------------------------
@@ -812,10 +827,11 @@ local function DrawPins()
 			local limit = half - (square and 9 or 7)
 			local onRim = reach > limit
 			-- Inside the map the game (or Questie) draws party dots and quests itself.
-			if t and (onRim or t.kind == "corpse" or t.kind == "flag") and used < MAX_MARKERS and yards > 1 then
+			if t and (onRim or t.kind == "corpse" or t.kind == "flag" or t.kind == "ping") and used < MAX_MARKERS and yards > 1 then
 				used = used + 1
 				local m = markers[used]
 				P.DressMarker(m, t, onRim)
+				P.Pulse(m, t.kind == "ping")
 				m.name:Hide()
 				if onRim then
 					local f = limit / reach
