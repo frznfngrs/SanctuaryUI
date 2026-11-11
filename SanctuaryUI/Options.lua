@@ -19,6 +19,80 @@ local function Changed()
 	ns.Refresh()
 end
 
+-- Previews turned on from this window end when it closes (standalone or in Blizzard's
+-- options panel). One a /sanctuary command turned on is left running: the command calls
+-- ns.Options.KeepPreview, and a preview already on when the window's control was used isn't
+-- claimed. Party, totem and unit frame previews can't change in combat; those end after it.
+local owned = {} -- key -> { on = function, stop = function }
+local watcher = CreateFrame("Frame")
+
+local function WindowShown()
+	local Dialog = LibStub("AceConfigDialog-3.0")
+	if Dialog.OpenFrames[APP] then return true end
+	for _, group in pairs(Dialog.BlizOptions and Dialog.BlizOptions[APP] or {}) do
+		if group.frame and group.frame:IsVisible() then return true end
+	end
+	return false
+end
+
+local function StopOwned()
+	watcher:SetScript("OnUpdate", nil)
+	for key, p in pairs(owned) do
+		if p.on() then p.stop() end
+		if not p.on() then owned[key] = nil end
+	end
+	if next(owned) then watcher:RegisterEvent("PLAYER_REGEN_ENABLED") end
+end
+
+local function WatchWindow()
+	if not next(owned) then
+		watcher:SetScript("OnUpdate", nil)
+		return
+	end
+	watcher:SetScript("OnUpdate", function()
+		if not WindowShown() then StopOwned() end
+	end)
+end
+
+watcher:SetScript("OnEvent", function(self)
+	self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+	if WindowShown() then WatchWindow() else StopOwned() end
+end)
+
+-- Wraps a control's set/func: when it turns preview `key` on from off, the window owns it.
+local function Owning(key, on, stop, action)
+	return function(...)
+		local was = on()
+		action(...)
+		if not on() then
+			owned[key] = nil
+		elseif not was then
+			owned[key] = { on = on, stop = stop }
+			WatchWindow()
+		end
+	end
+end
+
+-- A /sanctuary command started or toggled this preview: closing the window leaves it alone.
+function ns.Options.KeepPreview(key)
+	owned[key] = nil
+end
+
+-- Globe aura test mode: the Test tab, Showcase loop and each skill's Preview all run in it.
+local function AuraTesting() return ns.Watch.Testing() end
+local function StopAuraTest()
+	ns.GlobeAura.SetPreview(false)
+	ns.Watch.SetTest(false)
+end
+local function OwningAuras(action)
+	return Owning("auras", AuraTesting, StopAuraTest, action)
+end
+
+-- A preview with a flag and a SetPreview(on), like ns.Swing or ns.TargetPlate.
+local function OwningFlag(key, M, action)
+	return Owning(key, function() return M.preview and true or false end, function() M.SetPreview(false) end, action)
+end
+
 -- get/set for a key in the profile, or in a sub-table of it.
 local function Field(path, key)
 	local function tbl()
@@ -144,7 +218,8 @@ local function StatueEyesCard(order, key, title, what, toggle, noColour)
 			type = "execute", order = 3, width = "relative", relWidth = 0.2,
 			name = function() return ns.StatueEyes.Previewing(key) and "Stop preview" or "Preview" end,
 			desc = "Shows the glow without the buff.",
-			func = function() ns.StatueEyes.Preview(key) end,
+			func = Owning("eyes:" .. key, function() return ns.StatueEyes.Previewing(key) end,
+				function() ns.StatueEyes.Preview(key) end, function() ns.StatueEyes.Preview(key) end),
 		},
 		spells = {
 			type = "input", order = 4, width = "full", disabled = off,
@@ -235,7 +310,7 @@ local function GlobeAuraArgs()
 			type = "execute", order = order, name = "Preview", width = "relative", relWidth = 0.16,
 			desc = "Plays this on your globes for a few seconds, from lighting up to how it ends. Not in combat.",
 			disabled = function() return InCombatLockdown() or (isDisabled and isDisabled()) end,
-			func = function() ns.GlobeAura.PreviewSkill(key) end,
+			func = OwningAuras(function() ns.GlobeAura.PreviewSkill(key) end),
 		}
 	end
 
@@ -402,7 +477,7 @@ local function GlobeAuraArgs()
 		mode = {
 			type = "toggle", order = 2, name = "Test mode", width = "full",
 			get = function() return ns.Watch.Testing() end,
-			set = function(_, value) ns.Watch.SetTest(value) end,
+			set = OwningAuras(function(_, value) ns.Watch.SetTest(value) end),
 		},
 		length = Range(3, "Test buffs last (seconds)", "Real buffs keep their own lengths; shorter shows the whole life of an effect sooner.", "globeAuras", "testLength", 5, 60, 1),
 		class = {
@@ -422,7 +497,7 @@ local function GlobeAuraArgs()
 			type = "toggle", order = 80, name = "Showcase loop", width = "full",
 			desc = "Loops a run of effects through test mode: Lightning Shield, Innervate, a Power Word: Shield that takes a hit and shatters, Life Tap, Arcane Power, Divine Shield, then everything running out.",
 			get = function() return ns.GlobeAura.preview end,
-			set = function(_, value) ns.GlobeAura.SetPreview(value) end,
+			set = OwningAuras(function(_, value) ns.GlobeAura.SetPreview(value) end),
 		},
 	}
 	for i, effect in ipairs(DATA.EFFECTS) do
@@ -430,10 +505,10 @@ local function GlobeAuraArgs()
 			type = "execute", order = 10 + i / 100, name = effect.label,
 			desc = effect.look == "flare" and "Plays it once." or "Casts it on you. Cast it again while it is up to recast it.",
 			hidden = function() return effect.class ~= testClass end,
-			func = function()
+			func = OwningAuras(function()
 				ns.Watch.Test(effect.key)
 				Refresh()
-			end,
+			end),
 		}
 	end
 	local moments = {
@@ -448,14 +523,14 @@ local function GlobeAuraArgs()
 	for i, m in ipairs(moments) do
 		testArgs["m" .. m[1]] = {
 			type = "execute", order = 60 + i, name = m[2], desc = m[3], hidden = m[4],
-			func = function()
+			func = OwningAuras(function()
 				if m[1] == "hit" then
 					if not ns.GlobeAura.Hit() then ns.Print("test: no shield up to take the hit") end
 				else
 					ns.Watch.Test(m[1])
 				end
 				Refresh()
-			end,
+			end),
 		}
 	end
 	args.test = Tab(3, "Test", testArgs)
@@ -706,9 +781,9 @@ local function SwingArgs()
 		enabled = Toggle(2, "Enabled", nil, "swing", "enabled"),
 		preview = Width({
 			type = "toggle", order = 3, name = "Preview",
-			desc = "Show every enabled bar on looping practice swings. Also shown while frames are unlocked, so you can place them. Turns off on /reload.",
+			desc = "Show every enabled bar on looping practice swings. Also shown while frames are unlocked, so you can place them. Turns off when this window closes.",
 			get = function() return ns.Swing.preview end,
-			set = function(_, value) ns.Swing.SetPreview(value) end,
+			set = OwningFlag("swing", ns.Swing, function(_, value) ns.Swing.SetPreview(value) end),
 		}, HALF),
 		bars = Card(4, "Bars", {
 			mainHand = Third(Toggle(1, "Main hand", nil, "swing", "mainHand")),
@@ -1115,7 +1190,7 @@ local function UnitPlatePage(K, M, order, title, intro, placeNote)
 			name = "Preview",
 			desc = "With no " .. WHO .. ", show a stand-in monster that cycles the normal, elite, rare and boss frames while its health drops, to judge the look in game.",
 			get = function() return M.preview end,
-			set = function(_, value) M.SetPreview(value) end,
+			set = OwningFlag(K, M, function(_, value) M.SetPreview(value) end),
 		}, HALF),
 		frame = Tab(1, "Frame", {
 			look = Card(1, "Style and size", {
@@ -1449,9 +1524,9 @@ local function Build()
 					type = "toggle",
 					order = 3,
 					name = "Preview",
-					desc = "Show the bar with every totem and two on timers, on any character. Nothing casts. Turns off on /reload.",
+					desc = "Show the bar with every totem and two on timers, on any character. Nothing casts. Turns off when this window closes.",
 					get = function() return ns.Totem.preview end,
-					set = function(_, value) ns.Totem.SetPreview(value) end,
+					set = OwningFlag("totem", ns.Totem, function(_, value) ns.Totem.SetPreview(value) end),
 				}, HALF),
 				modeCard = Card(4, "Mode", {
 					mode = Width(Select(1, "Mode", nil, "totems", "mode", {
@@ -1526,7 +1601,7 @@ local function Build()
 					name = "Preview",
 					desc = "Show both portraits (the pet's drawn from you when you have no pet) to judge them in game.",
 					get = function() return ns.Portraits.preview end,
-					set = function(_, value) ns.Portraits.SetPreview(value) end,
+					set = OwningFlag("portraits", ns.Portraits, function(_, value) ns.Portraits.SetPreview(value) end),
 				}, HALF),
 				shows = Card(4, "Shows", {
 					player = Third(Toggle(1, "Your portrait", "Right-click it for your unit menu (leave group, loot, raid markers).", "portraits", "player")),
@@ -1546,7 +1621,7 @@ local function Build()
 					name = "Preview",
 					desc = "Show four stand-in members (drawn from you) in different states: leader with aggro, your target with heals, a shield and a debuff you can dispel, dead, out of range. Also shown while frames are unlocked, so you can place them.",
 					get = function() return ns.Party.preview end,
-					set = function(_, value) ns.Party.SetPreview(value) end,
+					set = OwningFlag("party", ns.Party, function(_, value) ns.Party.SetPreview(value) end),
 					disabled = function() return not ns.Party.Style() end,
 				}, HALF),
 				size = Card(4, "Size and spacing", {

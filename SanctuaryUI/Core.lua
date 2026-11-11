@@ -576,6 +576,11 @@ function ns.Check()
 	end
 end
 
+-- A preview a command turns on keeps running after the options window closes.
+local function KeepPreview(key)
+	if ns.Options and ns.Options.KeepPreview then ns.Options.KeepPreview(key) end
+end
+
 local function Slash(msg)
 	local cmd, rest = (msg or ""):match("^(%S*)%s*(.-)$")
 	cmd = (cmd or ""):lower()
@@ -728,6 +733,7 @@ local function Slash(msg)
 		end
 	elseif cmd == "test" then
 		if ns.Totem and ns.Totem.SetPreview then
+			KeepPreview("totem")
 			ns.Totem.SetPreview(not ns.Totem.preview)
 		end
 	elseif cmd == "aura" then
@@ -735,6 +741,7 @@ local function Slash(msg)
 		-- | judge | fade | clear | die | showcase | on | off
 		local action = rest:lower()
 		local MOMENTS = "break, spend, hit, judge, fade, clear, die, showcase, off"
+		KeepPreview("auras") -- test mode on from chat stays on with the options window closed
 		if action == "off" then
 			ns.GlobeAura.SetPreview(false)
 			ns.Watch.SetTest(false)
@@ -804,13 +811,17 @@ local function Slash(msg)
 			ns.Options.Open("pie")
 		end
 	elseif cmd == "swing" then
-		if ns.Swing and ns.Swing.SetPreview then ns.Swing.SetPreview(not ns.Swing.preview) end
+		if ns.Swing and ns.Swing.SetPreview then
+			KeepPreview("swing")
+			ns.Swing.SetPreview(not ns.Swing.preview)
+		end
 	elseif cmd == "trinket" or cmd == "trinkets" then
 		if ns.Options and ns.Options.Open then ns.Options.Open("trinkets") end
 	elseif cmd == "proc" then
 		if ns.ProcGlow and ns.ProcGlow.Test then ns.ProcGlow.Test() end
 	elseif cmd == "radiance" then
 		-- The golden light on the angel's wings, without needing its buff. Again to stop.
+		KeepPreview("eyes:wings")
 		local ok, on = ns.StatueEyes.Preview("wings")
 		ns.Print(ok and (on and "Wing light preview on. /sanctuary radiance again to stop." or "Wing light preview off.") or ("Wing light preview failed: " .. tostring(on)))
 	elseif cmd == "eyes" then
@@ -818,6 +829,7 @@ local function Slash(msg)
 		local key = (rest or ""):lower()
 		local keys = key == "" and { "angel", "gargoyle" } or { key }
 		for _, one in ipairs(keys) do
+			KeepPreview("eyes:" .. one)
 			local ok, why = ns.StatueEyes.Preview(one)
 			if not ok then ns.Print("Eye glow preview failed: " .. tostring(why)) end
 		end
