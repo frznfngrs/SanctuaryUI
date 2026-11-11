@@ -508,6 +508,8 @@ local HOLE_K = 256 / 48 -- console-ring-hole.png: half its size over its hole's 
 local CRADLE_STONE = { 350, 118, 400, 168 } -- plain socket stone (frame.png), under the brackets
 -- console-brackets.png (256x128): sheet x 243..331 at u 0 and 1264..1356 at u 128, rows 104..201.
 local BRACKET_AT = { health = 243 - 0, resource = 1264 - 128 }
+local BRACKET_END = 1356 -- sheet x where the resource bracket's art ends (u 220)
+local CRADLE_TUCK = 4 -- sheet px the cradle's stone reaches past the globe's centre
 
 -- Whether the corner is rebuilt: split, and the art there.
 function ns.ActionBar.Wraps(metrics, tiers)
@@ -531,6 +533,12 @@ function ns.ActionBar.CradleSpec(metrics, tiers, side)
 	-- Left to right: the source columns and where they land.
 	local srcL, srcR = math.min(sheetX, sheetSeam), math.max(sheetX, sheetSeam)
 	local dstL, dstR = math.min(cx, seam), math.max(cx, seam)
+	-- The statue's foot starts where these stop, at the globe's centre: with no overlap, rounding
+	-- opened a pixel of background between them. So the stone runs CRADLE_TUCK sheet px on
+	-- under the statue (which draws over it), and the brackets as far as their art goes.
+	local k = (dstR - dstL) / (srcR - srcL)
+	local tuck = CRADLE_TUCK * k
+	local bracketTuck = (left and (srcL - BRACKET_AT.health) or (BRACKET_END - srcR)) * k
 	local pieces = {}
 	local function Add(slot, texW, texH, u0, u1, v0, v1, x0, x1, y0, y1, sub)
 		pieces[#pieces + 1] = {
@@ -549,11 +557,16 @@ function ns.ActionBar.CradleSpec(metrics, tiers, side)
 	local stoneTop = math.min(wingBottom, rimTop)
 	if stoneTop > 0 then
 		local st = CRADLE_STONE
-		Add("frame", 2048, 256, st[1], st[3], st[2], st[4], dstL, dstR, 0, stoneTop, 0)
+		Add("frame", 2048, 256, st[1], st[3], st[2], st[4],
+			dstL - (left and tuck or 0), dstR + (left and 0 or tuck), 0, stoneTop, 0)
 	end
 	-- The main row's bracket, then each docked row's above it.
 	local b = BRACKET_AT[side]
-	Add("consoleBrackets", 256, 128, srcL - b, srcR - b, 0, 97, dstL, dstR, 0, 97 * s, 1)
+	if left then
+		Add("consoleBrackets", 256, 128, 0, srcR - b, 0, 97, dstL - bracketTuck, dstR, 0, 97 * s, 1)
+	else
+		Add("consoleBrackets", 256, 128, srcL - b, BRACKET_END - b, 0, 97, dstL, dstR + bracketTuck, 0, 97 * s, 1)
+	end
 	-- Under the wing, its cradle: the one-row art's, beside its docked row (the two-row art's top
 	-- crest has no wing). Any other docked rows have the stone; a rim reaching that high covers
 	-- most of it.
@@ -1468,6 +1481,9 @@ function ns.ActionBar.UpdateMovers(hide)
 	end
 	if ns.Meter and ns.Meter.UpdateMovers then
 		ns.Meter.UpdateMovers(unlocked)
+	end
+	if ns.Map and ns.Map.UpdateMovers then
+		ns.Map.UpdateMovers(unlocked)
 	end
 	for _, n in ipairs(ROW_IDS) do
 		local row = ns.ActionBar.rows[n]
