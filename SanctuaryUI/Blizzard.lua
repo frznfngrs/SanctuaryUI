@@ -3,16 +3,30 @@ local ns = SanctuaryUI
 ns.Blizzard = ns.Blizzard or {}
 
 -- Frames this cluster replaces. Bags, chat, and the minimap stay. The micro menu is
--- replaced by the D3 menu buttons in the console.
+-- replaced by the D3 menu buttons in the console. Names a client doesn't have are skipped.
 local FRAME_NAMES = {
 	"MainActionBar",
+	"MainMenuBar", -- the main bar's older name
 	"StanceBar",
 	"StanceBarFrame",
+	"ShapeshiftBarFrame",
+	-- The form bar older bar code slides over the main bar in a form or stealth.
+	"BonusActionBarFrame",
 	"PetActionBar",
 	"PetActionBarFrame",
 	"PossessActionBar",
 	"PossessBarFrame",
 	"OverrideActionBar",
+	-- Blizzard's other action bars. The console's rows show the same pages (3-6, 13-15) on the
+	-- same keys, so one of these showing (Edit Mode's "In Combat" or "Out of Combat"
+	-- visibility, a settings change) put a copy of a SanctuaryUI row on screen (#10).
+	"MultiBarBottomLeft",
+	"MultiBarBottomRight",
+	"MultiBarRight",
+	"MultiBarLeft",
+	"MultiBar5",
+	"MultiBar6",
+	"MultiBar7",
 	"StatusTrackingBarManager",
 	"MainStatusTrackingBarContainer",
 }
