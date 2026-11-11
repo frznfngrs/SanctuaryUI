@@ -930,8 +930,14 @@ loader:SetScript("OnEvent", function(_, event)
 		Safe("minimap", ns.Minimap and ns.Minimap.Init)
 		Safe("settings", ns.Refresh)
 		WarnBartender()
+		local getMeta = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
+		local version = getMeta and getMeta("SanctuaryUI", "Version") or "?"
+		ns.Print(("version %s loaded. /sanctuary for options."):format(version))
+		-- Only worth a line when something is missing: new art needs a client restart, not a /reload.
 		local loaded, total = ns.Art.loadedCount or 0, ns.Art.totalCount or 0
-		ns.Print(("loaded. Art %d/%d. /sanctuary for options."):format(loaded, total))
+		if loaded < total then
+			ns.Print(("%d of %d art files didn't load. Restart the game client to pick up new art."):format(total - loaded, total))
+		end
 	elseif event == "PLAYER_REGEN_ENABLED" then
 		ns.Log("combat ended, applying deferred work%s", ns.pendingRefresh and " (refresh pending)" or "")
 		if ns.Blizzard and ns.Blizzard.Hide then ns.Blizzard.Hide() end
