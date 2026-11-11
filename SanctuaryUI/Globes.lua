@@ -750,11 +750,41 @@ function ns.Globes.UpdateHealth()
 	ns.Globes.PlaceSurface(globe)
 end
 
+-- What the server last said you have, by power type. Forever is a modern client on vanilla
+-- rules: between the server's updates the client counts regen up smoothly on its own (and
+-- UNIT_POWER_FREQUENT fires for it), but the server only pays energy and mana in 2 s ticks.
+-- Read on those events, the globe could run up to a tick ahead of what you can spend (#8: a
+-- 40 energy Claw needing about 47 shown). So the value is read on UNIT_POWER_UPDATE, the
+-- server's word, and kept for everything else that redraws the globe (the party and target
+-- frames already listen to that event alone).
+-- (A secret can't be compared, even with nil, so whether one is kept is its own table.)
+local serverPower, kept = {}, {}
+-- UNIT_POWER_UPDATE's token -> its Enum.PowerType key, for the pools a globe shows.
+local TOKEN_TYPE = { MANA = "Mana", RAGE = "Rage", ENERGY = "Energy", FOCUS = "Focus", RUNIC_POWER = "RunicPower" }
+
+local function ReadPower(powerType)
+	serverPower[powerType], kept[powerType] = UnitPower("player", powerType), true
+end
+
+local function CurrentPower(powerType)
+	if not kept[powerType] then ReadPower(powerType) end
+	return serverPower[powerType]
+end
+
+function ns.Globes.ReadServerPower()
+	wipe(serverPower)
+	wipe(kept)
+end
+
 -- The active resource, or the /sanctuary predict demo's level out of 1000.
 local function Power()
 	local preview = ns.Globes.powerPreview
 	if preview then return math.floor(preview * 1000 + 0.5), 1000 end
-	return UnitPower("player"), UnitPowerMax("player")
+	local powerType = UnitPowerType("player")
+	if Secret(powerType) or powerType == nil then
+		return UnitPower("player"), UnitPowerMax("player")
+	end
+	return CurrentPower(powerType), UnitPowerMax("player", powerType)
 end
 
 -- /sanctuary predict: a heal on its way (with a HoT part), a shield and a spell being cast, on
@@ -799,7 +829,7 @@ function ns.Globes.UpdatePower()
 		TintHalf(right, POWER_COLORS.MANA)
 		local power, maxPower = Power()
 		Fill(left.bar, power, maxPower)
-		Fill(right.bar, UnitPower("player", MANA), UnitPowerMax("player", MANA))
+		Fill(right.bar, CurrentPower(MANA), UnitPowerMax("player", MANA))
 		if left.pool and left.pool.bands then
 			left.pool:SetBand("cost", CostFor(UnitPowerType("player")), maxPower)
 		end
@@ -807,7 +837,7 @@ function ns.Globes.UpdatePower()
 			right.pool:SetBand("cost", CostFor(MANA), UnitPowerMax("player", MANA))
 		end
 		SetNumber(left.number, power)
-		SetNumber(right.number, UnitPower("player", MANA))
+		SetNumber(right.number, CurrentPower(MANA))
 		globe.Hotline:Hide()
 		ns.Globes.PlaceHalfSurface(globe, left)
 		ns.Globes.PlaceHalfSurface(globe, right)
@@ -1097,7 +1127,7 @@ function ns.Globes.Init()
 	local events = CreateFrame("Frame", nil, parent)
 	events:RegisterUnitEvent("UNIT_HEALTH", "player")
 	events:RegisterUnitEvent("UNIT_MAXHEALTH", "player")
-	events:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")
+	events:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
 	events:RegisterUnitEvent("UNIT_MAXPOWER", "player")
 	events:RegisterUnitEvent("UNIT_DISPLAYPOWER", "player")
 	events:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -1112,7 +1142,7 @@ function ns.Globes.Init()
 		"UNIT_SPELLCAST_INTERRUPTED", "UNIT_SPELLCAST_SUCCEEDED" }) do
 		events:RegisterUnitEvent(event, "player")
 	end
-	events:SetScript("OnEvent", function(_, event, _, _, spellID)
+	events:SetScript("OnEvent", function(_, event, _, arg2, spellID)
 		if event == "UNIT_HEAL_PREDICTION" or event == "UNIT_ABSORB_AMOUNT_CHANGED" then
 			ns.Globes.UpdateHealPrediction()
 		elseif event == "UNIT_SPELLCAST_START" then
@@ -1127,10 +1157,19 @@ function ns.Globes.Init()
 			ns.Globes.SetCombat(false)
 		elseif event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
 			ns.Globes.UpdateHealth()
-		elseif event == "UNIT_POWER_FREQUENT" or event == "UNIT_MAXPOWER" then
-			-- Not the health globe: with hidden health, its update reads as a change and sloshes.
+		elseif event == "UNIT_POWER_UPDATE" then
+			-- unit, power token. Not the health globe: with hidden health, its update reads as a
+			-- change and sloshes.
+			-- (Combo points and the like come here too; the pips read those themselves.)
+			local key = arg2 ~= nil and not Secret(arg2) and TOKEN_TYPE[arg2]
+			local powerType = key and Enum and Enum.PowerType and Enum.PowerType[key]
+			if powerType then ReadPower(powerType) end
+			ns.Globes.UpdatePower()
+		elseif event == "UNIT_MAXPOWER" then
 			ns.Globes.UpdatePower()
 		else
+			-- Entering the world, a new form or spec: whatever was kept may be another pool's.
+			ns.Globes.ReadServerPower()
 			ns.Globes.UpdateHealth()
 			ns.Globes.UpdatePower()
 		end
