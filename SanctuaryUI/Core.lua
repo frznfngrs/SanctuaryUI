@@ -583,7 +583,7 @@ local function Slash(msg)
 			ns.Options.Open()
 		end
 	elseif cmd == "help" then
-		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n> (bars), globes <n>|match, bar 2-9 on|off, bind, minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, proc (preview the proc highlight), aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), debug on|off, log, report [on|off], request (suggest a feature)")
+		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n> (bars), globes <n>|match, bar 2-9 on|off, bind, pie [1-6] (pie menus), minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, proc (preview the proc highlight), aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), debug on|off, log, report [on|off], request (suggest a feature)")
 	elseif cmd == "grid" then
 		-- grid: toggle; grid on|off; grid <spacing>. The grid only shows while frames are
 		-- unlocked, so showing it unlocks them.
@@ -794,6 +794,13 @@ local function Slash(msg)
 			or "debug trace off. Errors are still recorded. /sanctuary log shows them")
 	elseif cmd == "check" then
 		ns.Check()
+	elseif cmd == "pie" or cmd == "ring" then
+		-- "/sanctuary pie 2" edits ring 2; alone, it opens the rings' options page.
+		if rest ~= "" then
+			ns.Pie.Edit(rest)
+		elseif ns.Options and ns.Options.Open then
+			ns.Options.Open("pie")
+		end
 	elseif cmd == "proc" then
 		if ns.ProcGlow and ns.ProcGlow.Test then ns.ProcGlow.Test() end
 	elseif cmd == "radiance" then
@@ -900,6 +907,7 @@ loader:SetScript("OnEvent", function(_, event)
 		Safe("bank", ns.Bank and ns.Bank.Init)
 		Safe("stance", ns.Stance and ns.Stance.Init)
 		Safe("totems", ns.Totem and ns.Totem.Init)
+		Safe("pie menus", ns.Pie and ns.Pie.Init)
 		Safe("auras", ns.Auras and ns.Auras.Init)
 		Safe("target plate", ns.TargetPlate and ns.TargetPlate.Init)
 		Safe("focus plate", ns.FocusPlate and ns.FocusPlate.Init)

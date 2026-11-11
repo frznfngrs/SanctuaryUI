@@ -65,6 +65,15 @@ ns.Art.slots = {
 	furyVortex = { file = "fury-vortex.png", lazy = true },
 	gargoyleHorns = { file = "gargoyle-horns.png", lazy = true },
 	furyBreath = { file = "fury-breath.png", lazy = true },
+	-- Pie menus (PieMenu.lua): loaded when the first ring is built.
+	pieBand = { file = "pie-band.png", lazy = true },
+	pieSockets = { file = "pie-sockets.png", lazy = true },
+	pieHub = { file = "pie-hub.png", lazy = true },
+	pieStud = { file = "pie-stud.png", lazy = true },
+	pieBeam = { file = "pie-beam.png", lazy = true },
+	piePointer = { file = "pie-pointer.png", lazy = true },
+	pieGlow = { file = "pie-glow.png", lazy = true },
+	pieBack = { file = "pie-back.png", lazy = true },
 	-- Wisps from the statues' eyes (StatueEyes.lua): the wisp and its hot centre.
 	eyesAngelBody = { file = "eyes-angel-body.png", lazy = true },
 	eyesAngelCore = { file = "eyes-angel-core.png", lazy = true },

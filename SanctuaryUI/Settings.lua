@@ -303,6 +303,12 @@ ns.DEFAULTS = {
 			y = -120,
 		},
 
+		-- pie menus (PieMenu.lua): rings of skills that open at the mouse while a key is held
+		pie = {
+			scale = 1,
+			rings = {}, -- [1-6] = { name = "", slices = { { kind = "spell"|"item"|"macro", id = n, name = "" } } }
+		},
+
 		-- bag window
 		bags = {
 			enabled = true,
@@ -473,6 +479,7 @@ function ns.Refresh()
 	Run("bank", ns.Bank and ns.Bank.ApplySettings)
 	Run("stance", ns.Stance and ns.Stance.ApplySettings)
 	Run("totems", ns.Totem and ns.Totem.ApplySettings)
+	Run("pie menus", ns.Pie and ns.Pie.ApplySettings)
 	-- Last: buttons are sized by the layout and the stance and totem settings.
 	Run("cooldown numbers", ns.ActionBar and ns.ActionBar.StyleCountdowns)
 end

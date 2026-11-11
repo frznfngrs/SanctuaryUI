@@ -562,6 +562,49 @@ local function KeybindArgs()
 end
 
 ---------------------------------------------------------------------------
+-- Pie menus (PieMenu.lua)
+
+local function PieRingCard(n)
+	local function ring() return ns.Pie.Ring(n) end
+	local key = KeyField(2, "Hotkey", nil, ns.Pie.ButtonName(n))
+	key.desc = "Hold this key to open the ring at the mouse; release it over a skill to use that skill."
+	return Card(10 + n, "Ring " .. n, {
+		name = Third({
+			type = "input", order = 1, name = "Name",
+			desc = "Shown in the middle of the ring while nothing is selected.",
+			get = function() return ring().name or "" end,
+			set = function(_, value)
+				ring().name = (value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+				Changed()
+			end,
+		}),
+		key = Third(key),
+		edit = Third({
+			type = "execute", order = 3, name = "Edit skills",
+			desc = "Closes this window and shows the ring, so you can drag spells, items and macros onto it.",
+			func = function()
+				LibStub("AceConfigDialog-3.0"):Close(APP)
+				ns.Pie.Edit(n)
+			end,
+		}),
+		skills = Note(4, function() return ns.Pie.Describe(n) end),
+	})
+end
+
+local function PieArgs()
+	local args = {
+		intro = Note(1, "A pie menu is a ring of up to 8 skills. Hold its hotkey and it opens at the mouse; move toward a skill and release the key to use it. Release in the middle, or just tap the key, and nothing happens. Give a ring a hotkey, then press Edit skills and drag spells, items or macros onto it."),
+		look = Card(2, "Look", {
+			scale = Range(1, "Ring size", "How big the rings are drawn.", "pie", "scale", 0.6, 1.6, 0.01, true),
+		}),
+	}
+	for n = 1, ns.Pie.MAX_RINGS do
+		args["ring" .. n] = PieRingCard(n)
+	end
+	return args
+end
+
+---------------------------------------------------------------------------
 -- Rows
 
 local VISIBILITY = {
@@ -1320,6 +1363,7 @@ local function Build()
 				place = PositionCard(8, "Free row: above the resource globe by default. " .. UNLOCK, function() ns.Totem.ResetPosition() end, function() return not DB().totems.moved end),
 			}),
 			keybinding = Page(26, "Keybinds", {}),
+			pie = Page(27, "Pie menus", PieArgs()),
 
 			gap30 = Gap(29),
 			sectionUnits = Section(30, "Unit frames"),
@@ -1506,9 +1550,13 @@ function ns.Options.Init()
 	Dialog:AddToBlizOptions(APP, "SanctuaryUI")
 end
 
-function ns.Options.Open()
+-- page: a tree row's key to open on (then the window opens rather than toggles).
+function ns.Options.Open(page)
 	local Dialog = LibStub("AceConfigDialog-3.0")
-	if Dialog.OpenFrames[APP] then
+	if page then
+		Dialog:Open(APP)
+		Dialog:SelectGroup(APP, page)
+	elseif Dialog.OpenFrames[APP] then
 		Dialog:Close(APP)
 	else
 		Dialog:Open(APP)
