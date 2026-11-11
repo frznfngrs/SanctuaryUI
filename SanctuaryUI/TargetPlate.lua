@@ -1438,7 +1438,9 @@ end
 -- Filters, counts, sizes and flow: only when a setting changed, and only out of combat (the
 -- buttons can't be resized while auras are secret).
 local function ConfigureBoxes(plate, opt, d, b, same)
-	local preview = Previewing() and true or false
+	-- forceReal: going into combat, when nothing can be changed until it ends (see the
+	-- PLAYER_REGEN_DISABLED handler).
+	local preview = (Previewing() and not plate.forceReal) and true or false
 	local key = table.concat({
 		tostring(opt.debuffs), tostring(opt.buffs), tostring(same), tostring(preview),
 		opt.maxDebuffs or 16, opt.maxBuffs or 8,
@@ -2637,6 +2639,7 @@ function M.Init()
 	pcall(events.RegisterEvent, events, CFG.changed) -- a client without a focus has no such event
 	events:RegisterEvent("PLAYER_ENTERING_WORLD")
 	events:RegisterEvent("PLAYER_REGEN_ENABLED")
+	events:RegisterEvent("PLAYER_REGEN_DISABLED")
 	events:RegisterEvent("RAID_TARGET_UPDATE")
 	events:RegisterEvent("UI_SCALE_CHANGED")
 	events:RegisterEvent("DISPLAY_SIZE_CHANGED")
@@ -2678,7 +2681,11 @@ function M.Init()
 			StartCast(plate.Cast, false)
 		elseif event == "UNIT_SPELLCAST_CHANNEL_START" or event == "UNIT_SPELLCAST_CHANNEL_UPDATE" or event == "UNIT_SPELLCAST_EMPOWER_START" or event == "UNIT_SPELLCAST_EMPOWER_UPDATE" then
 			StartCast(plate.Cast, true)
-		elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_INTERRUPTED" or event == "UNIT_SPELLCAST_CHANNEL_STOP" or event == "UNIT_SPELLCAST_EMPOWER_STOP" then
+		elseif event == "UNIT_SPELLCAST_FAILED" then
+			-- A failed attempt (another key pressed mid-cast) can leave a cast running: re-read
+			-- it, stopping only if nothing is being cast or channelled.
+			StartCast(plate.Cast)
+		elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_INTERRUPTED" or event == "UNIT_SPELLCAST_CHANNEL_STOP" or event == "UNIT_SPELLCAST_EMPOWER_STOP" then
 			StopCast(plate.Cast)
 		elseif event == "UNIT_SPELLCAST_INTERRUPTIBLE" or event == "UNIT_SPELLCAST_NOT_INTERRUPTIBLE" then
 			SetShield(plate.Cast, event == "UNIT_SPELLCAST_NOT_INTERRUPTIBLE")
@@ -2697,7 +2704,16 @@ function M.Init()
 			UpdatePortrait(plate, true)
 		elseif event == "UNIT_TARGET" then
 			UpdateToT(plate)
+		elseif event == "PLAYER_REGEN_DISABLED" then
+			-- The containers can't change in combat. Left on the preview's setup (you, your
+			-- buffs as debuffs), a unit targeted in combat would show your buffs as its
+			-- debuffs, so they go over to the real unit while they still can.
+			if plate.debuffBox and Previewing() then
+				plate.forceReal = true
+				pcall(UpdateAuras, plate)
+			end
 		elseif event == "PLAYER_REGEN_ENABLED" then
+			plate.forceReal = nil
 			if M.pending then M.Layout() end
 			-- The rank changed in combat: fit the click area to its frame now.
 			if plate.hitStale then

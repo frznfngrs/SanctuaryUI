@@ -566,7 +566,7 @@ function ns.ActiveSkill.Rescan()
 	local channel = name and { name, spellID, start, duration }
 	ns.ActionBar.ForEachButton(function(button)
 		local on, s, d, timer, always
-		if enabled then
+		if enabled and ns.ActionBar.IsLive(button) then
 			on, s, d, timer, always = Resolve(button, channel)
 		end
 		if on then

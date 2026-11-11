@@ -984,7 +984,16 @@ local function MeterArgs()
 		analysis = Card(5.5, "Analysis window", {
 			note = Note(1, "Every fight the game still remembers, everyone in it side by side, and each player's abilities. Out of combat only. Also opened by shift-clicking the meter's title, or from its menus."),
 			open = { type = "execute", order = 2, name = "Open analysis", func = function() ns.MeterAnalysis.Open() end },
-			scale = Range(3, "Window scale", "The whole window, text included.", "meter", "analysisScale", 0.5, 1.6, 0.05, true),
+			scale = (function()
+				local option = Range(3, "Window scale", "The whole window, text included.", "meter", "analysisScale", 0.5, 1.6, 0.05, true)
+				local set = option.set
+				option.set = function(...)
+					set(...)
+					-- Only Open reads the scale, so an open window is opened again to take it.
+					if ns.MeterAnalysis.IsOpen() then ns.MeterAnalysis.Open() end
+				end
+				return option
+			end)(),
 			shape = {
 				type = "execute", order = 4, name = "Reset size and panes",
 				desc = "Drag the window's bottom right corner to resize it, and the lines between its three panes to give one more room. This puts them back.",
@@ -1016,8 +1025,11 @@ local function MeterArgs()
 				desc = "A player's name, first name or full. Each group fight you share adds to a win and loss tally under the meter. Changing the name starts the tally over.",
 				get = function() return DB().meter.rival end,
 				set = function(_, value)
-					DB().meter.rival = (value or ""):match("^%s*(.-)%s*$")
-					ns.MeterHistory.ResetRival()
+					local name = (value or ""):match("^%s*(.-)%s*$")
+					local old = DB().meter.rival or ""
+					DB().meter.rival = name
+					-- Enter on the same name (any case) keeps the tally; a new name starts it over.
+					if name:lower() ~= old:lower() then ns.MeterHistory.ResetRival() end
 				end,
 			}, THIRD),
 			tally = Note(13, function()
@@ -1562,55 +1574,15 @@ local function Build()
 						return option
 					end)(),
 				}),
-				size = Card(2, "Console size", {
-					scale = Range(1, "Bar scale", "The console between the globes: its bars, including bars set into it, the menu and the rail.", nil, "scale", 0.5, 1.8, 0.01, true),
-					globeScale = Range(2, "Globe scale", "The globes and their statues. They stay on the ends of the bar, bottoms level, and the art round each globe is fitted to it whatever the two scales.", nil, "globeScale", 0.5, 1.8, 0.01, true),
-					match = Width({
-						type = "execute",
-						order = 3,
-						name = "Match globes to bars",
-						desc = "Set the globe scale to the bar scale.",
-						func = function()
-							local db = DB()
-							db.globeScale = db.scale
-							Changed()
-						end,
-					}, THIRD),
-					reset = {
-						type = "execute",
-						order = 4,
-						name = "Reset position",
-						func = function()
-							local db = DB()
-							db.point, db.rel, db.x, db.y, db.posUI = "BOTTOM", "BOTTOM", 0, 0, true
-							Changed()
-						end,
-					},
-				}),
-				other = Card(3, "Other", {
-					hideMicroMenu = Toggle(1, "Hide Blizzard micro menu", "The console's menu buttons replace it. If it comes back misplaced after turning this off, /reload.", nil, "hideMicroMenu"),
+				minimap = Card(2, "Minimap", {
 					minimap = Width({
 						type = "toggle",
-						order = 2,
+						order = 1,
 						name = "Minimap button",
 						desc = "Left-click opens these options, right-click locks or unlocks frames. Drag it around the minimap.",
 						get = function() return not ns.db.global.minimap.hide end,
 						set = function(_, value) ns.Minimap.SetShown(value) end,
 					}, HALF),
-					hearthItem = Width({
-						type = "input",
-						order = 3,
-						name = "Town portal item ID",
-						desc = "The item the portal socket uses. 6948 is the Hearthstone.",
-						get = function() return tostring(DB().hearthItem) end,
-						set = function(_, value)
-							DB().hearthItem = tonumber(value) or 6948
-							Changed()
-						end,
-						validate = function(_, value)
-							return tonumber(value) and true or "Enter an item ID number."
-						end,
-					}, THIRD),
 				}),
 				version = Note(4, "SanctuaryUI version " .. VERSION),
 			}),
@@ -1647,6 +1619,50 @@ local function Build()
 
 			gap10 = Gap(9),
 			sectionConsole = Section(10, "Console"),
+			console = Page(10.5, "Size & menu", {
+				size = Card(1, "Size", {
+					scale = Range(1, "Bar scale", "The console between the globes: its bars, including bars set into it, the menu and the rail.", nil, "scale", 0.5, 1.8, 0.01, true),
+					globeScale = Range(2, "Globe scale", "The globes and their statues. They stay on the ends of the bar, bottoms level, and the art round each globe is fitted to it whatever the two scales.", nil, "globeScale", 0.5, 1.8, 0.01, true),
+					match = Width({
+						type = "execute",
+						order = 3,
+						name = "Match globes to bars",
+						desc = "Set the globe scale to the bar scale.",
+						func = function()
+							local db = DB()
+							db.globeScale = db.scale
+							Changed()
+						end,
+					}, THIRD),
+					reset = {
+						type = "execute",
+						order = 4,
+						name = "Reset position",
+						func = function()
+							local db = DB()
+							db.point, db.rel, db.x, db.y, db.posUI = "BOTTOM", "BOTTOM", 0, 0, true
+							Changed()
+						end,
+					},
+				}),
+				menu = Card(2, "Menu", {
+					hideMicroMenu = Toggle(1, "Hide Blizzard micro menu", "The console's menu buttons replace it. If it comes back misplaced after turning this off, /reload.", nil, "hideMicroMenu"),
+					hearthItem = Width({
+						type = "input",
+						order = 2,
+						name = "Town portal item ID",
+						desc = "The item the portal socket uses. 6948 is the Hearthstone.",
+						get = function() return tostring(DB().hearthItem) end,
+						set = function(_, value)
+							DB().hearthItem = tonumber(value) or 6948
+							Changed()
+						end,
+						validate = function(_, value)
+							return tonumber(value) and true or "Enter an item ID number."
+						end,
+					}, THIRD),
+				}),
+			}),
 			globes = Page(11, "Globes", {
 				text = Card(1, "Numbers", {
 					numbers = Select(1, "Show numbers", nil, nil, "numbers", { on = "Always", combat = "In combat (and on mouseover)", hover = "On mouseover (like D3)", off = "Never" }),
@@ -1826,7 +1842,6 @@ local function Build()
 				}),
 				place = PositionCard(8, "Free row: above the resource globe by default. " .. UNLOCK, function() ns.Totem.ResetPosition() end, function() return not DB().totems.moved end),
 			}),
-			trinkets = Page(25.5, "Trinkets", TrinketArgs()),
 			keybinding = Page(26, "Keybinds", {}),
 			pie = Page(27, "Pie menus", PieArgs()),
 
@@ -1921,8 +1936,11 @@ local function Build()
 				}),
 			}),
 
-			swing = Page(35, "Swing timer", SwingArgs()),
-			meter = Page(36, "Damage meter", MeterArgs()),
+			gap35 = Gap(35),
+			sectionCombat = Section(36, "Combat"),
+			meter = Page(37, "Damage meter", MeterArgs()),
+			swing = Page(38, "Swing timer", SwingArgs()),
+			trinkets = Page(38.5, "Trinkets", TrinketArgs()),
 			gap40 = Gap(39),
 			sectionInventory = Section(40, "Inventory"),
 			bags = Page(41, "Bags", {

@@ -64,7 +64,14 @@ local function ReadSpeeds()
 	-- Clients without a ranged speed there: an item in the ranged slot is the answer.
 	if ranged == nil and GetInventoryItemID then
 		local id = GetInventoryItemID("player", INVSLOT_RANGED or 18)
-		speeds.ranged = (Secret(id) or id ~= nil) and 1 or nil
+		local ranged = Secret(id) or id ~= nil
+		-- The slot also holds librams, idols and totems, which never swing.
+		local Instant = C_Item and C_Item.GetItemInfoInstant or GetItemInfoInstant
+		if ranged and not Secret(id) and Instant then
+			local equipLoc = select(4, Instant(id))
+			if equipLoc == "INVTYPE_RELIC" then ranged = false end
+		end
+		speeds.ranged = ranged and 1 or nil
 	end
 end
 
@@ -402,7 +409,24 @@ local function OnSpeed()
 	ns.Swing.Stack()
 end
 
+-- The weapon slots' items, so UNIT_INVENTORY_CHANGED (every arrow a hunter shoots, every
+-- point of durability) redoes the bars only when a weapon really changed.
+local weaponIDs = {}
+local function WeaponsChanged()
+	local changed = false
+	for _, slot in ipairs({ 16, 17, 18 }) do
+		local id = GetInventoryItemID and GetInventoryItemID("player", slot)
+		if Secret(id) then return true end
+		if weaponIDs[slot] ~= id then
+			weaponIDs[slot] = id
+			changed = true
+		end
+	end
+	return changed
+end
+
 local function OnEquip()
+	WeaponsChanged()
 	ReadSpeeds()
 	for _, info in ipairs(BARS) do
 		-- A weapon taken off ends its swing.
@@ -514,6 +538,8 @@ function ns.Swing.Init()
 			ns.Swing.Stack()
 		elseif event == "UNIT_ATTACK_SPEED" then
 			OnSpeed()
+		elseif event == "UNIT_INVENTORY_CHANGED" then
+			if WeaponsChanged() then OnEquip() end
 		else
 			OnEquip()
 			if event == "PLAYER_ENTERING_WORLD" then

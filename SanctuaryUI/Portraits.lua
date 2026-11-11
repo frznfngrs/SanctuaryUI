@@ -359,6 +359,8 @@ function ns.Portraits.Init()
 	events:RegisterUnitEvent("UNIT_MODEL_CHANGED", "player", "pet")
 	events:RegisterUnitEvent("UNIT_PORTRAIT_UPDATE", "player", "pet")
 	pcall(events.RegisterUnitEvent, events, "UNIT_HAPPINESS", "pet")
+	-- PLAYER_LEVEL_UP can come before UnitLevel has the new level, and the pet has no other.
+	pcall(events.RegisterUnitEvent, events, "UNIT_LEVEL", "player", "pet")
 	events:SetScript("OnEvent", function(_, event, unit)
 		if not Opt().enabled then return end
 		if event == "PLAYER_REGEN_ENABLED" and ns.Portraits.pending then

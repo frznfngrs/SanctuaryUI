@@ -117,6 +117,7 @@ ns.WatchData.EFFECTS = {
 	{ key = "innervate", class = "DRUID", spells = { 29166 }, names = { "Innervate" }, look = "surge", surge = "inhale", globe = "mana", tint = "innervate", length = 20, target = "any",
 		label = "Innervate", desc = "streaks of light rushing in to the mana globe, when it is on you" },
 	{ key = "manaTide", class = "SHAMAN", spells = { 16190 }, names = { "Mana Tide Totem" }, look = "surge", surge = "rain", globe = "mana", tint = "water", length = 12, tick = 3,
+		noAura = true, -- the totem pulses mana and puts no buff on you: its timer ends it
 		label = "Mana Tide Totem", desc = "drops fall through the glass and ripple on the mana globe's surface" },
 	{ key = "bloodrage", class = "WARRIOR", spells = { 2687 }, names = { "Bloodrage" }, look = "surge", surge = "inhale", globe = "health", tint = "blood", length = 10, strength = 1.2,
 		flare = { { globe = "power", tint = "rage", dir = "in" } },

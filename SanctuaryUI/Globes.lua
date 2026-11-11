@@ -1168,8 +1168,12 @@ function ns.Globes.Init()
 		elseif event == "UNIT_MAXPOWER" then
 			ns.Globes.UpdatePower()
 		else
-			-- Entering the world, a new form or spec: whatever was kept may be another pool's.
-			ns.Globes.ReadServerPower()
+			-- Entering the world or a new pool (a form that changes it): read afresh. Other form,
+			-- stance and spec events redraw from what the server last said; wiping it there
+			-- showed the client's running guess again (stealth, a rogue's or druid's form event).
+			if event == "PLAYER_ENTERING_WORLD" or event == "UNIT_DISPLAYPOWER" then
+				ns.Globes.ReadServerPower()
+			end
 			ns.Globes.UpdateHealth()
 			ns.Globes.UpdatePower()
 		end

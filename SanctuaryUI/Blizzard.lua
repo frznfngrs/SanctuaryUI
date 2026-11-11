@@ -17,16 +17,6 @@ local FRAME_NAMES = {
 	"PossessActionBar",
 	"PossessBarFrame",
 	"OverrideActionBar",
-	-- Blizzard's other action bars. The console's rows show the same pages (3-6, 13-15) on the
-	-- same keys, so one of these showing (Edit Mode's "In Combat" or "Out of Combat"
-	-- visibility, a settings change) put a copy of a SanctuaryUI row on screen (#10).
-	"MultiBarBottomLeft",
-	"MultiBarBottomRight",
-	"MultiBarRight",
-	"MultiBarLeft",
-	"MultiBar5",
-	"MultiBar6",
-	"MultiBar7",
 	"StatusTrackingBarManager",
 	"MainStatusTrackingBarContainer",
 }
@@ -52,6 +42,38 @@ local REPLACED_BY = {
 	-- PartyFrame's child, so they go with it. Raids keep Blizzard's raid frames either way.
 	PartyFrame = PartyStyled,
 }
+
+-- Blizzard's other action bars, by the page each shows. A SanctuaryUI row on the same page
+-- uses the same keys, so the bar showing (Edit Mode's "In Combat" or "Out of Combat"
+-- visibility, a settings change) put a copy of that row on screen (#10). Each is hidden only
+-- while an enabled row shows its page: with no row there, it is the player's own bar to use.
+local MULTI_BARS = {
+	MultiBarBottomLeft = 6,
+	MultiBarBottomRight = 5,
+	MultiBarRight = 3,
+	MultiBarLeft = 4,
+	MultiBar5 = 13,
+	MultiBar6 = 14,
+	MultiBar7 = 15,
+}
+local multiParent = {}
+
+-- The pages enabled SanctuaryUI rows show, their form pages included.
+local function RowPages(db)
+	local pages = {}
+	for _, n in ipairs(ns.ActionBar and ns.ActionBar.ROW_IDS or {}) do
+		local row = db.rows[n]
+		if row and row.enabled then
+			if type(row.source) == "number" then pages[row.source] = true end
+			if row.followForms and row.formPages then
+				for _, page in pairs(row.formPages) do
+					if type(page) == "number" then pages[page] = true end
+				end
+			end
+		end
+	end
+	return pages
+end
 
 -- Hidden only while the "hide micro menu" option is on.
 local MICRO_NAMES = { "MicroMenuContainer", "MicroMenu" }
@@ -211,6 +233,31 @@ end
 function ns.Blizzard.Replaced()
 	if InCombatLockdown() then return end
 	local db = ns.DB()
+	local pages = RowPages(db)
+	for name, page in pairs(MULTI_BARS) do
+		local frame = _G[name]
+		if frame then
+			if pages[page] then
+				if frame:GetParent() ~= ns.Hider then multiParent[name] = frame:GetParent() end
+				frame.sanctuaryAllow = nil
+				pcall(frame.SetParent, frame, ns.Hider)
+				pcall(Suppress, frame)
+			elseif frame:GetParent() == ns.Hider then
+				-- Given back as Blizzard left it: shown only if its own state says so (the
+				-- Show override isn't called from here, see RawHide). A bar with combat
+				-- visibility sorts itself out on the next change of combat.
+				frame.sanctuaryAllow = true
+				pcall(frame.SetParent, frame, multiParent[name] or UIParent)
+				frame:SetAlpha(1)
+				pcall(frame.EnableMouse, frame, true)
+				local visibility = rawget(frame, "visibility")
+				if rawget(frame, "isShownExternal") and (visibility == nil or visibility == "Always") then
+					local show = rawget(frame, "ShowBase") or frame.Show
+					show(frame)
+				end
+			end
+		end
+	end
 	for name, replaced in pairs(REPLACED_BY) do
 		local frame = _G[name]
 		if frame then

@@ -1644,6 +1644,17 @@ function ns.ActionBar.ForEachButton(fn)
 	end
 end
 
+-- Can this button be seen at all: on the main bar, or on an enabled row and not parked on its
+-- spare frame. The glows (ProcGlow, ActiveSkill) skip the rest rather than light them unseen.
+function ns.ActionBar.IsLive(button)
+	local n = button.sanctuaryRow
+	if not n then return true end
+	local row = ns.ActionBar.rows and ns.ActionBar.rows[n]
+	if row and button:GetParent() == row.spare then return false end
+	local opt = ns.DB().rows[n]
+	return opt and opt.enabled and true or false
+end
+
 function ns.ActionBar.ApplySettings()
 	if InCombatLockdown() or not ns.ActionBar.primary then return end
 	-- The lock is the buttons' own "buttonlock" attribute. Blizzard's lockActionBars is left
@@ -1799,6 +1810,7 @@ function ns.ActionBar.Init()
 			button.sanctuary = true
 			button.sanctuarySquare = true
 			button.sanctuarySocket = true
+			button.sanctuaryRow = n
 			buttons[i] = button
 			ns.Art.ReskinActionButton(nil, button)
 		end

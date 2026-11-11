@@ -383,7 +383,7 @@ local dirty = true -- a scan is due
 -- Effects readings decide: everything kept except channels (their events decide) and the
 -- shield from anyone (the absorb gate decides).
 local function Read(effect)
-	return Kept(effect) and effect.kind ~= "channel" and effect.kind ~= "absorb"
+	return Kept(effect) and effect.kind ~= "channel" and effect.kind ~= "absorb" and not effect.noAura
 end
 
 local function Scan()
@@ -593,6 +593,15 @@ local function OnCast(spellID, now, castGUID)
 	if not Readable(name) then name = nil end
 	local group = Lookup(groupByID, groupByName, spellID, name)
 	if group then
+		-- A seal straight after a Judgement (the one-button "/cast Judgement, /cast Seal" macro,
+		-- or a quick reseal): the old seal is gone either way, and the buff count may never dip
+		-- for Settle to see it. Settle the Judgement here, before the new seal lands, or the
+		-- verdict comes 0.6 s later and puts the new seal out. Nothing is learned from it.
+		if pending and pending.consumer.group == group then
+			local spent = Consumes(pending.consumer)
+			pending = nil
+			if spent then EndGroup(group, nil, "consumed") end
+		end
 		EndGroup(group, name, "replaced")
 		local length
 		for _, effect in ipairs(EffectsOf(spellID, name)) do length = LengthOf(effect, spellID, name) end

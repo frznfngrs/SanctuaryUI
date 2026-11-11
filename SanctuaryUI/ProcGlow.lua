@@ -283,7 +283,7 @@ local function Rescan()
 	dirty = false
 	local enabled = Enabled() or testUntil
 	ns.ActionBar.ForEachButton(function(button)
-		if enabled and HoldsReactive(button) then
+		if enabled and ns.ActionBar.IsLive(button) and HoldsReactive(button) then
 			watched[button] = true
 		else
 			watched[button] = nil

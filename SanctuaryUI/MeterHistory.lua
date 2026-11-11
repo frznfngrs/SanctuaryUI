@@ -18,6 +18,7 @@ local MIN_SECONDS = 5 -- shorter than this is not a fight worth keeping
 local RECORD_SECONDS = 30 -- a personal best needs a fight at least this long, unless it is a boss
 local STREAK_SECONDS = 15
 local MY_ABILITIES = 12
+H.MY_ABILITIES = MY_ABILITIES
 
 local KINDS = {
 	{ "DamageDone", "d" }, { "HealingDone", "h" }, { "DamageTaken", "t" }, { "Interrupts", "i" },
@@ -38,8 +39,10 @@ local function Store()
 end
 H.Store = Store
 
--- An encounter that ended during the fight being recorded.
+-- An encounter that ended during the fight being recorded, and how long after its end
+-- (seconds) the fight may still be saved under it.
 local encounter
+local ENCOUNTER_WINDOW = 30
 
 local function Key(s)
 	return s.sourceGUID or (s.sourceCreatureID and ("c" .. s.sourceCreatureID)) or s.name
@@ -146,15 +149,19 @@ function H.Record()
 	end
 
 	local fight = {
-		t = time(), dur = dur, sid = sid, epoch = m.epoch, run = m.inRun and m.run or nil,
+		t = time(), dur = dur, sid = sid, epoch = m.epoch,
+		-- Not a fight outside while the run is held for the way back in.
+		run = m.inRun and IsInInstance and IsInInstance() and m.run or nil,
 		name = last and not Secret(last.name) and last.name ~= "" and last.name or nil,
 		zone = GetRealZoneText and GetRealZoneText() or nil,
 		size = #players, p = players,
 	}
-	if encounter then
+	-- Only an encounter that ended about when this fight did: one ended after a wipe (you died
+	-- and left combat first, then the boss reset) would otherwise name the next trash pull.
+	if encounter and GetTime() - encounter.at < ENCOUNTER_WINDOW then
 		fight.boss, fight.kill = encounter.name, encounter.kill
-		encounter = nil
 	end
+	encounter = nil
 	fight.mine = MyAbilities(me.guid)
 	for _, p in ipairs(players) do p.guid = nil end
 	m.fights[#m.fights + 1] = fight
@@ -385,20 +392,39 @@ function H.Init()
 		elseif event == "ENCOUNTER_END" then
 			local _, name, _, _, success = ...
 			if name ~= nil and not Secret(name) then
-				encounter = { name = name, kill = not Secret(success) and (success == 1 or success == true) or nil }
+				-- kill is false on a wipe (so it never sets a best), nil when the client hides it.
+				local kill
+				if success ~= nil and not Secret(success) then kill = success == 1 or success == true end
+				encounter = { name = name, kill = kill, at = GetTime() }
 			end
 		elseif event == "DAMAGE_METER_RESET" then
 			m.epoch = m.epoch + 1
 		elseif event == "PLAYER_ENTERING_WORLD" then
-			-- A new instance visit starts a new run; leaving one ends it (MeterGlory hands out the awards).
+			local isInitialLogin = ...
+			-- The client numbers its fights afresh each login, with no reset event: a new epoch,
+			-- or today's fight 2 would be matched to yesterday's saved fight 2.
+			if isInitialLogin == true then m.epoch = m.epoch + 1 end
+			-- Runs: a visit to one dungeon or raid, kept by its instance ID (saved as inRun, so a
+			-- /reload inside doesn't start a new one). Leaving dead (released to the graveyard
+			-- after a wipe) holds the run for the way back in; entering the same instance carries
+			-- on. Leaving alive, or entering another instance, ends it (MeterGlory's awards).
 			local inside, kind = false, nil
 			if IsInInstance then inside, kind = IsInInstance() end
 			inside = inside and (kind == "party" or kind == "raid") or false
-			local was = m.inRun -- saved, so a /reload inside the instance doesn't start a new run
-			if inside and not was then m.run = m.run + 1 end
-			m.inRun = inside or nil
-			if was and not inside and ns.MeterGlory and ns.MeterGlory.RunEnded then
-				pcall(ns.MeterGlory.RunEnded, m.run)
+			local id = inside and GetInstanceInfo and select(8, GetInstanceInfo()) or nil
+			if Secret(id) then id = nil end
+			id = id or (inside and true) or nil
+			local was = m.inRun
+			-- true: a run saved before runs kept their instance (or the client wouldn't say).
+			local same = was ~= nil and inside and (was == true or id == true or was == id)
+			if was ~= nil and not same and (inside or not UnitIsDeadOrGhost("player")) then
+				if ns.MeterGlory and ns.MeterGlory.RunEnded then pcall(ns.MeterGlory.RunEnded, m.run) end
+				was = nil
+				m.inRun = nil
+			end
+			if inside then
+				if was == nil then m.run = m.run + 1 end
+				m.inRun = id
 			end
 		end
 	end)

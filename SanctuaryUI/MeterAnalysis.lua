@@ -528,7 +528,8 @@ local function Comparison(who)
 	if not other or not other.mine or not other.dur or other.dur <= 0 or not record.dur or record.dur <= 0 then return nil end
 	local was = {}
 	for _, a in ipairs(other.mine) do was[a.id] = a.v / other.dur end
-	return { was = was, now = record.dur, other = other, record = record }
+	-- Saved fights keep only the top abilities: one missing from a full list may have been used.
+	return { was = was, now = record.dur, other = other, record = record, full = #other.mine >= (ns.MeterHistory.MY_ABILITIES or 12) }
 end
 
 local function DrawDetail(who)
@@ -574,6 +575,8 @@ local function DrawDetail(who)
 					if was then
 						local delta = a.total / versus.now - was
 						row.rate:SetText((delta >= 0 and "|cff60d060+" or "|cffff6050-") .. L.Short(math.abs(delta)) .. "/s|r")
+					elseif versus.full then
+						row.rate:SetText("")
 					else
 						row.rate:SetText("|cff60d060new|r")
 					end

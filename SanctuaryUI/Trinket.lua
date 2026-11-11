@@ -233,6 +233,8 @@ local function AutoSwap(i)
 end
 
 local function RunAuto()
+	-- Off, nothing swaps: the end-of-combat event still arrives with the bar hidden.
+	if not Opt().enabled then return end
 	if not CanSwap() or GetTime() - lastTry < RETRY then return end
 	if UnitCastingInfo and UnitCastingInfo("player") ~= nil then return end
 	if UnitChannelInfo and UnitChannelInfo("player") ~= nil then return end
