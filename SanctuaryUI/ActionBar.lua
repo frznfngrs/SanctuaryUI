@@ -714,6 +714,7 @@ function ns.ActionBar.Layout()
 	end
 	if ns.PetHeader then Header(ns.PetHeader) end
 	if ns.LeaveButton then ns.LeaveButton:SetFrameLevel(above + 2) end
+	if ns.TaxiButton then ns.TaxiButton:SetFrameLevel(above + 2) end
 
 	for i = 1, PRIMARY do
 		local slot = metrics.slots[i]
@@ -1858,6 +1859,67 @@ function ns.ActionBar.Init()
 	leave:SetScript("OnLeave", GameTooltip_Hide)
 	ns.LeaveButton = leave
 	RegisterStateDriver(leave, "visibility", "[vehicleui][overridebar][possessbar] show; hide")
+
+	-- Flight paths: no macro conditional sees a taxi, and TaxiRequestEarlyLanding is not
+	-- protected, so a plain button sits where the leave button does and asks to land at the
+	-- next stop. It hangs off a protected frame, so it only shows or hides out of combat.
+	local taxi = CreateFrame("Button", "SanctuaryUITaxiStop", cluster)
+	taxi:SetAllPoints(leave)
+	taxi:RegisterForClicks("AnyUp")
+	taxi.icon = taxi:CreateTexture(nil, "ARTWORK")
+	taxi.icon:SetAllPoints()
+	if not taxi.icon:SetTexture("Interface\\Vehicles\\UI-Vehicles-Button-Exit-Up") and taxi.icon.SetAtlas then
+		taxi.icon:SetAtlas("transmog-icon-revert")
+	end
+	ns.Art.MaskCircle(taxi.icon)
+	ns.Art.AttachRing(taxi, "buttonRingSmall")
+	taxi:Hide()
+	local function TaxiTooltip(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		if self.requested then
+			GameTooltip:SetText(TAXI_CANCEL_DESCRIPTION or "You will land at the next flight point.")
+		else
+			GameTooltip:SetText(TAXI_CANCEL or "Request Stop")
+			GameTooltip:AddLine(TAXI_CANCEL_DESCRIPTION or "Land at the next flight point.", 1, 1, 1, true)
+		end
+		GameTooltip:Show()
+	end
+	taxi:SetScript("OnEnter", TaxiTooltip)
+	taxi:SetScript("OnLeave", GameTooltip_Hide)
+	taxi:SetScript("OnClick", function(self)
+		if self.requested or not UnitOnTaxi("player") then return end
+		TaxiRequestEarlyLanding()
+		self.requested = true
+		self.icon:SetDesaturated(true)
+		self.icon:SetVertexColor(0.6, 0.6, 0.6)
+		if GameTooltip:IsOwned(self) then TaxiTooltip(self) end
+	end)
+	local function UpdateTaxi(self)
+		if InCombatLockdown() then
+			self:RegisterEvent("PLAYER_REGEN_ENABLED")
+			return
+		end
+		self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+		local onTaxi = UnitOnTaxi("player")
+		if onTaxi and not self:IsShown() then
+			self.requested = nil
+			self.icon:SetDesaturated(false)
+			self.icon:SetVertexColor(1, 1, 1)
+		end
+		self:SetShown(onTaxi)
+	end
+	local taxiEvents = CreateFrame("Frame")
+	for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_CONTROL_LOST", "PLAYER_CONTROL_GAINED",
+		"UPDATE_BONUS_ACTIONBAR", "UPDATE_MULTI_CAST_ACTIONBAR", "TAXIMAP_CLOSED" }) do
+		pcall(taxiEvents.RegisterEvent, taxiEvents, event)
+	end
+	taxiEvents:SetScript("OnEvent", function()
+		UpdateTaxi(taxi)
+		-- UnitOnTaxi turns true a moment after the flight starts.
+		C_Timer.After(0.5, function() UpdateTaxi(taxi) end)
+	end)
+	taxi:SetScript("OnEvent", UpdateTaxi)
+	ns.TaxiButton = taxi
 
 	local pets = CreateFrame("Frame", "SanctuaryUIPetBar", cluster, "SecureHandlerStateTemplate")
 	pets:SetAllPoints(cluster)
