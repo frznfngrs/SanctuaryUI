@@ -542,6 +542,7 @@ function ns.Layout()
 	if ns.Totem and ns.Totem.Layout then ns.Totem.Layout() end
 	if ns.Trinket and ns.Trinket.Layout then ns.Trinket.Layout() end
 	if ns.Swing and ns.Swing.Layout then ns.Swing.Layout() end
+	if ns.Meter and ns.Meter.Layout then ns.Meter.Layout() end
 	if ns.TargetPlate and ns.TargetPlate.Layout then ns.TargetPlate.Layout() end
 	if ns.FocusPlate and ns.FocusPlate.Layout then ns.FocusPlate.Layout() end
 	if ns.Portraits and ns.Portraits.Layout then ns.Portraits.Layout() end
@@ -590,7 +591,7 @@ local function Slash(msg)
 			ns.Options.Open()
 		end
 	elseif cmd == "help" then
-		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n> (bars), globes <n>|match, bar 2-9 on|off, bind, pie [1-6] (pie menus), trinkets, swing (preview the swing timer), minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, proc (preview the proc highlight), aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), debug on|off, log, report [on|off], request (suggest a feature)")
+		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n> (bars), globes <n>|match, bar 2-9 on|off, bind, pie [1-6] (pie menus), trinkets, swing (preview the swing timer), minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, meter [analysis|glory|awards|test|reset|probe] (damage meter), proc (preview the proc highlight), aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), debug on|off, log, report [on|off], request (suggest a feature)")
 	elseif cmd == "grid" then
 		-- grid: toggle; grid on|off; grid <spacing>. The grid only shows while frames are
 		-- unlocked, so showing it unlocks them.
@@ -840,6 +841,27 @@ local function Slash(msg)
 		local ok, err = pcall(ns.ActionBar.CountdownReport)
 		ns.forceLog = nil
 		if not ok then ns.Print("report failed: " .. tostring(err)) end
+	elseif cmd == "meter" then
+		local sub = rest:lower()
+		if sub == "probe" then
+			-- What the client's damage meter data lets us read: now, and over the next few fights.
+			local ok, err = pcall(ns.MeterProbe.Run)
+			if not ok then ns.Print("meter probe failed: " .. tostring(err)) end
+		elseif sub == "analysis" or sub == "analyze" or sub == "details" then
+			ns.MeterAnalysis.Open()
+		elseif sub == "glory" or sub == "surprises" then
+			ns.MeterGlory.Test()
+		elseif sub == "awards" then
+			ns.MeterGlory.Awards()
+		elseif sub == "reset" or sub == "clear" then
+			ns.Meter.Reset()
+		elseif sub == "test" or sub == "preview" then
+			KeepPreview("meter")
+			ns.Meter.SetPreview(not ns.Meter.preview)
+			ns.Print(ns.Meter.preview and "damage meter preview on (/sanctuary meter test again to turn off)" or "damage meter preview off")
+		elseif ns.Options and ns.Options.Open then
+			ns.Options.Open("meter")
+		end
 	elseif cmd == "active" or cmd == "auras" or cmd == "watch" then
 		-- Reports go into the log even with debug off, so /reload hands them over whole.
 		ns.forceLog = true
@@ -927,6 +949,9 @@ loader:SetScript("OnEvent", function(_, event)
 		Safe("totems", ns.Totem and ns.Totem.Init)
 		Safe("trinkets", ns.Trinket and ns.Trinket.Init)
 		Safe("swing timer", ns.Swing and ns.Swing.Init)
+		Safe("damage meter", ns.Meter and ns.Meter.Init)
+		Safe("meter history", ns.MeterHistory and ns.MeterHistory.Init)
+		Safe("meter glory", ns.MeterGlory and ns.MeterGlory.Init)
 		Safe("pie menus", ns.Pie and ns.Pie.Init)
 		Safe("auras", ns.Auras and ns.Auras.Init)
 		Safe("target plate", ns.TargetPlate and ns.TargetPlate.Init)

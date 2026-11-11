@@ -336,6 +336,49 @@ ns.DEFAULTS = {
 			my = 0,
 		},
 
+		-- damage meter (Meter.lua): the client's own tallies on forged rails
+		meter = {
+			enabled = true,
+			style = "glass", -- glass (red glass header) | shadow (glass, dark panel behind) | plaque (red plate header)
+			show = "always", -- always | combat | group
+			view = "DamageDone", -- Meter.lua VIEWS key
+			segment = "current", -- current | overall
+			scale = 1, -- 100% is the mockup's size
+			width = 560, -- rail length, in the art's pixels
+			railHeight = 50, -- rail height, in the art's pixels
+			textScale = 1, -- text size on the rails, on top of what the rail height gives
+			font = "wow", -- names and numbers: d3 (Exocet) | wow (Friz Quadrata) | narrow (Arial Narrow); the meter's own, apart from any addon-wide font
+			titleFont = "d3", -- the title strip: same choices
+			analysisScale = 1, -- the analysis window (MeterAnalysis.lua), on top of its own base size
+			-- its shape, in the art's pixels: size, and the widths of the fights and table panes
+			analysis = { w = 2200, h = 1080, left = 360, mid = 1010 },
+			history = true, -- save each fight per character (MeterHistory.lua)
+			historyKeep = 50, -- how many, at most 250; the oldest go first
+			-- the competitive side (MeterGlory.lua), all on your own screen
+			glory = true,
+			gloryLead = true, -- taking and losing the lead mid-fight
+			gloryBanners = true, -- top damage, streaks and records when a fight ends
+			glorySounds = false,
+			gloryPlace = "auto", -- the line by the meter: auto (above, or below at the top of the screen) | above | below
+			gloryStatues = true, -- the console statues' eyes while you lead
+			gloryStreakRail = true, -- your rail turns molten on a streak of three
+			gloryGroupOnly = true, -- lead changes only while in a group
+			gloryAwards = true, -- awards in chat on leaving a dungeon or raid
+			gloryScale = 1, -- the banner
+			rival = "", -- a player's name to keep a tally against
+			rows = 5,
+			panelAlpha = 0.88, -- the dark panel of "shadow"
+			ranks = true, -- numbered studs left of the rails
+			goldLeader = true, -- first place on a gold rail
+			pinSelf = true, -- keep you on the last rail when the list runs past you
+			verdict = true, -- where you placed, under the list after a fight
+			names = "first", -- first | full | firstInitial (First L.) | initialLast (F. Last)
+			headers = true, -- column headings under the title strip
+			moved = false,
+			mx = 0,
+			my = 0,
+		},
+
 		-- bank window
 		bank = {
 			enabled = true,
@@ -382,6 +425,8 @@ ns.DEFAULTS = {
 			{ auto = false, list = {} },
 			{ auto = false, list = {} },
 		},
+		-- MeterHistory.lua: saved fights, personal bests, the streak and the rival's tally.
+		meter = {},
 	},
 	global = {
 		-- LibDBIcon keeps the minimap button's angle and visibility here, shared by all profiles.
@@ -537,6 +582,7 @@ function ns.Refresh()
 	Run("totems", ns.Totem and ns.Totem.ApplySettings)
 	Run("trinkets", ns.Trinket and ns.Trinket.ApplySettings)
 	Run("swing timer", ns.Swing and ns.Swing.ApplySettings)
+	Run("damage meter", ns.Meter and ns.Meter.ApplySettings)
 	Run("pie menus", ns.Pie and ns.Pie.ApplySettings)
 	-- Last: buttons are sized by the layout and the stance and totem settings.
 	Run("cooldown numbers", ns.ActionBar and ns.ActionBar.StyleCountdowns)

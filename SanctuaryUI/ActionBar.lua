@@ -1444,6 +1444,9 @@ function ns.ActionBar.UpdateMovers(hide)
 	if ns.Swing and ns.Swing.UpdateMovers then
 		ns.Swing.UpdateMovers(unlocked)
 	end
+	if ns.Meter and ns.Meter.UpdateMovers then
+		ns.Meter.UpdateMovers(unlocked)
+	end
 	for _, n in ipairs(ROW_IDS) do
 		local row = ns.ActionBar.rows[n]
 		row.mover:SetShown(unlocked and ns.DB().rows[n].enabled and not DockIndex(n))

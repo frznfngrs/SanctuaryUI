@@ -930,6 +930,124 @@ local VISIBILITY = {
 }
 
 -- "Page 6", or "Page 6 (bar 3)" while something else shows it. Bar n itself doesn't count.
+-- Damage meter (Meter.lua)
+local function MeterArgs()
+	local views, viewOrder = {}, {}
+	for _, v in ipairs(ns.Meter.VIEWS) do
+		views[v.key] = v.label
+		viewOrder[#viewOrder + 1] = v.key
+	end
+	return {
+		intro = Note(1, "The game's own damage and healing tallies on forged rails. Left-click the title to choose what is shown, right-click it to choose the fight. In combat the game hides the numbers from addons: the rails still draw them, but shares and the verdict appear half a second after the fight, and a player's abilities open with a click once it is over."),
+		missing = {
+			type = "description", order = 1.5, fontSize = "medium",
+			name = "|cffff6060This client has no damage meter data for addons, so the meter can't run.|r",
+			hidden = function() return ns.Meter.Supported() end,
+		},
+		enabled = Toggle(2, "Enabled", nil, "meter", "enabled"),
+		preview = Width({
+			type = "toggle", order = 3, name = "Preview",
+			desc = "Show a made-up five-player fight on the rails, to judge a style without fighting. Also shown while frames are unlocked. Turns off when this window closes.",
+			get = function() return ns.Meter.preview end,
+			set = OwningFlag("meter", ns.Meter, function(_, value) ns.Meter.SetPreview(value) end),
+		}, HALF),
+		look = Card(4, "Look", {
+			style = Select(1, "Style", "Red glass header: the stained glass strip, nothing behind the rails. Glass and shadow: the same with a dark panel behind, for bright scenery. Red plaque: D3's red button plate as the title.", "meter", "style", ns.Meter.STYLES, ns.Meter.STYLE_ORDER),
+			scale = Range(2, "Scale", nil, "meter", "scale", 0.5, 2.5, 0.05, true),
+			width = Range(3, "Rail length", nil, "meter", "width", 360, 900, 10),
+			railHeight = Range(3.2, "Rail height", "How tall each rail is. The text grows and shrinks with it.", "meter", "railHeight", 30, 100, 2),
+			textScale = Range(3.4, "Text size", "The text on the rails, on top of what the rail height gives it.", "meter", "textScale", 0.6, 1.6, 0.05, true),
+			font = Select(3.6, "Text font", "The names and numbers on the rails. Body font follows Options > Fonts; pick any other face to set the meter apart.", "meter", "font", TEXT_FONTS, TEXT_FONT_ORDER),
+			titleFont = Select(3.8, "Title font", "The title strip: what is shown and the fight's clock.", "meter", "titleFont", TEXT_FONTS, TEXT_FONT_ORDER),
+			rows = Range(4, "Rails", "How many players are listed. The mouse wheel scrolls a longer list.", "meter", "rows", 3, 20, 1),
+			panelAlpha = Range(5, "Panel darkness", "For the Glass and shadow style.", "meter", "panelAlpha", 0.2, 1, 0.02, true),
+		}),
+		shows = Card(5, "Shows", {
+			view = Select(1, "Showing", nil, "meter", "view", views, viewOrder),
+			show = Select(2, "Visible", nil, "meter", "show", {
+				always = "Always",
+				combat = "Only in combat",
+				group = "Only in a group",
+			}, { "always", "combat", "group" }),
+			ranks = Toggle(3, "Place numbers", "A numbered stud left of each rail.", "meter", "ranks"),
+			goldLeader = Toggle(4, "Gold rail for first place", nil, "meter", "goldLeader"),
+			pinSelf = Toggle(5, "Always list me", "When the list runs past you, the last rail shows you with your real place.", "meter", "pinSelf"),
+			names = Select(2.5, "Player names", "Characters here have a first and a last name. In combat the game hides names from addons, so other players show their first name alone until the fight ends (cut by narrowing the text, so a very long first name may lose its end); the initials appear once it is over.", "meter", "names", {
+				first = "First name only",
+				firstInitial = "First name, last initial",
+				initialLast = "First initial, last name",
+				full = "First and last",
+			}, { "first", "firstInitial", "initialLast", "full" }),
+			headers = Toggle(5.5, "Column headings", "Small labels over the numbers: per second, total, and share once a fight is over.", "meter", "headers"),
+			verdict = Toggle(6, "Verdict after a fight", "A line under the list when a fight ends: where you placed in damage and by how much.", "meter", "verdict"),
+		}),
+		analysis = Card(5.5, "Analysis window", {
+			note = Note(1, "Every fight the game still remembers, everyone in it side by side, and each player's abilities. Out of combat only. Also opened by shift-clicking the meter's title, or from its menus."),
+			open = { type = "execute", order = 2, name = "Open analysis", func = function() ns.MeterAnalysis.Open() end },
+			scale = Range(3, "Window scale", "The whole window, text included.", "meter", "analysisScale", 0.5, 1.6, 0.05, true),
+			shape = {
+				type = "execute", order = 4, name = "Reset size and panes",
+				desc = "Drag the window's bottom right corner to resize it, and the lines between its three panes to give one more room. This puts them back.",
+				func = function()
+					DB().meter.analysis = { w = 2200, h = 1080, left = 360, mid = 1010 }
+					if ns.MeterAnalysis.IsOpen() then ns.MeterAnalysis.Open() end
+				end,
+			},
+		}),
+		glory = Card(5.7, "Competition", {
+			note = Note(1, "Private surprises: only you see and hear them, nothing is said to your group. /sanctuary meter glory plays them all once."),
+			glory = Toggle(2, "Enabled", nil, "meter", "glory"),
+			test = Width({ type = "execute", order = 3, name = "Play them all", func = function() ns.MeterGlory.Test() end }, HALF),
+			gloryLead = Toggle(4, "Lead changes in a fight", "When you take the lead in damage your rail flashes and a line says so; when someone passes you, their name is shown. The lead counts from six seconds into a fight.", "meter", "gloryLead"),
+			gloryGroupOnly = Toggle(5, "Only in a group", "Off, strangers hitting your enemy in the open world count as rivals for the lead too.", "meter", "gloryGroupOnly"),
+			gloryStatues = Toggle(6, "Statue eyes", "The console angel's eyes glow while you lead; the gargoyle's flare when you lose it.", "meter", "gloryStatues"),
+			gloryBanners = Toggle(7, "Lines after a fight", "Top damage in a group fight, a streak of fights on top (3, 5, then every 5), and a new personal best: your damage per second on the same boss, or in a solo or group fight of 30 seconds or more.", "meter", "gloryBanners"),
+			gloryStreakRail = Toggle(8, "Molten rail on a streak", "Your rail turns molten while you have topped three or more group fights in a row.", "meter", "gloryStreakRail"),
+			gloryAwards = Toggle(9, "Run awards", "On leaving a dungeon or raid, who led each tally over the run, printed in your chat only. /sanctuary meter awards shows them early.", "meter", "gloryAwards"),
+			glorySounds = Toggle(10, "Sounds", "A short sound with each line. Off by default.", "meter", "glorySounds"),
+			gloryScale = Range(11, "Text size", "The lines that appear beside the meter.", "meter", "gloryScale", 0.6, 1.8, 0.05, true),
+			gloryPlace = Select(11.5, "Where", "The lines sit against the meter, never in the middle of the screen.", "meter", "gloryPlace", {
+				auto = "Above the meter (below near the top)",
+				above = "Above the meter",
+				below = "Below the meter",
+			}, { "auto", "above", "below" }),
+			rival = Width({
+				type = "input", order = 12, name = "Rival",
+				desc = "A player's name, first name or full. Each group fight you share adds to a win and loss tally under the meter. Changing the name starts the tally over.",
+				get = function() return DB().meter.rival end,
+				set = function(_, value)
+					DB().meter.rival = (value or ""):match("^%s*(.-)%s*$")
+					ns.MeterHistory.ResetRival()
+				end,
+			}, THIRD),
+			tally = Note(13, function()
+				local m = ns.MeterHistory.Store()
+				if not m then return "" end
+				local rival = DB().meter.rival
+				local line = ("%d fights saved for this character. Streak: %d."):format(#m.fights, m.streak or 0)
+				if rival and rival ~= "" then line = line .. (" Against %s: %d won, %d lost."):format(rival, m.rivalWins or 0, m.rivalLosses or 0) end
+				return line
+			end),
+		}),
+		data = Card(6, "Data", {
+			note = Note(1, "The numbers are the game's. They only count while the game's own damage meter is turned on in its options. To stop Blizzard's window showing beside this one, set its Visibility to Hidden in Edit Mode."),
+			reset = { type = "execute", order = 2, name = "Clear all fights", desc = "Clears the game's own tallies. Saved fights and records stay.", func = function() ns.Meter.Reset() end },
+			history = Toggle(3, "Save fights", "Keep each fight, per character, for the analysis window, records, streaks and awards.", "meter", "history"),
+			historyKeep = {
+				type = "range", order = 3.5, name = "Fights kept", min = 10, max = 250, step = 10, width = "relative", relWidth = THIRD,
+				desc = "How many saved fights each character keeps. The oldest are dropped first; lowering this drops them straight away. Personal bests, the streak and the rival tally are kept apart and stay.",
+				get = function() return DB().meter.historyKeep end,
+				set = function(_, value)
+					DB().meter.historyKeep = value
+					ns.MeterHistory.Trim()
+				end,
+			},
+			forget = { type = "execute", order = 4, name = "Forget saved fights", desc = "Deletes this character's saved fights, personal bests, streak and rival tally.", confirm = true, func = function() ns.MeterHistory.Clear() end },
+		}),
+		place = PositionCard(7, "On the right edge of the screen by default. " .. UNLOCK, function() ns.Meter.ResetPosition() end, function() return not DB().meter.moved end),
+	}
+end
+
 local function PageLabel(page, n)
 	local users = ns.ActionBar.PageUsers(page, n)
 	if #users > 0 then
@@ -1804,6 +1922,7 @@ local function Build()
 			}),
 
 			swing = Page(35, "Swing timer", SwingArgs()),
+			meter = Page(36, "Damage meter", MeterArgs()),
 			gap40 = Gap(39),
 			sectionInventory = Section(40, "Inventory"),
 			bags = Page(41, "Bags", {

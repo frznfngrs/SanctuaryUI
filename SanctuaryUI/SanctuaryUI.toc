@@ -43,6 +43,11 @@ Stance.lua
 Totem.lua
 Trinket.lua
 SwingTimer.lua
+Meter.lua
+MeterHistory.lua
+MeterGlory.lua
+MeterAnalysis.lua
+MeterProbe.lua
 PieMenu.lua
 Auras.lua
 TargetPlate.lua
