@@ -447,12 +447,6 @@ end
 -- numbers go through the client's secret-aware helpers (AbbreviateNumbers, BreakUpLargeNumbers,
 -- UnitHealthPercent with a curve) and straight into the font string; we never read them.
 
-local TEXT_FONTS = {
-	d3 = ns.FONT,
-	wow = STANDARD_TEXT_FONT,
-	narrow = "Fonts\\ARIALN.TTF",
-}
-
 -- The soft dark glow behind the bars' text. Text can't be blurred, so a ring of faint dark copies
 -- sits under it. The copies are told the same things as the text (hooks, values passed straight
 -- on, so a secret name or number works) and anchored like it, never to it. Their alpha is their
@@ -645,11 +639,8 @@ local function PlaceText(plate, fs, prefix, isName, pos)
 	pos = pos or opt[prefix .. "Pos"] or "center"
 	local x, y = opt[prefix .. "X"] or 0, opt[prefix .. "Y"] or 0
 	local size = opt[prefix .. "Size"] or 10
-	local font = TEXT_FONTS[opt[prefix .. "Font"]] or STANDARD_TEXT_FONT
-	fs:SetFont(font, size, "OUTLINE")
-	if not fs:GetFont() then
-		fs:SetFont(STANDARD_TEXT_FONT, size, "OUTLINE")
-	end
+	-- The text's own font (Options > Target > Text): "d3" and "wow" follow Options > Fonts.
+	ns.Fonts.Set(fs, "body", size, "OUTLINE", opt[prefix .. "Font"])
 	local bar, w = plate.Health, plate.barW or 250
 	if isName then y = y + 1 end -- Exocet sits a hair low
 	fs:ClearAllPoints()
@@ -700,9 +691,7 @@ function LayoutTexts(plate)
 		local onStud = (opt.levelPos or "badge") == "badge"
 		plate.levelOnBadge = onStud and true or nil
 		if onStud then
-			local font = TEXT_FONTS[opt.levelFont] or STANDARD_TEXT_FONT
-			stud.text:SetFont(font, opt.levelSize or 10, "OUTLINE")
-			if not stud.text:GetFont() then stud.text:SetFont(STANDARD_TEXT_FONT, opt.levelSize or 10, "OUTLINE") end
+			ns.Fonts.Set(stud.text, "body", opt.levelSize or 10, "OUTLINE", opt.levelFont)
 			stud.text:ClearAllPoints()
 			stud.text:SetPoint("CENTER", stud, "CENTER", opt.levelX or 0, opt.levelY or 0)
 			stud:ClearAllPoints()
@@ -720,9 +709,7 @@ function LayoutTexts(plate)
 	local onBadge = (opt.levelPos or "badge") == "badge" and opt.portrait and plate.Portrait.ringArt
 	plate.levelOnBadge = onBadge and true or nil
 	if onBadge then
-		local font = TEXT_FONTS[opt.levelFont] or STANDARD_TEXT_FONT
-		badge.text:SetFont(font, opt.levelSize or 10, "OUTLINE")
-		if not badge.text:GetFont() then badge.text:SetFont(STANDARD_TEXT_FONT, opt.levelSize or 10, "OUTLINE") end
+		ns.Fonts.Set(badge.text, "body", opt.levelSize or 10, "OUTLINE", opt.levelFont)
 		badge.text:ClearAllPoints()
 		badge.text:SetPoint("CENTER", badge, "CENTER", opt.levelX or 0, 1 + (opt.levelY or 0))
 		plate.Level:Hide()
@@ -988,6 +975,7 @@ local function MakeAura(parent, name)
 	if button.cooldown.SetDrawEdge then button.cooldown:SetDrawEdge(false) end
 	if button.cooldown.SetHideCountdownNumbers then button.cooldown:SetHideCountdownNumbers(true) end
 	button.count = button:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+	ns.Fonts.Adopt(button.count, "body")
 	button.count:SetPoint("BOTTOMRIGHT", 1, 1)
 	button.sanctuarySocket = true
 	ns.Art.AttachRing(button)
@@ -2025,10 +2013,8 @@ function M.Layout()
 		plate.ToT:SetPoint("LEFT", plate, "TOP", from, -BarLine())
 		plate.ToT:SetSize(to - from, art.height)
 	end
-	local font = TEXT_FONTS[opt.nameFont] or ns.FONT or STANDARD_TEXT_FONT
 	local size = math.max(8, math.floor((opt.nameSize or 13) * 0.8 + 0.5))
-	art.Name:SetFont(font, size, "OUTLINE")
-	if not art.Name:GetFont() then art.Name:SetFont(STANDARD_TEXT_FONT, size, "OUTLINE") end
+	ns.Fonts.Set(art.Name, "title", size, "OUTLINE", opt.nameFont)
 	SetTextGlow(art.Name, opt.textGlow ~= false)
 	if opt.enabled and opt.tot ~= false then
 		RegisterUnitWatch(plate.ToT)
@@ -2457,6 +2443,7 @@ function M.Init()
 	-- Level and rank under the frame (where D3 lists an elite's affixes), and who it is after.
 	-- The rank (Elite, Rare...) under the bar, where D3 lists an elite's affixes.
 	plate.Sub = plate:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	ns.Fonts.Adopt(plate.Sub, "body")
 	plate.Sub:SetPoint("TOP", plate, "TOP", 0, -SUB_Y)
 	plate.Sub:SetTextColor(0.75, 0.7, 0.6)
 
@@ -2529,7 +2516,7 @@ function M.Init()
 	stud.tex = stud:CreateTexture(nil, "ARTWORK")
 	stud.tex:SetAllPoints()
 	stud.text = stud:CreateFontString(nil, "OVERLAY")
-	stud.text:SetFont(STANDARD_TEXT_FONT, 10, "OUTLINE")
+	ns.Fonts.Set(stud.text, "body", 10, "OUTLINE")
 	stud:Hide()
 	plate.StyleBadge = stud
 
@@ -2575,6 +2562,7 @@ function M.Init()
 	cast.rail:SetSize(256, 26)
 	cast.rail:Hide()
 	cast.spellName = castArt:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	ns.Fonts.Adopt(cast.spellName, "body")
 	cast.spellName:SetPoint("TOP", cast, "BOTTOM", 0, -1)
 	cast.spellName:SetWidth(piece[3])
 	cast.spellName:SetWordWrap(false)

@@ -391,7 +391,7 @@ end
 
 local function Badge(parent, point, x, y)
 	local text = parent:CreateFontString(nil, "OVERLAY")
-	text:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+	ns.Fonts.Set(text, "body", 10, "OUTLINE")
 	text:SetTextColor(1, 0.82, 0.3)
 	text:SetPoint(point, parent, point, x, y)
 	return text

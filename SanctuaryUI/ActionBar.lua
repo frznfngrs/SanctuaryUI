@@ -81,7 +81,13 @@ end
 
 -- Font for the keybind text the addon draws itself (stance and totem sockets).
 function ns.ActionBar.StyleHotkey(fontString)
-	fontString:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", ns.ActionBar.HotkeySize(true), "OUTLINE")
+	ns.Fonts.Set(fontString, "body", ns.ActionBar.HotkeySize(true), "OUTLINE")
+end
+
+-- LibActionButton's text font: the addon's body font (Options > Fonts).
+local function BodyFont(size, flags)
+	local font, scaled, outline = ns.Fonts.Spec("body", size, flags)
+	return { font = font, size = scaled, flags = outline }
 end
 
 local function ButtonConfig(binding, onPlaque)
@@ -126,13 +132,13 @@ local function ButtonConfig(binding, onPlaque)
 		},
 		text = {
 			hotkey = {
-				font = { font = false, size = ns.ActionBar.HotkeySize(), flags = "OUTLINE" },
+				font = BodyFont(ns.ActionBar.HotkeySize(), "OUTLINE"),
 				color = { 0.86, 0.72, 0.42 },
 				position = hotkeyPosition,
 				justifyH = "CENTER",
 			},
 			count = {
-				font = { font = false, size = 12, flags = "OUTLINE" },
+				font = BodyFont(12, "OUTLINE"),
 				color = { 1, 1, 1 },
 				position = {
 					anchor = "BOTTOMRIGHT",
@@ -143,7 +149,7 @@ local function ButtonConfig(binding, onPlaque)
 				justifyH = "RIGHT",
 			},
 			macro = {
-				font = { font = false, size = 10, flags = "OUTLINE" },
+				font = BodyFont(10, "OUTLINE"),
 				color = { 1, 1, 1 },
 				position = { anchor = "BOTTOM", relAnchor = "BOTTOM", offsetX = 0, offsetY = 12 },
 				justifyH = "CENTER",
@@ -1560,7 +1566,7 @@ local function StyleCountdown(button, show)
 		-- "12.3" fits across a socket at this size (and "59:59" across the narrow portal).
 		local size = math.max(9, math.floor(side * 0.34 + 0.5))
 		if text.sanctuarySize ~= size then
-			text:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", size, "OUTLINE")
+			ns.Fonts.Set(text, "body", size, "OUTLINE")
 			text.sanctuarySize = size
 		end
 		text:SetTextColor(1, 1, 1)

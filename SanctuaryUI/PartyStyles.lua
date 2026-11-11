@@ -58,8 +58,7 @@ end
 
 local function Font(parent, size, d3)
 	local fs = parent:CreateFontString(nil, "OVERLAY")
-	fs:SetFont(d3 and ns.FONT or STANDARD_TEXT_FONT, size, "OUTLINE")
-	if not fs:GetFont() then fs:SetFont(STANDARD_TEXT_FONT, size, "OUTLINE") end
+	ns.Fonts.Set(fs, d3 and "title" or "body", size, "OUTLINE")
 	fs:SetShadowColor(0, 0, 0, 0.85)
 	fs:SetShadowOffset(1, -1)
 	fs:SetWordWrap(false)

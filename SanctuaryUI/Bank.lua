@@ -165,6 +165,7 @@ local function MakeBuy(frame)
 	hover:SetAllPoints()
 	hover:SetColorTexture(1, 0.7, 0.3, 0.15)
 	local text = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	ns.Fonts.Adopt(text, "body")
 	text:SetPoint("CENTER", 0, 1)
 	text:SetText("Buy Slot")
 	button.sanctuaryWidth = 84

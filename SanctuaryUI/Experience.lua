@@ -158,7 +158,7 @@ function ns.Experience.Layout()
 		badge:SetSize(spot.w, spot.h)
 		badge:ClearAllPoints()
 		badge:SetPoint("CENTER", cluster, "BOTTOM", spot.x, metrics.baseY + spot.y)
-		badge.text:SetFont(STANDARD_TEXT_FONT, math.max(8, math.floor(spot.h * 0.4 + 0.5)), "OUTLINE")
+		ns.Fonts.Set(badge.text, "body", math.max(8, math.floor(spot.h * 0.4 + 0.5)), "OUTLINE")
 		-- The digits' ink sits left of the string's centre (measured 4% of the ring in game).
 		badge.text:ClearAllPoints()
 		badge.text:SetPoint("CENTER", badge, "CENTER", spot.w * 0.037, 0)
@@ -215,7 +215,7 @@ function ns.Experience.Init()
 		badge.art:SetColorTexture(0.25, 0.03, 0.03, 0.9)
 	end
 	badge.text = badge:CreateFontString(nil, "OVERLAY")
-	badge.text:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
+	ns.Fonts.Set(badge.text, "body", 11, "OUTLINE")
 	badge.text:SetPoint("CENTER", 0, 0)
 	badge.text:SetTextColor(0.98, 0.86, 0.59) -- D3 gold
 	badge.text:SetShadowOffset(0, 0) -- the outline is enough; a shadow drags it down and right

@@ -175,7 +175,7 @@ local function MakeBar(parent, info)
 	bar.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
 	bar.time = bar.art:CreateFontString(nil, "OVERLAY")
-	bar.time:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+	ns.Fonts.Set(bar.time, "body", 10, "OUTLINE")
 	bar.time:SetPoint("RIGHT", bar.fill, "RIGHT", -3, 0)
 	bar.time:SetTextColor(1, 0.92, 0.78)
 	return bar

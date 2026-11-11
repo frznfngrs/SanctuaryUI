@@ -131,9 +131,13 @@ local function Range(order, name, desc, path, key, min, max, step, isPercent)
 	return Width({ type = "range", order = order, name = name, desc = desc, get = get, set = set, min = min, max = max, step = step, isPercent = isPercent }, THIRD)
 end
 
+local TEXT_FONTS -- a font list (below): its selects draw each name in its own face
+
 local function Select(order, name, desc, path, key, values, sorting)
 	local get, set = Field(path, key)
-	return Width({ type = "select", order = order, name = name, desc = desc, get = get, set = set, values = values, sorting = sorting }, THIRD)
+	local option = Width({ type = "select", order = order, name = name, desc = desc, get = get, set = set, values = values, sorting = sorting }, THIRD)
+	if values == TEXT_FONTS and TEXT_FONTS then option.itemControl = "SanctuaryFontItem" end
+	return option
 end
 
 local function Gold(text)
@@ -277,7 +281,97 @@ local POS_ORDER = { "left", "center", "right", "above", "below" }
 local TEXT_POSITIONS = { left = "In the bar, left", center = "In the bar, centre", right = "In the bar, right", above = "Above the frame", below = "Below the frame" }
 local LEVEL_POSITIONS = { badge = "Plaque on the portrait", left = "In the bar, left", center = "In the bar, centre", right = "In the bar, right", above = "Above the frame", below = "Below the frame" }
 local LEVEL_ORDER = { "badge", "left", "center", "right", "above", "below" }
-local TEXT_FONTS = { d3 = "Diablo (Exocet)", wow = "WoW (Friz Quadrata)", narrow = "Arial Narrow" }
+
+-- An element's own font (target frame text, damage meter): the addon's title or body font from
+-- Options > Fonts ("d3" and "wow", the old Exocet and game font keys), or any face in its list.
+-- Each label in a font list, to its key: the list's items look it up to draw the name in that face.
+local fontOfLabel = {}
+
+local function Remember(values)
+	for key, label in pairs(values) do fontOfLabel[label] = key end
+	return values
+end
+
+local function ElementFonts()
+	local fonts = DB().fonts
+	local values, sorting = ns.Fonts.Choices({
+		{ "d3", "Title font  " .. Muted("(" .. ns.Fonts.Label(fonts.title) .. ")") },
+		{ "wow", "Body font  " .. Muted("(" .. ns.Fonts.Label(fonts.body) .. ")") },
+	})
+	return Remember(values), sorting
+end
+
+function TEXT_FONTS()
+	return (ElementFonts())
+end
+
+local function TEXT_FONT_ORDER()
+	local _, sorting = ElementFonts()
+	return sorting
+end
+
+-- Options > Fonts: the face for a role, its default marked.
+local function FontPick(order, name, desc, role)
+	local function choices()
+		local values, sorting = ns.Fonts.Choices()
+		local default = ns.Fonts.DEFAULT[role]
+		if values[default] then values[default] = values[default] .. Muted("  (default)") end
+		return Remember(values), sorting
+	end
+	local option = Select(order, name, desc, "fonts", role, function() return (choices()) end, function()
+		local _, sorting = choices()
+		return sorting
+	end)
+	option.itemControl = "SanctuaryFontItem"
+	return Width(option, HALF)
+end
+
+-- A line of sample text in a role's font, redrawn whenever the page is (every change).
+do
+	local AceGUI = LibStub("AceGUI-3.0")
+	local SIZES = { title = 22, body = 15 }
+	local COLOURS = { title = { 0.93, 0.78, 0.47 }, body = { 0.9, 0.86, 0.78 } }
+	for role, size in pairs(SIZES) do
+		local kind = "SanctuaryFontPreview-" .. role
+		AceGUI:RegisterWidgetType(kind, function()
+			local widget = AceGUI.WidgetRegistry.Label()
+			widget.type = kind
+			widget.SetFontObject = function(self)
+				ns.Fonts.Draw(self.label, role, size, "OUTLINE")
+				self.label:SetTextColor(unpack(COLOURS[role]))
+				self.label:SetShadowColor(0, 0, 0, 0.85)
+				self.label:SetShadowOffset(1, -1)
+				self:SetText(self.label:GetText()) -- re-measure the height for the new face
+			end
+			return widget
+		end, 1)
+	end
+
+	-- A font list's row: the font's name in that font. Rows of other lists never come here, as
+	-- this kind has its own pool.
+	AceGUI:RegisterWidgetType("SanctuaryFontItem", function()
+		local item = AceGUI.WidgetRegistry["Dropdown-Item-Toggle"]()
+		item.type = "SanctuaryFontItem"
+		local setText = item.SetText
+		item.SetText = function(self, text)
+			setText(self, text)
+			local key = fontOfLabel[text]
+			local ok = key and self.text:SetFont(ns.Fonts.Path(nil, key), 13, "")
+			if ok == false or not key then self.text:SetFontObject(GameFontNormalSmall) end
+		end
+		return item
+	end, 1)
+end
+
+local function FontPreview(order, role, text)
+	return { type = "description", order = order, name = text, dialogControl = "SanctuaryFontPreview-" .. role }
+end
+
+local function ResetFonts(keys)
+	local fonts, defaults = DB().fonts, ns.DEFAULTS.profile.fonts
+	for _, key in ipairs(keys) do fonts[key] = defaults[key] end
+	Changed()
+end
 
 -- Options > Globe auras.
 local function GlobeAuraArgs()
@@ -1251,7 +1345,7 @@ local function UnitPlatePage(K, M, order, title, intro, placeNote)
 				healthNumbers = TargetText("healthText", Select(2, "Numbers", nil, K, "healthNumbers", { short = "Short (2.48M)", full = "Full (2,480,000)", raw = "Plain (2480000)" })),
 				healthHideFull = TargetText("healthText", Third(Toggle(3, "Hide at full health", nil, K, "healthHideFull"))),
 				healthPos = TargetText("healthText", Select(4, "Position", nil, K, "healthPos", TEXT_POSITIONS, POS_ORDER)),
-				healthFont = TargetText("healthText", Select(5, "Font", nil, K, "healthFont", TEXT_FONTS)),
+				healthFont = TargetText("healthText", Select(5, "Font", nil, K, "healthFont", TEXT_FONTS, TEXT_FONT_ORDER)),
 				healthSize = TargetText("healthText", Range(6, "Size", nil, K, "healthSize", 6, 24, 1)),
 				healthX = TargetText("healthText", Range(7, "Nudge left / right", nil, K, "healthX", -200, 200, 1)),
 				healthY = TargetText("healthText", Range(8, "Nudge up / down", nil, K, "healthY", -60, 60, 1)),
@@ -1259,7 +1353,7 @@ local function UnitPlatePage(K, M, order, title, intro, placeNote)
 			name = Card(2, "Name", {
 				nameShow = Third(Toggle(1, "Show name", nil, K, "nameShow")),
 				namePos = TargetText("nameShow", Select(2, "Position", nil, K, "namePos", TEXT_POSITIONS, POS_ORDER)),
-				nameFont = TargetText("nameShow", Select(3, "Font", nil, K, "nameFont", TEXT_FONTS)),
+				nameFont = TargetText("nameShow", Select(3, "Font", nil, K, "nameFont", TEXT_FONTS, TEXT_FONT_ORDER)),
 				nameSize = TargetText("nameShow", Range(4, "Size", nil, K, "nameSize", 6, 24, 1)),
 				nameX = TargetText("nameShow", Range(5, "Nudge left / right", nil, K, "nameX", -200, 200, 1)),
 				nameY = TargetText("nameShow", Range(6, "Nudge up / down", nil, K, "nameY", -60, 60, 1)),
@@ -1269,7 +1363,7 @@ local function UnitPlatePage(K, M, order, title, intro, placeNote)
 				levelShow = Third(Toggle(1, "Show level", nil, K, "levelShow")),
 				levelColor = TargetText("levelShow", Select(2, "Colour", "By difficulty: grey, green, yellow, orange or red against your level, as Blizzard colours it.", K, "levelColor", { plain = "Plain", difficulty = "By difficulty" })),
 				levelPos = TargetText("levelShow", Select(3, "Position", "The plaque sits under the portrait frame, in its metal. With the portrait off, the level goes in the bar's left end.", K, "levelPos", LEVEL_POSITIONS, LEVEL_ORDER)),
-				levelFont = TargetText("levelShow", Select(4, "Font", nil, K, "levelFont", TEXT_FONTS)),
+				levelFont = TargetText("levelShow", Select(4, "Font", nil, K, "levelFont", TEXT_FONTS, TEXT_FONT_ORDER)),
 				levelSize = TargetText("levelShow", Range(5, "Size", nil, K, "levelSize", 6, 24, 1)),
 				levelX = TargetText("levelShow", Range(6, "Nudge left / right", nil, K, "levelX", -200, 200, 1)),
 				levelY = TargetText("levelShow", Range(7, "Nudge up / down", nil, K, "levelY", -60, 60, 1)),
@@ -1401,6 +1495,36 @@ local function Build()
 					}, THIRD),
 				}),
 				version = Note(4, "SanctuaryUI version " .. VERSION),
+			}),
+
+			fonts = Page(1.5, "Fonts", {
+				intro = Note(0, "One set of fonts for all of SanctuaryUI. Titles are names, the globes' numbers and headings; text is the rest: hotkeys, counts, timers, labels and bag buttons. Fonts other addons share (ElvUI, Details, Plater...) are listed after Diablo III's and WoW's own. The target and focus frames and the damage meter can still pick their own face; set there to Title font or Body font, they follow this page."),
+				restart = {
+					type = "description",
+					order = 0.5,
+					fontSize = "medium",
+					name = function()
+						return "|cffff8a5c" .. ns.Fonts.MissingBundled() .. " of SanctuaryUI's fonts can't be loaded yet. Exit and restart the game to add them to the list: WoW only finds new addon files when it starts, and /reload is not enough.|r"
+					end,
+					hidden = function() return ns.Fonts.MissingBundled() == 0 end,
+				},
+				title = Card(1, "Titles", {
+					face = FontPick(1, "Font", "Names on the unit frames and party, the globes' numbers, the pie menu and other headings. Exocet is Diablo III's title face.", "title"),
+					size = Range(2, "Size", "On top of each title's own size (the globes' Number size, the target's Name size...).", "fonts", "titleScale", 0.6, 1.6, 0.05, true),
+					reset = Third({ type = "execute", order = 3, name = "Default", desc = "Exocet at full size.", func = function() ResetFonts({ "title", "titleScale" }) end }),
+					preview = FontPreview(4, "title", "Sanctuary   12,345   Lord of Terror"),
+				}),
+				body = Card(2, "Text", {
+					face = FontPick(1, "Font", "Hotkeys, stack counts, cooldown and swing timers, levels, cast names, the inventory's buttons. Game font follows your client's language.", "body"),
+					size = Range(2, "Size", "On top of each text's own size (the Hotkey size, the target's Health size...).", "fonts", "bodyScale", 0.6, 1.6, 0.05, true),
+					reset = Third({ type = "execute", order = 3, name = "Default", desc = "The game font at full size.", func = function() ResetFonts({ "body", "bodyScale" }) end }),
+					preview = FontPreview(4, "body", "Fireball  2.5   Elite   S-Q   1,204 dps   12 Silk Cloth"),
+				}),
+				style = Card(3, "Outline", {
+					outline = Select(1, "Outline", "Each text's own: what SanctuaryUI gives it (an outline on most, none on the meter and pie menu). The others set every text the same.", "fonts", "outline", { element = "Each text's own", none = "None", outline = "Thin", thick = "Thick" }, { "element", "none", "outline", "thick" }),
+					monochrome = Third(Toggle(2, "Monochrome", "Draw the letters without smoothing: crisp for pixel fonts, jagged for the rest.", "fonts", "monochrome")),
+					reset = Third({ type = "execute", order = 3, name = "Reset all fonts", func = function() ResetFonts({ "title", "body", "titleScale", "bodyScale", "outline", "monochrome" }) end }),
+				}),
 			}),
 
 			gap10 = Gap(9),

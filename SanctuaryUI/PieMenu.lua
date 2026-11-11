@@ -188,7 +188,7 @@ local function NewSocket(display, i)
 	s.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 	ns.Art.MaskCircle(s.icon, face)
 	s.plus = face:CreateFontString(nil, "OVERLAY")
-	s.plus:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 26, "OUTLINE")
+	ns.Fonts.Set(s.plus, "body", 26, "OUTLINE")
 	s.plus:SetPoint("CENTER", 0, 1)
 	s.plus:SetText("+")
 	s.plus:SetTextColor(0.85, 0.72, 0.42, 0.8)
@@ -236,7 +236,7 @@ local function NewDisplay(parent)
 	if d.title.SetMaxLines then d.title:SetMaxLines(2) end
 	d.title:SetTextColor(0.93, 0.78, 0.47)
 	d.sub = hub:CreateFontString(nil, "OVERLAY")
-	d.sub:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 9, "")
+	ns.Fonts.Set(d.sub, "body", 9, "")
 	d.sub:SetPoint("TOP", d.title, "BOTTOM", 0, -4)
 	d.sub:SetWidth(90)
 	d.sub:SetTextColor(0.78, 0.74, 0.66)
@@ -247,9 +247,7 @@ local function Title(d, text)
 	text = text or ""
 	-- Exocet is wide: a dozen letters fill the glass at 10.
 	local size = #text > 12 and 9 or #text > 8 and 10 or 12.5
-	if not d.title:SetFont(ns.FONT, size, "") then
-		d.title:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", size, "")
-	end
+	ns.Fonts.Set(d.title, "title", size, "")
 	d.title:SetText(text)
 end
 
@@ -570,9 +568,7 @@ local function BuildEditor()
 	shade:SetColorTexture(0, 0, 0, 0.55)
 
 	editor.heading = editor:CreateFontString(nil, "OVERLAY")
-	if not editor.heading:SetFont(ns.FONT, 16, "") then
-		editor.heading:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 16, "")
-	end
+	ns.Fonts.Set(editor.heading, "title", 16, "")
 	editor.heading:SetPoint("TOP", 0, -14)
 	editor.heading:SetTextColor(0.93, 0.78, 0.47)
 	local help = editor:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")

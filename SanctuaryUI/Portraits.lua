@@ -154,7 +154,7 @@ local function MakePortrait(parent, unit, name, k, withHealth)
 
 	if withHealth then
 		button.level = art:CreateFontString(nil, "OVERLAY")
-		button.level:SetFont(STANDARD_TEXT_FONT, math.floor(10 * k + 0.5), "OUTLINE")
+		ns.Fonts.Set(button.level, "body", math.floor(10 * k + 0.5), "OUTLINE")
 		button.level:SetPoint("CENTER", health, "CENTER", 0, 0)
 		button.level:SetTextColor(0.95, 0.88, 0.7)
 	else

@@ -56,16 +56,12 @@ function ns.Globes.ResourceColor()
 	return PowerColor()
 end
 
--- Globe numbers: D3's Exocet with an outline and a soft shadow so the thin face reads over
--- moving liquid. Morpheus (WoW's engraved title face) if the client refuses the TTF.
-local FONT = "Interface\\AddOns\\SanctuaryUI\\Media\\exocet.ttf"
-local FONT_FALLBACK = "Fonts\\MORPHEUS.TTF"
+-- Globe numbers: the title font (D3's Exocet by default) with an outline and a soft shadow so
+-- the thin face reads over moving liquid.
 local VALUE_SIZE, MAX_SIZE, HALF_SIZE = 22, 11, 15
 
 local function StyleNumber(fontString, size, r, g, b)
-	if not fontString:SetFont(FONT, size, "OUTLINE") then
-		fontString:SetFont(FONT_FALLBACK, size, "OUTLINE")
-	end
+	ns.Fonts.Set(fontString, "title", size, "OUTLINE")
 	fontString:SetShadowColor(0, 0, 0, 0.85)
 	fontString:SetShadowOffset(1.5, -1.5)
 	fontString:SetTextColor(r, g, b)

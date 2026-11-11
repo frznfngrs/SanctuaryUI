@@ -4,7 +4,8 @@ local ns = SanctuaryUI
 ns.Art = ns.Art or {}
 
 local ROOT = "Interface\\AddOns\\SanctuaryUI\\Art\\"
--- D3's title face, for names on the plates and globes.
+-- D3's title face, for names on the plates and globes. Fonts.lua points it at the title font
+-- chosen in Options > Fonts.
 ns.FONT = "Interface\\AddOns\\SanctuaryUI\\Media\\exocet.ttf"
 
 -- Slots the prep script fills. Missing files fall back to flat color and game chrome.
@@ -473,7 +474,7 @@ function ns.Art.LevelBadge(parent, w, h, kind, fontSize)
 	end
 	badge:SetKind(kind)
 	badge.text = badge:CreateFontString(nil, "OVERLAY")
-	badge.text:SetFont(STANDARD_TEXT_FONT, fontSize or 10, "OUTLINE")
+	ns.Fonts.Set(badge.text, "body", fontSize or 10, "OUTLINE")
 	badge.text:SetShadowColor(0, 0, 0, 0.85)
 	badge.text:SetShadowOffset(1, -1)
 	-- The plaque's dark slot sits a hair above its middle (the bottom rim is thicker).

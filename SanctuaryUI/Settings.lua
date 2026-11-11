@@ -22,6 +22,16 @@ ns.DEFAULTS = {
 		gridSize = 40, -- grid spacing, UIParent units out from the screen's centre
 		hideMicroMenu = true,
 
+		-- fonts (Fonts.lua): a font key, or "lsm:<name>" for one another addon shared
+		fonts = {
+			title = "exocet", -- names, globe numbers, headings
+			body = "default", -- hotkeys, counts, timers, labels: the game's font
+			titleScale = 1,
+			bodyScale = 1,
+			outline = "element", -- element (each text's own) | none | outline | thick
+			monochrome = false,
+		},
+
 		-- globes
 		numbers = "combat", -- on | combat | hover | off
 		numbersMax = true,
@@ -503,6 +513,7 @@ function ns.Refresh()
 			ns.Print(label .. " refresh failed: " .. tostring(err))
 		end
 	end
+	Run("fonts", ns.Fonts and ns.Fonts.Apply)
 	Run("position", ns.ApplyPosition)
 	Run("blizzard", ns.Blizzard and ns.Blizzard.Hide)
 	Run("buttons", ns.ActionBar and ns.ActionBar.ApplySettings)

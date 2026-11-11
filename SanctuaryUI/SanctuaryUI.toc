@@ -24,6 +24,7 @@ libs/LibActionButton-1.0/LibActionButton-1.0.lua
 
 Art.lua
 Settings.lua
+Fonts.lua
 Core.lua
 Snap.lua
 Blizzard.lua

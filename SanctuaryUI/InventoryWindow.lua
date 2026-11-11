@@ -554,6 +554,7 @@ function W.TextButton(parent, label, onClick, width)
 	hover:SetAllPoints()
 	hover:SetColorTexture(1, 0.7, 0.3, 0.15)
 	local text = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	ns.Fonts.Adopt(text, "body")
 	text:SetPoint("CENTER", 0, 1)
 	text:SetText(label)
 	button.text = text
@@ -651,6 +652,8 @@ function W.New(def)
 
 	frame.money = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	frame.free = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	ns.Fonts.Adopt(frame.money, "body")
+	ns.Fonts.Adopt(frame.free, "body")
 	frame.free:SetTextColor(0.75, 0.66, 0.5)
 	frame.footerButtons = {}
 	for _, spec in ipairs(def.footer or {}) do
