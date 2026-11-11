@@ -26,7 +26,10 @@ local READY_LINGER = 6 -- seconds the ready check's answers stay up after it end
 local DISPEL_PULSE, DISPEL_PULSE_LOW = 0.55, 0.3 -- the dispel halo's pulse: seconds each way, and how far it dims
 local AURA_SIZE = { globes = 18, slab = 20 }
 local AURA_GAP = 2
-local DRIVER = "[group:raid] hide; [group:party] show; hide"
+-- The anchor hides only in a raid (raid1 is there in any raid). It does not wait for a party:
+-- the members' own unit watches show them. With [group:party] here, a party joined in combat
+-- stayed hidden until the fight ended.
+local DRIVER = "[@raid1,exists] hide; show"
 
 local function Opt()
 	return ns.DB().party
@@ -1267,6 +1270,7 @@ end
 -- on the globes' clock (paused and sped up with them).
 local function OnUpdate(_, elapsed)
 	if not P.anchor:IsVisible() then return end
+	if not P.members[1]:IsShown() and not P.Previewing() then return end -- nobody to draw
 	P.rangeClock = (P.rangeClock or 0) + elapsed
 	if P.rangeClock >= RANGE_EVERY then
 		P.rangeClock = 0
