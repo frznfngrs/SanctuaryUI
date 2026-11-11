@@ -66,9 +66,26 @@ end
 ---------------------------------------------------------------------------
 -- What a slice is
 
-local function MacroSpell(name)
-	if not GetMacroSpell then return end
-	local ok, id = pcall(GetMacroSpell, name)
+-- A macro slice's index now. Macros are listed by name, so an index moves whenever one is made
+-- or deleted, and names can be blank or shared: find it by name and text, then by name alone.
+local MACRO_SLOTS = (MAX_ACCOUNT_MACROS or 120) + (MAX_CHARACTER_MACROS or 18)
+
+local function MacroIndex(slice)
+	local byName
+	for i = 1, MACRO_SLOTS do
+		local name, _, body = GetMacroInfo(i)
+		if name and name == slice.name then
+			if not slice.body or body == slice.body then return i end
+			byName = byName or i
+		end
+	end
+	return byName
+end
+
+local function MacroSpell(slice)
+	local index = GetMacroSpell and MacroIndex(slice)
+	if not index then return end
+	local ok, id = pcall(GetMacroSpell, index)
 	return ok and id or nil
 end
 
@@ -82,8 +99,12 @@ local function Info(slice)
 		if not icon and GetItemIcon then icon = GetItemIcon(slice.id) end
 		return name or slice.name or "?", icon or QUESTION
 	elseif slice.kind == "macro" then
-		local name, icon = GetMacroInfo(slice.name)
-		return slice.name or "?", name and icon or QUESTION
+		local index = MacroIndex(slice)
+		local name, icon
+		if index then name, icon = GetMacroInfo(index) end
+		name = name or slice.name or ""
+		if not name:find("%S") then name = "Macro" end -- unnamed
+		return name, icon or QUESTION
 	end
 	return "?", QUESTION
 end
@@ -96,12 +117,13 @@ local function Action(slice)
 	elseif slice.kind == "item" then
 		return "item", "item:" .. slice.id
 	elseif slice.kind == "macro" then
-		return "macro", slice.name
+		-- By index: a blank or shared name can't pick the macro out.
+		return "macro", MacroIndex(slice) or slice.name
 	end
 end
 
 local function SetCooldown(cooldown, slice)
-	local spell = slice.kind == "spell" and slice.id or slice.kind == "macro" and MacroSpell(slice.name)
+	local spell = slice.kind == "spell" and slice.id or slice.kind == "macro" and MacroSpell(slice)
 	if spell then
 		if C_Spell and C_Spell.GetSpellCooldown then
 			local ok, info = pcall(C_Spell.GetSpellCooldown, spell)
@@ -130,7 +152,7 @@ end
 -- false when the client says the skill can't be used now; nil when it won't say (in combat
 -- the answer may be hidden) or for things it has no answer for.
 local function Usable(slice)
-	local spell = slice.kind == "spell" and slice.id or slice.kind == "macro" and MacroSpell(slice.name)
+	local spell = slice.kind == "spell" and slice.id or slice.kind == "macro" and MacroSpell(slice)
 	if not spell or not IsSpellUsable then return end
 	local ok, usable = pcall(IsSpellUsable, spell)
 	if not ok or ns.Secret(usable) then return end
@@ -471,8 +493,8 @@ local function FromCursor()
 		local name = C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(a)
 		return { kind = "item", id = a, name = name }
 	elseif kind == "macro" then
-		local name = GetMacroInfo(a)
-		if name then return { kind = "macro", name = name } end
+		local name, _, body = GetMacroInfo(a)
+		if name then return { kind = "macro", name = name, body = body } end
 	elseif kind then
 		ns.Print("a ring takes spells, items and macros; put anything else in a macro")
 	end
@@ -486,7 +508,8 @@ local function Pickup(slice)
 		local pick = (C_Item and C_Item.PickupItem) or PickupItem
 		if pick then pcall(pick, slice.id) end
 	elseif slice.kind == "macro" then
-		if PickupMacro then pcall(PickupMacro, slice.name) end
+		local index = MacroIndex(slice)
+		if PickupMacro and index then pcall(PickupMacro, index) end
 	end
 end
 
@@ -540,7 +563,8 @@ local function BuildEditor()
 	editor:SetScript("OnDragStart", editor.StartMoving)
 	editor:SetScript("OnDragStop", editor.StopMovingOrSizing)
 	editor:Hide()
-	tinsert(UISpecialFrames, "SanctuaryUIPieEditor")
+	-- Not in UISpecialFrames: Escape and the game menu (the way to the macro window) close
+	-- those, and the editor has to stay up beside the spellbook, bags and macro window.
 	local shade = editor:CreateTexture(nil, "BACKGROUND")
 	shade:SetAllPoints()
 	shade:SetColorTexture(0, 0, 0, 0.55)
@@ -554,7 +578,7 @@ local function BuildEditor()
 	local help = editor:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	help:SetPoint("BOTTOM", 0, 44)
 	help:SetWidth(BACK - 30)
-	help:SetText("Drag spells, items or macros from your spellbook, bags or macro window onto the ring. Drag one off, or right-click it, to remove it. The first skill sits at the top; the rest follow clockwise.")
+	help:SetText("Drag spells, items or macros from your spellbook, bags or macro window (/macro) onto the ring. This stays open until you press Done. Drag one off, or right-click it, to remove it. The first skill sits at the top; the rest follow clockwise.")
 	local done = CreateFrame("Button", nil, editor, "UIPanelButtonTemplate")
 	done:SetSize(110, 22)
 	done:SetPoint("BOTTOM", 0, 14)
