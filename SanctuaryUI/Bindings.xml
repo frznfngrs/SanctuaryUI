@@ -4,4 +4,6 @@
 	<Binding name="SANCTUARYUITOTEM2" category="ADDONS"/>
 	<Binding name="SANCTUARYUITOTEM3" category="ADDONS"/>
 	<Binding name="SANCTUARYUITOTEM4" category="ADDONS"/>
+	<Binding name="SANCTUARYUITRINKET1" category="ADDONS"/>
+	<Binding name="SANCTUARYUITRINKET2" category="ADDONS"/>
 </Bindings>

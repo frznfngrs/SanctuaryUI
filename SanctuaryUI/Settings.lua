@@ -288,6 +288,44 @@ ns.DEFAULTS = {
 			slots = {}, -- element -> totem slot, learned from totems seen down
 		},
 
+		-- trinkets (Trinket.lua): sockets for your two trinkets and a menu of the ones in your bags
+		trinkets = {
+			enabled = true,
+			scale = 0.8, -- of a main-bar socket
+			spacing = 4,
+			vertical = false,
+			menu = "hover", -- hover | shift | off: what opens the menu over a socket
+			menuDir = "up", -- up | down | left | right
+			menuPerLine = 4,
+			menuScale = 0.85, -- menu sockets, of a trinket socket
+			notify = true, -- the socket flashes when its trinket is ready again
+			notifyChat = false, -- and says so in chat
+			alpha = 1,
+			mouseover = false,
+			moved = false,
+			mx = 0,
+			my = 0,
+		},
+
+		-- weapon swing timers (SwingTimer.lua): a bar per weapon, filling to the next auto attack
+		swing = {
+			enabled = true,
+			mainHand = true,
+			offHand = true,
+			ranged = true,
+			show = "combat", -- combat (once a weapon swings in a fight) | always | swinging
+			scale = 1.25, -- 100% is the D3 bar's own size
+			width = 296, -- art pixels; the D3 bar is 296
+			spacing = 6,
+			icons = true,
+			time = true,
+			rangeFade = true, -- dim a bar while the target is out of that weapon's reach
+			resets = "", -- more skills that restart the main-hand swing (SwingTimer.lua RESETS): names or IDs, commas between
+			moved = false,
+			mx = 0,
+			my = 0,
+		},
+
 		-- bank window
 		bank = {
 			enabled = true,
@@ -326,6 +364,13 @@ ns.DEFAULTS = {
 			point = "BOTTOMRIGHT",
 			x = -60,
 			y = 260,
+		},
+	},
+	char = {
+		-- Trinket.lua auto-swap: per trinket socket, on/off and the item IDs in priority order.
+		trinkets = {
+			{ auto = false, list = {} },
+			{ auto = false, list = {} },
 		},
 	},
 	global = {
@@ -479,6 +524,8 @@ function ns.Refresh()
 	Run("bank", ns.Bank and ns.Bank.ApplySettings)
 	Run("stance", ns.Stance and ns.Stance.ApplySettings)
 	Run("totems", ns.Totem and ns.Totem.ApplySettings)
+	Run("trinkets", ns.Trinket and ns.Trinket.ApplySettings)
+	Run("swing timer", ns.Swing and ns.Swing.ApplySettings)
 	Run("pie menus", ns.Pie and ns.Pie.ApplySettings)
 	-- Last: buttons are sized by the layout and the stance and totem settings.
 	Run("cooldown numbers", ns.ActionBar and ns.ActionBar.StyleCountdowns)

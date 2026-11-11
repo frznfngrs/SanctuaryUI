@@ -1432,6 +1432,12 @@ function ns.ActionBar.UpdateMovers(hide)
 	if ns.Totem and ns.Totem.UpdateMovers then
 		ns.Totem.UpdateMovers(unlocked)
 	end
+	if ns.Trinket and ns.Trinket.UpdateMovers then
+		ns.Trinket.UpdateMovers(unlocked)
+	end
+	if ns.Swing and ns.Swing.UpdateMovers then
+		ns.Swing.UpdateMovers(unlocked)
+	end
 	for _, n in ipairs(ROW_IDS) do
 		local row = ns.ActionBar.rows[n]
 		row.mover:SetShown(unlocked and ns.DB().rows[n].enabled and not DockIndex(n))
@@ -1583,6 +1589,7 @@ function ns.ActionBar.StyleCountdowns()
 	for _, button in ipairs(ns.ActionBar.pets or {}) do StyleCountdown(button, show) end
 	local stance = ns.Stance and ns.Stance.bar
 	for _, button in ipairs(stance and stance.buttons or {}) do StyleCountdown(button, show) end
+	for _, button in ipairs(ns.Trinket and ns.Trinket.Buttons() or {}) do StyleCountdown(button, show) end
 	StyleCountdown(ns.HearthButton, show)
 end
 

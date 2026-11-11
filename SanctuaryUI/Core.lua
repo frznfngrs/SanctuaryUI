@@ -540,6 +540,8 @@ function ns.Layout()
 	if ns.Experience and ns.Experience.Layout then ns.Experience.Layout() end
 	if ns.Stance and ns.Stance.Layout then ns.Stance.Layout() end
 	if ns.Totem and ns.Totem.Layout then ns.Totem.Layout() end
+	if ns.Trinket and ns.Trinket.Layout then ns.Trinket.Layout() end
+	if ns.Swing and ns.Swing.Layout then ns.Swing.Layout() end
 	if ns.TargetPlate and ns.TargetPlate.Layout then ns.TargetPlate.Layout() end
 	if ns.FocusPlate and ns.FocusPlate.Layout then ns.FocusPlate.Layout() end
 	if ns.Portraits and ns.Portraits.Layout then ns.Portraits.Layout() end
@@ -583,7 +585,7 @@ local function Slash(msg)
 			ns.Options.Open()
 		end
 	elseif cmd == "help" then
-		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n> (bars), globes <n>|match, bar 2-9 on|off, bind, pie [1-6] (pie menus), minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, proc (preview the proc highlight), aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), debug on|off, log, report [on|off], request (suggest a feature)")
+		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n> (bars), globes <n>|match, bar 2-9 on|off, bind, pie [1-6] (pie menus), trinkets, swing (preview the swing timer), minimap, test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, proc (preview the proc highlight), aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), debug on|off, log, report [on|off], request (suggest a feature)")
 	elseif cmd == "grid" then
 		-- grid: toggle; grid on|off; grid <spacing>. The grid only shows while frames are
 		-- unlocked, so showing it unlocks them.
@@ -801,6 +803,10 @@ local function Slash(msg)
 		elseif ns.Options and ns.Options.Open then
 			ns.Options.Open("pie")
 		end
+	elseif cmd == "swing" then
+		if ns.Swing and ns.Swing.SetPreview then ns.Swing.SetPreview(not ns.Swing.preview) end
+	elseif cmd == "trinket" or cmd == "trinkets" then
+		if ns.Options and ns.Options.Open then ns.Options.Open("trinkets") end
 	elseif cmd == "proc" then
 		if ns.ProcGlow and ns.ProcGlow.Test then ns.ProcGlow.Test() end
 	elseif cmd == "radiance" then
@@ -907,6 +913,8 @@ loader:SetScript("OnEvent", function(_, event)
 		Safe("bank", ns.Bank and ns.Bank.Init)
 		Safe("stance", ns.Stance and ns.Stance.Init)
 		Safe("totems", ns.Totem and ns.Totem.Init)
+		Safe("trinkets", ns.Trinket and ns.Trinket.Init)
+		Safe("swing timer", ns.Swing and ns.Swing.Init)
 		Safe("pie menus", ns.Pie and ns.Pie.Init)
 		Safe("auras", ns.Auras and ns.Auras.Init)
 		Safe("target plate", ns.TargetPlate and ns.TargetPlate.Init)
@@ -931,6 +939,7 @@ loader:SetScript("OnEvent", function(_, event)
 		if ns.Menu and ns.Menu.ReassignBindings then ns.Menu.ReassignBindings() end
 		if ns.Stance and ns.Stance.ReassignBindings then ns.Stance.ReassignBindings() end
 		if ns.Totem and ns.Totem.ReassignBindings then ns.Totem.ReassignBindings() end
+		if ns.Trinket and ns.Trinket.ReassignBindings then ns.Trinket.ReassignBindings() end
 		if ns.ActionBar and ns.ActionBar.FlushSpellMoves then ns.ActionBar.FlushSpellMoves() end
 		if ns.pendingRefresh then ns.Refresh() end
 	end

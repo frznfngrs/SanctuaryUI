@@ -138,6 +138,7 @@ ns.Art.slots = {
 	levelMedallion = { file = "level-medallion.png" }, -- ring and red disc, 120 px across of 128
 	levelPlates = { file = "level-plates.png" }, -- 98x25 plaques at y 0/32/64/96 of 128x128
 	castFill = { file = "cast-fill.png" },
+	castFillWhite = { file = "cast-fill-white.png" }, -- the same in grey, for tinted fills (SwingTimer.lua)
 	-- globe auras (GlobeAura.lua): white, ADD, drawn 2x the globe and tinted
 	auraCorona = { file = "aura-corona.png" },
 	auraRaysA = { file = "aura-rays-a.png" },

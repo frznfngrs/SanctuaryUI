@@ -49,6 +49,7 @@ noted next to each file.
   menu-flyout.png 512x256  the menu flyout's buttons: menu plates with gold icons, 6 columns of 40x66, rows normal/hover/pressed
   unit-fill(-white).png 512x16  the red health fill and its neutral copy (StatusBar textures)
   cast-fill.png  512x16    D3's orange progress fill (2DUIControls), the target cast bar
+  cast-fill-white.png 512x16  the same fill in grey with a white core, tinted per swing timer bar
   unit-frames.png 1024x256 D3 enemy health frames (boss banner, elite gold, normal silver), red and neutral fills, party frames
   skill-timer.png 128x32   skill timer tab (steel, gold) and its amber and green fills, from 2DUIBottomBar
   party-*.png    party frames (`build_hud_art.py party`, needs Blender): globes 512x512 (bezel, medallion,
@@ -1367,7 +1368,19 @@ def unit_frames() -> None:
     level_plates()
     level_medallion()
     # The cast bar's glowing orange fill, from the same control filled (x 717-1006).
-    load("2DUIControls").crop((717, 59, 1006, 69)).resize((512, 16), Image.LANCZOS).save(OUT / "cast-fill.png")
+    cast = load("2DUIControls").crop((717, 59, 1006, 69)).resize((512, 16), Image.LANCZOS)
+    cast.save(OUT / "cast-fill.png")
+    cast_fill_white(cast).save(OUT / "cast-fill-white.png")
+
+
+def cast_fill_white(cast: Image.Image) -> Image.Image:
+    """The cast fill's glowing band in grey, its hot core lifted to white, for StatusBars tinted
+    in Lua (the swing timer's off-hand and ranged bars). Desaturating the orange in the client
+    tops out at 60% grey, which any tint turns to mud."""
+    lum = cast.convert("RGB").convert("L")
+    top = max(lum.getextrema()[1], 1)
+    lum = lum.point(lambda v: min(255, int(v * 255 / top)))
+    return Image.merge("RGBA", (lum, lum, lum, cast.split()[3]))
 
 
 # Globe auras (GlobeAura.lua): light radiating from behind a globe while a buff is up. Each

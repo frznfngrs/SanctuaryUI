@@ -546,6 +546,12 @@ local function KeybindArgs()
 		end
 		args.totems = group
 	end
+	if DB().trinkets.enabled then
+		args.trinkets = Card(9.5, "Trinkets", {
+			t1 = KeyField(1, "Use trinket 1", "SANCTUARYUITRINKET1"),
+			t2 = KeyField(2, "Use trinket 2", "SANCTUARYUITRINKET2"),
+		})
+	end
 	for idx, n in ipairs(ns.ActionBar.ROW_IDS) do
 		local opt = DB().rows[n]
 		if opt.enabled then
@@ -602,6 +608,143 @@ local function PieArgs()
 		args["ring" .. n] = PieRingCard(n)
 	end
 	return args
+end
+
+---------------------------------------------------------------------------
+-- Trinkets (Trinket.lua) and the swing timer (SwingTimer.lua)
+
+local MAX_LISTED = 12
+
+local function Notify()
+	local registry = LibStub("AceConfigRegistry-3.0", true)
+	if registry then registry:NotifyChange(APP) end
+end
+
+-- One trinket socket's auto-swap list: on/off, then a row per trinket with up, down, remove.
+local function AutoSwapCard(order, i)
+	local function char() return ns.db.char.trinkets[i] end
+	local function count() return #char().list end
+	local args = {
+		auto = Width({
+			type = "toggle", order = 1, name = "Auto-swap",
+			desc = "Out of combat, once this trinket is on a cooldown longer than the 30 seconds an equip costs, the first trinket on the list that's ready goes on. A ready trinket higher on the list replaces a lower one. A trinket you pick from the menu stays until you've used it, and one whose effect is on you stays until it fades.",
+			get = function() return char().auto end,
+			set = function(_, value) char().auto = value ns.Trinket.Update() end,
+		}, HALF),
+		empty = Note(2, ("Alt + %s-click a trinket in the menu to add it here. Its place on the list shows in the menu's %s corner."):format(i == 1 and "left" or "right", i == 1 and "top left" or "top right")),
+	}
+	args.empty.hidden = function() return count() > 0 end
+	for n = 1, MAX_LISTED do
+		local function hidden() return n > count() end
+		local function entry() return ns.Trinket.List(i)[n] end
+		args["name" .. n] = Width({
+			type = "description", order = 10 + n * 4, fontSize = "medium", hidden = hidden,
+			name = function()
+				local e = entry()
+				if not e then return "" end
+				return ("%d.  |T%s:16:16:0:0:64:64:5:59:5:59|t  %s"):format(n, tostring(e.icon or 134400), e.name)
+			end,
+		}, 0.55)
+		args["up" .. n] = Width({
+			type = "execute", order = 11 + n * 4, name = "Up", hidden = hidden,
+			disabled = function() return n == 1 end,
+			func = function() ns.Trinket.MoveListed(i, n, -1) Notify() end,
+		}, 0.15)
+		args["down" .. n] = Width({
+			type = "execute", order = 12 + n * 4, name = "Down", hidden = hidden,
+			disabled = function() return n == count() end,
+			func = function() ns.Trinket.MoveListed(i, n, 1) Notify() end,
+		}, 0.15)
+		args["remove" .. n] = Width({
+			type = "execute", order = 13 + n * 4, name = "Remove", hidden = hidden,
+			func = function() ns.Trinket.RemoveListed(i, n) Notify() end,
+		}, 0.15)
+	end
+	return Card(order, "Auto-swap: trinket " .. i, args)
+end
+
+local function TrinketArgs()
+	return {
+		intro = Note(1, "Your two trinkets in sockets: click one, or press its keybind, to use it. Hover a socket for the trinkets in your bags: left-click one to equip it as trinket 1, right-click for trinket 2. In combat the game won't change trinkets, so your pick waits in the socket's corner and goes on when combat ends. Keybinds are under Keybinds, Key Bindings > AddOns > SanctuaryUI, or hover-binding."),
+		enabled = Toggle(2, "Enabled", nil, "trinkets", "enabled"),
+		menu = Card(3, "Menu", {
+			menu = Select(1, "Opens", "What opens the menu of bag trinkets over a socket.", "trinkets", "menu", { hover = "On mouseover", shift = "Shift + mouseover", off = "Never" }, { "hover", "shift", "off" }),
+			menuDir = Select(2, "Direction", nil, "trinkets", "menuDir", { up = "Up", down = "Down", left = "Left", right = "Right" }, { "up", "down", "left", "right" }),
+			menuPerLine = Range(3, "Trinkets per line", nil, "trinkets", "menuPerLine", 1, 10, 1),
+			menuScale = Range(4, "Menu socket size", "Of a trinket socket.", "trinkets", "menuScale", 0.5, 1.2, 0.05, true),
+		}),
+		size = Card(4, "Size and spacing", {
+			scale = Range(1, "Button size", "Relative to a main-bar socket.", "trinkets", "scale", 0.4, 1.2, 0.01, true),
+			spacing = Range(2, "Spacing", nil, "trinkets", "spacing", 0, 20, 1),
+			vertical = Third(Toggle(3, "Vertical", "Stack the two sockets instead of a row.", "trinkets", "vertical")),
+		}),
+		ready = Card(5, "When a trinket is ready", {
+			notify = Toggle(1, "Flash its socket", "When a trinket's cooldown ends, its socket flashes.", "trinkets", "notify"),
+			notifyChat = Toggle(2, "Say so in chat", nil, "trinkets", "notifyChat"),
+		}),
+		show = Card(6, "Visibility", {
+			alpha = Range(1, "Opacity", nil, "trinkets", "alpha", 0, 1, 0.05, true),
+			mouseover = Toggle(2, "Show on mouseover only", nil, "trinkets", "mouseover"),
+		}),
+		auto1 = AutoSwapCard(7, 1),
+		auto2 = AutoSwapCard(8, 2),
+		place = PositionCard(9, "Right of the console by default. " .. UNLOCK, function() ns.Trinket.ResetPosition() end, function() return not DB().trinkets.moved end),
+	}
+end
+
+local function SwingArgs()
+	return {
+		intro = Note(1, "A bar for each weapon that fills as your next auto attack winds up, and stays full while the swing is ready. While your target is out of a weapon's reach, its bar dims once the swing in hand is done. Haste mid-swing stretches or shortens what's left. Blizzard has a swing timer of its own (Options > Combat); turn one of them off so you don't see two."),
+		unsupported = {
+			type = "description", order = 1.5, fontSize = "medium",
+			name = "|cffff6060This client has no swing timer events, so the bars can't run.|r",
+			hidden = function() return ns.Swing.Supported() end,
+		},
+		enabled = Toggle(2, "Enabled", nil, "swing", "enabled"),
+		preview = Width({
+			type = "toggle", order = 3, name = "Preview",
+			desc = "Show every enabled bar on looping practice swings. Also shown while frames are unlocked, so you can place them. Turns off on /reload.",
+			get = function() return ns.Swing.preview end,
+			set = function(_, value) ns.Swing.SetPreview(value) end,
+		}, HALF),
+		bars = Card(4, "Bars", {
+			mainHand = Third(Toggle(1, "Main hand", nil, "swing", "mainHand")),
+			offHand = Third(Toggle(2, "Off hand", "Shown while you dual wield.", "swing", "offHand")),
+			ranged = Third(Toggle(3, "Ranged", "Auto Shot, Shoot and throws.", "swing", "ranged")),
+			show = Width(Select(4, "Shown", nil, "swing", "show", {
+				combat = "In combat, once that weapon has swung",
+				always = "Always",
+				swinging = "Only while a swing runs",
+			}, { "combat", "always", "swinging" }), 1),
+		}),
+		look = Card(5, "Look", {
+			scale = Range(1, "Scale", "100% is the D3 bar's own size.", "swing", "scale", 0.5, 2.5, 0.05, true),
+			width = Range(2, "Length", "In the bar's art pixels; D3's own bar is 296.", "swing", "width", 120, 600, 1),
+			spacing = Range(3, "Spacing", nil, "swing", "spacing", 0, 20, 1),
+			icons = Third(Toggle(4, "Weapon icons", nil, "swing", "icons")),
+			time = Third(Toggle(5, "Time left", nil, "swing", "time")),
+			rangeFade = Third(Toggle(6, "Dim out of reach", "Dim a bar, and redden its icon, while your target is out of that weapon's reach.", "swing", "rangeFade")),
+		}),
+		resets = Card(5.5, "Skills that reset the swing", {
+			note = Note(1, function()
+				local _, class = UnitClass("player")
+				local names = {}
+				for _, id in ipairs(ns.Swing.RESETS[class] or {}) do
+					local name = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)
+					names[#names + 1] = (name and not ns.Secret(name)) and name or tostring(id)
+				end
+				local own = #names > 0 and ("Yours already: " .. table.concat(names, ", ") .. ". ") or ""
+				return "Some skills start your main-hand swing over without the game counting a swing, so the bar would run on. " .. own .. "If another skill does it, name it here."
+			end),
+			resets = Width({
+				type = "input", order = 2, name = "More skills",
+				desc = "Skill names or spell IDs, commas between, e.g. Pummel, 6552. Every rank of a named skill counts.",
+				get = function() return DB().swing.resets end,
+				set = function(_, value) DB().swing.resets = value Changed() end,
+			}, 1),
+		}),
+		place = PositionCard(6, "Under your character by default. " .. UNLOCK, function() ns.Swing.ResetPosition() end, function() return not DB().swing.moved end),
+	}
 end
 
 ---------------------------------------------------------------------------
@@ -1362,6 +1505,7 @@ local function Build()
 				}),
 				place = PositionCard(8, "Free row: above the resource globe by default. " .. UNLOCK, function() ns.Totem.ResetPosition() end, function() return not DB().totems.moved end),
 			}),
+			trinkets = Page(25.5, "Trinkets", TrinketArgs()),
 			keybinding = Page(26, "Keybinds", {}),
 			pie = Page(27, "Pie menus", PieArgs()),
 
@@ -1456,6 +1600,7 @@ local function Build()
 				}),
 			}),
 
+			swing = Page(35, "Swing timer", SwingArgs()),
 			gap40 = Gap(39),
 			sectionInventory = Section(40, "Inventory"),
 			bags = Page(41, "Bags", {

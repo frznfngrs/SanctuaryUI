@@ -40,6 +40,8 @@ Watch.lua
 GlobeAura.lua
 Stance.lua
 Totem.lua
+Trinket.lua
+SwingTimer.lua
 PieMenu.lua
 Auras.lua
 TargetPlate.lua
