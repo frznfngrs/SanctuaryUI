@@ -686,7 +686,7 @@ local function Slash(msg)
 			ns.Options.Open()
 		end
 	elseif cmd == "help" then
-		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n> (bars), globes <n>|match, bar 2-9 on|off, bind, pie [1-6] (pie menus), trinkets, swing (preview the swing timer), minimap, ring (preview the ally ring), map (overlay map; probe|peek for what the client allows), test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, meter [analysis|glory|awards|test|reset|probe] (damage meter), proc (preview the proc highlight), aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), debug on|off, log, report [on|off], request (suggest a feature)")
+		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n> (bars), globes <n>|match, bar 2-9 on|off, bind, pie [1-6] (pie menus), trinkets, swing (preview the swing timer), minimap, ring (preview the ally ring), map (overlay map; probe|peek for what the client allows), test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, meter [analysis|glory|awards|test|reset|probe] (damage meter), proc (preview the proc highlight), aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), debug on|off, log, report [on|off], request (suggest a feature), updates [on|off] (new version notices over the realm channel)")
 	elseif cmd == "grid" then
 		-- grid: toggle; grid on|off; grid <spacing>. The grid only shows while frames are
 		-- unlocked, so showing it unlocks them.
@@ -916,6 +916,10 @@ local function Slash(msg)
 			or "debug trace off. Errors are still recorded. /sanctuary log shows them")
 	elseif cmd == "check" then
 		ns.Check()
+	elseif cmd == "updates" or cmd == "update" then
+		-- updates [on|off]: the realm channel copies use to tell each other about new versions.
+		local arg = rest:lower()
+		if ns.UpdateChannel then ns.UpdateChannel(arg == "on" or (arg ~= "off" and nil)) end
 	elseif cmd == "pie" or cmd == "ring" then
 		-- "/sanctuary pie 2" edits ring 2; alone, it opens the rings' options page.
 		if rest ~= "" then
