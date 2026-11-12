@@ -113,19 +113,23 @@ local function Gather(north, west, instance)
 	return n
 end
 
--- How far from the middle a distance sits, in screen units.
-local function RadiusFor(yards)
-	local opt = Opt()
-	return opt.inner + (opt.radius - opt.inner) * math.min(1, yards / opt.maxYards)
-end
-
--- The same scale with no clear middle: true to you in the middle. Totems always use it, so the
+-- The scale with no clear middle: true to you in the middle. Totems always use it, so the
 -- middle (and your dot, when shown) sits inside a totem's circle exactly when you are in its
 -- reach. Drawn with the clear middle, a totem at your feet sat 70 units out and its circle
 -- missed you; the user found this way better in game (2026-11-12).
 local function TrueRadius(yards)
 	local opt = Opt()
 	return (opt.radius - opt.inner) * math.min(1, yards / opt.maxYards)
+end
+
+-- How far from the middle an ally (or the reach circle, or the target's halo) sits, in screen
+-- units. With your dot shown, the true scale, so everything on the ring measures from you the
+-- same way (asked for 2026-11-12); without it, pushed out by the clear middle so the nearest
+-- allies don't cover your character.
+local function RadiusFor(yards)
+	local opt = Opt()
+	if opt.selfDot then return TrueRadius(yards) end
+	return opt.inner + (opt.radius - opt.inner) * math.min(1, yards / opt.maxYards)
 end
 
 -- Small dots by a pip, one per element whose totem reaches that spot (by true distance).

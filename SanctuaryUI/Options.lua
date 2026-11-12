@@ -1136,7 +1136,12 @@ local function AllyRingArgs()
 		}, { disabled = off }),
 		look = Card(5, "Look", {
 			radius = Range(1, "Size", "How far from the middle the farthest allies sit.", "allyRing", "radius", 100, 500, 5),
-			inner = Range(2, "Clear middle", "How far from the middle the nearest allies sit, so they don't cover your character.", "allyRing", "inner", 0, 200, 5),
+			inner = Width({
+				type = "range", order = 2, name = "Clear middle", desc = "How far from the middle the nearest allies sit, so they don't cover your character. Not used while your dot shows (Totems card): then everything is drawn true to you in the middle.",
+				min = 0, max = 200, step = 5, disabled = function() return off() or DB().allyRing.selfDot end,
+				get = function() return DB().allyRing.inner end,
+				set = function(_, value) DB().allyRing.inner = value Changed() end,
+			}, THIRD),
 			scale = Range(3, "Scale", "Pips and numbers.", "allyRing", "scale", 0.5, 2, 0.05, true),
 			opacity = Range(4, "Opacity", nil, "allyRing", "opacity", 0.2, 1, 0.01, true),
 			offsetY = Width({
@@ -1156,7 +1161,7 @@ local function AllyRingArgs()
 			groupTotems = Third(Toggle(4, "Group members' totems", "Totems of group members running SanctuaryUI, drawn a little smaller.", "allyRing", "groupTotems")),
 			totemReach = Third(Toggle(5, "Reach outline", "Each totem's reach, read from its spell's text, outlined in its element's colour, drawn true to the ring's scale. Allies inside it are within reach; near the middle, where the ring keeps your character clear, that is a close guide rather than exact. The icon itself turns grey when you are out of reach.", "allyRing", "totemReach")),
 			totemMarks = Third(Toggle(6, "Covered allies", "A small dot in the element's colour by each ally's pip for every totem that reaches them, worked out from their true distance to the totem. Exact, where the outlines are a guide.", "allyRing", "totemMarks")),
-			selfDot = Third(Toggle(7, "Your dot", "A pip for you in the middle of the ring, with the same dots for the totems that reach you. Totems are drawn true to the middle (without the clear middle), so your dot sits inside a totem's circle exactly when you are in its reach.", "allyRing", "selfDot")),
+			selfDot = Third(Toggle(7, "Your dot", "A pip for you in the middle of the ring, with the same dots for the totems that reach you. While it shows, allies are drawn true to it too (the Look card's clear middle is set aside), so the whole ring measures from you the same way. Totems are always drawn true to the middle.", "allyRing", "selfDot")),
 		}, { disabled = off }),
 		place = PositionCard(6, "On the middle of the screen by default. While frames are unlocked the ring shows, with stand-ins if you have no group, and a handle at its middle to drag. " .. UNLOCK,
 			function() ns.AllyRing.ResetPosition() end, function() local o = DB().allyRing return not o.moved and o.offsetY == 0 end),
