@@ -119,8 +119,10 @@ local function RadiusFor(yards)
 	return opt.inner + (opt.radius - opt.inner) * math.min(1, yards / opt.maxYards)
 end
 
--- The same scale with no clear middle: true to your dot in the middle. Totems use it while the
--- dot is shown, so the dot sits inside a totem's circle exactly when you are in its reach.
+-- The same scale with no clear middle: true to you in the middle. Totems always use it, so the
+-- middle (and your dot, when shown) sits inside a totem's circle exactly when you are in its
+-- reach. Drawn with the clear middle, a totem at your feet sat 70 units out and its circle
+-- missed you; the user found this way better in game (2026-11-12).
 local function TrueRadius(yards)
 	local opt = Opt()
 	return (opt.radius - opt.inner) * math.min(1, yards / opt.maxYards)
@@ -198,7 +200,7 @@ local function Draw()
 	local reach = ns.DB().map.rangeYards
 	local c, s = math.cos(facing), math.sin(facing)
 	-- Totems first: the pips ask which totems reach them.
-	ns.RingTotems.Draw(frame, north, west, instance, c, s, opt.selfDot and TrueRadius or RadiusFor,
+	ns.RingTotems.Draw(frame, north, west, instance, c, s, TrueRadius,
 		R.preview or (R.unlocked and not IsInGroup()))
 	if opt.selfDot then
 		local color = ClassColor("player")
