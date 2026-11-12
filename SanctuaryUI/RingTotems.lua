@@ -100,6 +100,12 @@ local function GroupChannel()
 	end
 end
 
+-- What we sent lately, to know our own messages when they come back: matching our name
+-- against the sender's failed on this server (the shaman's log on 0.18.5), so the sender of
+-- the first echo is remembered as us instead.
+local sentAt = {}
+local mySender
+
 local function Send(text)
 	if not Opt().shareTotems then return end
 	local channel = GroupChannel()
@@ -107,6 +113,7 @@ local function Send(text)
 	-- Refused in battlegrounds and during loading screens; nothing to be done there.
 	local ok, result = pcall(C_ChatInfo.SendAddonMessage, PREFIX, text, channel)
 	if ok then
+		if not mySender then sentAt[text] = GetTime() end
 		ns.Log("ring totems: told %s %s (%s)", channel, text:match("^(%u1:%d+)") or text, tostring(result))
 	else
 		ns.Log("ring totems: send failed, %s", tostring(result))
@@ -184,19 +191,33 @@ function T.Any()
 	return false
 end
 
--- Totemic Call / Recall takes every totem back.
-local RECALL = { ["Totemic Call"] = true, ["Totemic Recall"] = true }
+-- Totemic Recall takes every totem back. Totemic Call, on this client, pulls them to your
+-- feet and leaves their time running (the shaman's log, 2026-11-12: slots still full after it).
+local RECALL = { ["Totemic Recall"] = true }
+local CALL = { ["Totemic Call"] = true }
 
 local function OnCast(spellID)
 	local i, key = ns.Totem.ElementOfSpell(spellID)
 	if not i then
 		local name = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)
-		if Plain(name) and RECALL[name] then
+		if not Plain(name) then return end
+		local north, west, instance = ns.MapPins.Here()
+		if RECALL[name] or (CALL[name] and not north) then
 			ns.Log("ring totems: %s, clearing every pin", name)
 			for e = 1, 4 do
 				if pins[e] then
 					pins[e] = nil
 					SendGone(e)
+				end
+			end
+			Changed()
+		elseif CALL[name] then
+			ns.Log("ring totems: %s, moving every pin to you", name)
+			for e = 1, 4 do
+				local pin = pins[e]
+				if pin then
+					pin.north, pin.west, pin.instance = north, west, instance
+					SendDown(e)
 				end
 			end
 			Changed()
@@ -255,21 +276,29 @@ local function Me(sender)
 	return Same(sender, UnitName("player"), nil)
 end
 
--- Is this sender in the group? Names only, and never written down.
-local function InGroup(sender)
-	local raid = IsInRaid()
-	for n = 1, raid and 40 or 4 do
-		local unit = (raid and "raid" or "party") .. n
-		if UnitExists(unit) then
-			local name, realm = UnitName(unit)
-			if Same(sender, name, realm) then return true end
-		end
+-- Is this message one of ours coming back? Learns our sender name from the first echo. The
+-- log says which part of the name differed from ours, never the name itself.
+local function Echo(text, sender)
+	if mySender then return sender == mySender end
+	if Me(sender) then
+		mySender = sender
+		return true
+	end
+	local at = sentAt[text]
+	if at and GetTime() - at < 10 then
+		mySender = sender
+		local sname, srealm = sender:match("^([^-]+)-?(.*)$")
+		local name = UnitName("player")
+		ns.Log("ring totems: our own messages come back with the name %s and the realm %s",
+			(Plain(name) and sname == name) and "matching" or "differing",
+			(srealm == nil or srealm == "") and "missing" or (Squeeze(srealm) == HomeRealm() and "matching" or "differing"))
+		return true
 	end
 	return false
 end
 
 local function Heard(text, sender)
-	if not Plain(text) or not Plain(sender) or Me(sender) then return end
+	if not Plain(text) or not Plain(sender) or Echo(text, sender) then return end
 	local kind, rest = text:match("^(%u)1:(.*)$")
 	if kind == "D" then
 		local i, key, north, west, instance, reach, remaining, total = rest:match(
@@ -295,9 +324,9 @@ end
 -- After the group changes: forget those who left, and tell newcomers what is down.
 local resendQueued = false
 local function OnRoster()
-	for sender in pairs(others) do
-		if not IsInGroup() or not InGroup(sender) then others[sender] = nil end
-	end
+	-- Names don't match reliably across realms here, so a member who left keeps their pins until
+	-- they run out; leaving the group yourself clears them all.
+	if not IsInGroup() then wipe(others) end
 	if resendQueued or not T.Any() or not IsInGroup() then return end
 	resendQueued = true
 	C_Timer.After(RESEND_DELAY, function()
