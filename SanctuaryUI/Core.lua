@@ -686,7 +686,7 @@ local function Slash(msg)
 			ns.Options.Open()
 		end
 	elseif cmd == "help" then
-		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n> (bars), globes <n>|match, bar 2-9 on|off, bind, pie [1-6] (pie menus), trinkets, swing (preview the swing timer), minimap, ring (preview the ally ring), map (overlay map; probe|peek for what the client allows), test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, meter [analysis|glory|awards|test|reset|probe] (damage meter), proc (preview the proc highlight), aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), debug on|off, log, report [on|off], request (suggest a feature), updates [on|off] (new version notices over the realm channel)")
+		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n> (bars), globes <n>|match, bar 2-9 on|off, bind, pie [1-6] (pie menus), trinkets, swing (preview the swing timer), minimap, ring (preview the ally ring), map (overlay map; probe|peek for what the client allows; totems to probe group casts), test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, meter [analysis|glory|awards|test|reset|probe] (damage meter), proc (preview the proc highlight), aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), debug on|off, log, report [on|off], request (suggest a feature), updates [on|off] (new version notices over the realm channel)")
 	elseif cmd == "grid" then
 		-- grid: toggle; grid on|off; grid <spacing>. The grid only shows while frames are
 		-- unlocked, so showing it unlocks them.
@@ -834,7 +834,11 @@ local function Slash(msg)
 	elseif cmd == "map" then
 		-- What the client lets us read about positions, map art and hidden messages (MapProbe.lua).
 		local sub = rest:lower()
-		if sub == "ping" then
+		if sub == "totems" then
+			-- What the client lets us read when a group member casts (TotemProbe.lua).
+			local ok, err = pcall(ns.TotemProbe.Run)
+			if not ok then ns.Print("totem probe failed: " .. tostring(err)) end
+		elseif sub == "ping" then
 			ns.Print(ns.MapPins.TestPing() and "a test ping, ahead and to your right, for a few seconds" or "no position here, so no ping")
 		elseif sub == "probe" or sub == "peek" or sub == "check" then
 			local ok, err = pcall(sub == "peek" and ns.MapProbe.Peek or sub == "check" and ns.MapProbe.Check or ns.MapProbe.Run)

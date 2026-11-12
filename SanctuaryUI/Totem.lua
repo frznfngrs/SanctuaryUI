@@ -246,6 +246,43 @@ local function ScanDown()
 end
 
 ---------------------------------------------------------------------------
+-- For the ally ring's totem pins (RingTotems.lua).
+
+-- Does the player know any totem? Unlike HasTotems, regardless of the bar being on.
+function ns.Totem.Knows()
+	for i = 1, #ELEMENTS do
+		if #known[i] > 0 then return true end
+	end
+	return false
+end
+
+-- The element a totem spell belongs to, and its rank 1 ID, or nil if it isn't a totem.
+function ns.Totem.ElementOfSpell(spellID)
+	if not spellID or Secret(spellID) then return end
+	local name = GetSpellName(spellID)
+	if not name or Secret(name) then return end
+	for i, element in ipairs(ELEMENTS) do
+		for _, totem in ipairs(element.totems) do
+			local base = GetSpellName(totem[1]) or totem[2]
+			if name:find(base, 1, true) == 1 then
+				return i, totem[1]
+			end
+		end
+	end
+end
+
+function ns.Totem.SlotOf(i)
+	return SlotFor(i)
+end
+
+-- Is a totem down in this slot? Safe in combat (see SlotHas).
+function ns.Totem.SlotDown(slot)
+	if not GetTotemInfo then return false end
+	local have, name = GetTotemInfo(slot)
+	return SlotHas(slot, have, name) and true or false
+end
+
+---------------------------------------------------------------------------
 -- Sockets, built like the combo point pips (Globes.lua): the totem's icon cut round, a Kanai's
 -- Cube rim in the element's colour, and D3's horned skull ring behind, turned so the skull
 -- meets the globe. A totem that is down is lit, with a round sweep running out its time; a
@@ -550,6 +587,13 @@ local function TotemSweep(cooldown, info)
 	else
 		cooldown:Clear()
 	end
+end
+
+-- Run a slot's time on a cooldown frame, the way the bar's sockets do.
+function ns.Totem.Sweep(cooldown, slot)
+	if not GetTotemInfo then return end
+	local _, _, start, duration = GetTotemInfo(slot)
+	TotemSweep(cooldown, { slot = slot, start = start, duration = duration })
 end
 
 -- Icons, sweeps, which totems are down: safe any time.

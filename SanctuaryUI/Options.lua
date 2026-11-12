@@ -1106,6 +1106,11 @@ end
 
 local function AllyRingArgs()
 	local function off() return not DB().allyRing.enabled end
+	-- Your own totem settings only for characters that know a totem.
+	local function ShamanOnly(option)
+		option.hidden = function() return not (ns.Totem and ns.Totem.Knows and ns.Totem.Knows()) end
+		return option
+	end
 	return {
 		intro = Note(1, "Your group around your character, in your field of view: each ally a pip in their class colour at their true bearing (up is the way you face), nearer the middle the nearer they are, with the distance under it. Allies inside the dashed circle are within reach, and their number turns green. Inside a dungeon the game hides positions from addons, so the ring rests there."),
 		enabled = Toggle(2, "Enabled", nil, "allyRing", "enabled"),
@@ -1143,6 +1148,13 @@ local function AllyRingArgs()
 			circle = Third(Toggle(6, "Reach circle", nil, "allyRing", "circle")),
 			names = Third(Toggle(7, "Names", nil, "allyRing", "names")),
 			target = Third(Toggle(8, "Targeted member", "A pale gold halo round the pip of the group member you have targeted. Only group members can be marked: the game gives addons no position for an enemy or a stranger.", "allyRing", "target")),
+		}, { disabled = off }),
+		totems = Card(5.5, "Totems", {
+			note = Note(1, "Each totem is pinned on the ring where it was dropped, with its time running out on the icon. The game gives addons no position for a totem, so the ring remembers the spot. A totem whose reach you are outside of turns grey. Other shamans' totems show only if they run SanctuaryUI: the game hides which spell a group member cast, so their addon tells yours. Not in dungeons or battlegrounds, where the game hides positions and refuses addon messages, and a reload forgets totems already down."),
+			totems = ShamanOnly(Third(Toggle(2, "Show my totems", "Your totems also bring the ring up when you are alone.", "allyRing", "totems"))),
+			shareTotems = ShamanOnly(Third(Toggle(3, "Share my totems", "Tell group members running SanctuaryUI where your totems are, over hidden addon messages.", "allyRing", "shareTotems"))),
+			groupTotems = Third(Toggle(4, "Group members' totems", "Totems of group members running SanctuaryUI, drawn a little smaller.", "allyRing", "groupTotems")),
+			totemReach = Third(Toggle(5, "Reach outline", "Each totem's reach, read from its spell's text, outlined in its element's colour. Allies inside the outline are within its reach.", "allyRing", "totemReach")),
 		}, { disabled = off }),
 		place = PositionCard(6, "On the middle of the screen by default. While frames are unlocked the ring shows, with stand-ins if you have no group, and a handle at its middle to drag. " .. UNLOCK,
 			function() ns.AllyRing.ResetPosition() end, function() local o = DB().allyRing return not o.moved and o.offsetY == 0 end),

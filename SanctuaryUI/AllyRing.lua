@@ -7,6 +7,7 @@
 --
 -- It reads the same positions as the maps (MapPins.lua), so it works wherever the client
 -- gives them: the open world, in combat too. Where it hides them (dungeons) the ring rests.
+-- Totems are pinned on it too, yours and those group members' SanctuaryUI tells us of (RingTotems.lua).
 SanctuaryUI = SanctuaryUI or {}
 local ns = SanctuaryUI
 
@@ -52,7 +53,8 @@ local function Wanted()
 	if R.preview then return true end
 	if not opt.enabled then return false end
 	if R.unlocked then return true end -- frames unlocked: up, to be placed
-	if not IsInGroup() then return false end
+	-- Alone, your own totems on the ring (RingTotems.lua) still bring it up.
+	if not IsInGroup() and not (opt.totems and ns.RingTotems.Any()) then return false end
 	if opt.show == "group" then return true end
 	if opt.show == "combat" then return InCombatLockdown() and true or false end
 	-- "pvp": flagged, or in a battleground or arena
@@ -144,6 +146,7 @@ local function Draw()
 		for i = 1, MAX_PIPS do pips[i]:Hide() end
 		for i = 1, SEGMENTS do circle[i]:Hide() end
 		frame.target:Hide()
+		ns.RingTotems.Hide()
 		return
 	end
 	frame.rest:Hide()
@@ -184,6 +187,7 @@ local function Draw()
 		end
 	end
 	DrawCircle()
+	ns.RingTotems.Draw(frame, north, west, instance, c, s, RadiusFor, R.preview or (R.unlocked and not IsInGroup()))
 
 	-- The group member you have targeted: a pale gold halo round their pip. Only group members
 	-- can be marked; the client gives no position for anyone else (an enemy, a stranger).
@@ -293,6 +297,8 @@ local function Refresh()
 	frame:SetShown(want)
 end
 
+R.Refresh = Refresh
+
 function R.ApplySettings()
 	if not frame then return end
 	Place()
@@ -337,5 +343,6 @@ function R.Init()
 		if event == "GROUP_ROSTER_UPDATE" then wipe(colors) end
 		Refresh()
 	end)
+	ns.RingTotems.Init()
 	Refresh()
 end

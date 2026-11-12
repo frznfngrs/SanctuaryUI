@@ -49,9 +49,11 @@ MeterGlory.lua
 MeterAnalysis.lua
 MeterProbe.lua
 MapProbe.lua
+TotemProbe.lua
 MapPins.lua
 Map.lua
 MapOverlay.lua
+RingTotems.lua
 AllyRing.lua
 PieMenu.lua
 Auras.lua
