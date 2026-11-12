@@ -106,7 +106,11 @@ local function Send(text)
 	if not channel or not C_ChatInfo or not C_ChatInfo.SendAddonMessage then return end
 	-- Refused in battlegrounds and during loading screens; nothing to be done there.
 	local ok, result = pcall(C_ChatInfo.SendAddonMessage, PREFIX, text, channel)
-	if not ok then ns.Log("ring totems: send failed, %s", tostring(result)) end
+	if ok then
+		ns.Log("ring totems: told %s %s (%s)", channel, text:match("^(%u1:%d+)") or text, tostring(result))
+	else
+		ns.Log("ring totems: send failed, %s", tostring(result))
+	end
 end
 
 local function Remaining(pin)
@@ -155,6 +159,7 @@ local function Prune()
 		local pin = pins[i]
 		-- castAt, not at: Learn() moves at to the client's start time, which mustn't hold this off.
 		if pin and now - pin.castAt > GRACE and not ns.Totem.SlotDown(ns.Totem.SlotOf(i)) then
+			ns.Log("ring totems: element %d slot %s empty after %.1f s, pin cleared", i, tostring(ns.Totem.SlotOf(i)), now - pin.castAt)
 			pins[i] = nil
 			SendGone(i)
 			gone = true
@@ -187,6 +192,7 @@ local function OnCast(spellID)
 	if not i then
 		local name = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)
 		if Plain(name) and RECALL[name] then
+			ns.Log("ring totems: %s, clearing every pin", name)
 			for e = 1, 4 do
 				if pins[e] then
 					pins[e] = nil
@@ -200,6 +206,7 @@ local function OnCast(spellID)
 	local north, west, instance = ns.MapPins.Here()
 	if not north then
 		-- Dropped where we can't place it: it still replaces the old one.
+		ns.Log("ring totems: element %d dropped with no position here, not pinned", i)
 		if pins[i] then
 			pins[i] = nil
 			SendGone(i)
@@ -212,6 +219,8 @@ local function OnCast(spellID)
 		north = north, west = west, instance = instance, at = GetTime(), castAt = GetTime(),
 		reach = ReachOf(spellID, key), duration = DurationOf(spellID),
 	}
+	ns.Log("ring totems: element %d dropped (spell %s), reach %d, %d s, combat %s", i, tostring(key), pins[i].reach,
+		pins[i].duration, tostring(InCombatLockdown()))
 	local w = widgets[i]
 	if w and not w.fakeAt then w.icon:SetTexture(pins[i].icon) end
 	Sweep(i)
