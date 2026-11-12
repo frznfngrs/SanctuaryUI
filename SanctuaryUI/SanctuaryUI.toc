@@ -2,7 +2,7 @@
 ## Title: SanctuaryUI
 ## Notes: Diablo III combat HUD for WoW Forever
 ## Author: SanctuaryUI
-## Version: 0.16.3
+## Version: 0.17.0
 ## SavedVariables: SanctuaryUIDB, SanctuaryUILog
 ## LoadSavedVariablesFirst: 1
 ## AllowLoadGameType: camelot
