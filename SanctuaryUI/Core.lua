@@ -658,6 +658,7 @@ function ns.Check()
 	if ns.Liquid and ns.Liquid.Status then
 		ns.Print(ns.Liquid.Status())
 		if ns.Pollution then ns.Print(ns.Pollution.Status()) end
+		if ns.Freeze then ns.Print(ns.Freeze.Status()) end
 		if ns.StatueEyes then ns.Print(ns.StatueEyes.Status()) end
 		if ns.Party and ns.Party.DispelStatus then ns.Print(ns.Party.DispelStatus()) end
 	end
@@ -899,6 +900,19 @@ local function Slash(msg)
 		if key == "off" then key = nil end
 		local ok, why = ns.Pollution.Preview(key)
 		ns.Print(ok and (key and ("Previewing " .. key .. " in the health globe. /sanctuary pollute off to stop.") or "Pollution preview off.") or ("Pollution preview failed: " .. tostring(why)))
+	elseif cmd == "freeze" then
+		-- /sanctuary freeze [hold|off]: ice over the health globe, without needing the debuff.
+		local mode = (rest or ""):lower()
+		local ok, why = ns.Freeze.Preview(mode ~= "" and mode or nil)
+		if not ok then
+			ns.Print("Freeze preview failed: " .. tostring(why))
+		elseif mode == "off" then
+			ns.Print("Freeze preview off.")
+		elseif mode == "hold" then
+			ns.Print("The health globe is frozen. /sanctuary freeze off breaks the ice.")
+		else
+			ns.Print("Freezing the health globe; the ice breaks in a few seconds. /sanctuary freeze hold keeps it.")
+		end
 	elseif cmd == "predict" then
 		-- Heal, shield and spell cost demo on preview levels: lands at 2.5 s, full health at 5 s,
 		-- real values at 8 s.
@@ -1085,6 +1099,7 @@ loader:SetScript("OnEvent", function(_, event)
 		Safe("portraits", ns.Portraits and ns.Portraits.Init)
 		Safe("party", ns.Party and ns.Party.Init)
 		Safe("pollution", ns.Pollution and ns.Pollution.Init)
+		Safe("freeze", ns.Freeze and ns.Freeze.Init)
 		Safe("statue eyes", ns.StatueEyes and ns.StatueEyes.Init)
 		Safe("experience", ns.Experience and ns.Experience.Init)
 		Safe("layout", ns.Layout)

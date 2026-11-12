@@ -63,6 +63,7 @@ PartyArt.lua
 PartyStyles.lua
 Party.lua
 Pollution.lua
+Freeze.lua
 Experience.lua
 InventoryWindow.lua
 Bags.lua

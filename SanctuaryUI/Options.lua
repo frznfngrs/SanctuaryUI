@@ -1980,6 +1980,8 @@ local function Build()
 					lowHealthPulse = Toggle(1, "Low health heartbeat", "The health globe pulses below 35%, faster as it empties.", nil, "lowHealthPulse"),
 					lowHealthAgitate = Toggle(2, "Restless at low health", "Below half health the health globe's liquid turns faster and sloshes on its own, more and more as health falls to 10%.", nil, "lowHealthAgitate"),
 					pollution = Toggle(3, "Debuffs pollute the health globe", "While you carry a poison, disease, curse or magic debuff, its colour bleeds into your health globe until it wears off or is cleansed. /sanctuary pollute poison, disease, curse or magic shows the look without the debuff. Uses about 28 MB of video memory while on.", nil, "pollution"),
+					freeze = Toggle(4, "Freezing debuffs ice the health globe", "While a frost debuff is on you (Frost Nova, Frostbolt's chill, Freezing Trap and the like), ice crystallises over your health globe and its liquid stops moving; when the debuff ends the ice shatters. /sanctuary freeze shows it without the debuff. In combat the game hides your debuffs from addons, so a freeze that starts mid-fight is only seen if the game says which spell rooted or stunned you. Uses about 38 MB of video memory once it has shown.", nil, "freeze"),
+					freezeAnyControl = Toggle(5, "Freeze on any root or stun", "For combat, when the game won't say which spell took control of you: ice the globe for every root and stun, frost or not.", nil, "freezeAnyControl"),
 				}),
 				prediction = Card(4, "Prediction", {
 					healPrediction = Toggle(1, "Incoming heals", "Heals on their way to you show as pale green liquid poured on top of the health globe.", nil, "healPrediction"),

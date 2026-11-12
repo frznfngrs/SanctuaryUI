@@ -39,6 +39,8 @@ ns.DEFAULTS = {
 		liquidAnimate = true,
 		liquidStyle = "classic", -- classic: D3's layered tiles; rendered: the Blender flipbooks (Liquid.lua)
 		pollution = true, -- debuffs colour the health globe until they end or are cleansed (Pollution.lua)
+		freeze = true, -- freezing debuffs ice the health globe over and stop its liquid (Freeze.lua)
+		freezeAnyControl = false, -- in combat, when the client hides the spell, any root or stun freezes it
 		-- the statues' eyes glow while a chosen buff is on you (StatueEyes.lua): names or spell IDs, commas between
 		statueEyes = {
 			angel = { enabled = true, spells = "Blessing of Wisdom, Greater Blessing of Wisdom", color = { 0.30, 0.62, 1.0 } },
@@ -686,6 +688,7 @@ function ns.Refresh()
 	Run("portraits", ns.Portraits and ns.Portraits.ApplySettings)
 	Run("party", ns.Party and ns.Party.ApplySettings)
 	Run("pollution", ns.Pollution and ns.Pollution.ApplySettings)
+	Run("freeze", ns.Freeze and ns.Freeze.ApplySettings)
 	Run("statue eyes", ns.StatueEyes and ns.StatueEyes.ApplySettings)
 	Run("menu", ns.Menu and ns.Menu.ApplySettings)
 	Run("bags", ns.Bags and ns.Bags.ApplySettings)

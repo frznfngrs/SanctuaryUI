@@ -69,6 +69,9 @@ local URGE_RIPPLE = 2.5 -- extra resting ripple at full urgency
 -- liquid whipped up, however full the globe is.
 local FURY_SPIN = 3.4 -- extra turning speed at full fury
 local FURY_HOLD, FURY_DECAY = 0.25, 3 -- seconds unrefreshed before it lets go, and how fast
+-- Frozen (Freeze.lua sets pool.frozen, 0..1, while ice is over the globe): the swirl clock, the
+-- motes and the boil stop, and the surface is held still. The level still follows health.
+local FROZEN_GRIP = 14 -- per second: how hard a frozen surface is held against a slosh
 local CHURN = { span = 1.25, spin = -0.32, du = 0.07, dv = -0.035, alpha = 0.5 } -- the fast churn layer
 
 -- Texcoord motion per layer. span: texture widths across the globe. spin: rad/s. du, dv: drift
@@ -434,7 +437,8 @@ function Pool:Physics(dt)
 	local bar = self.bar
 	-- Restless at low health: the liquid sloshes on its own, harder and more often the lower.
 	local urge = math.max(self.urge or 0, self.fury or 0)
-	if urge > 0.05 and ns.DB().liquidAnimate then
+	local frozen = self.frozen or 0
+	if urge > 0.05 and frozen < 0.5 and ns.DB().liquidAnimate then
 		self.restless = (self.restless or 0) - dt
 		if self.restless <= 0 then
 			self.slosh = (self.slosh or 0) + 1
@@ -481,6 +485,12 @@ function Pool:Physics(dt)
 	if self.tiltVel or self.bobVel then
 		self.tilt, self.tiltVel = Oscillate(self.tilt or 0, self.tiltVel or 0, TILT_HZ, TILT_ZETA, dt)
 		self.bob, self.bobVel = Oscillate(self.bob or 0, self.bobVel or 0, BOB_HZ, BOB_ZETA, dt)
+		if frozen > 0 then
+			-- Ice holds the surface: a hit can't rock it, and a slosh in progress dies at once.
+			local grip = math.exp(-dt * FROZEN_GRIP * frozen)
+			self.tilt, self.tiltVel = self.tilt * grip, self.tiltVel * grip
+			self.bob, self.bobVel = self.bob * grip, self.bobVel * grip
+		end
 		self.tilt = Clamp(self.tilt, -TILT_MAX, TILT_MAX)
 		self.bob = Clamp(self.bob, -BOB_MAX, BOB_MAX)
 		self.energy = math.abs(self.tilt) + math.abs(self.bob) + (math.abs(self.tiltVel) + math.abs(self.bobVel)) * 0.05
@@ -774,7 +784,7 @@ function Pool:Flipbook(t, dt, beat, flare)
 	if not agit then return end
 	local db = ns.DB()
 	-- On its own clock: the boil is already fast, so low health must not speed it up as well.
-	self.agitClock = (self.agitClock or 0) + (db.liquidAnimate and dt * (tonumber(db.liquidSpeed) or 1) or 0)
+	self.agitClock = (self.agitClock or 0) + (db.liquidAnimate and dt * (tonumber(db.liquidSpeed) or 1) * (1 - (self.frozen or 0)) or 0)
 	f = FlipStep(agit, self.agitClock + self.phase * agit.spec.seconds, inset)
 	-- The crossfade weights go in the colour, never in the alpha: the alpha is the boil's own
 	-- strength, set last, and the game can treat a texture's vertex alpha and SetAlpha as one
@@ -804,7 +814,7 @@ function Pool:Motes(t, dt)
 	local top = self.fill or 1
 	for i, mote in ipairs(self.motes) do
 		if animate then
-			mote.y = mote.y + dt * MOTE.rise * mote.speed
+			mote.y = mote.y + dt * MOTE.rise * mote.speed * (1 - (self.frozen or 0))
 		end
 		if mote.y > top - 0.02 or mote.y > 0.98 then
 			mote.seed = mote.seed + n
@@ -1270,6 +1280,7 @@ function Pool:SetLevels(base, offset)
 		self.shield:SetFrameLevel(base + ns.LEVEL.surface + offset)
 	end
 	if ns.Pollution and ns.HealthGlobe and self == ns.HealthGlobe.pool then ns.Pollution.ApplyLevels() end
+	if ns.Freeze and ns.Freeze.ApplyLevels and ns.HealthGlobe and self == ns.HealthGlobe.pool then ns.Freeze.ApplyLevels() end
 end
 
 -- Fixed sphere shading over the liquid, so the volume stays put while the liquid moves.
@@ -1315,7 +1326,7 @@ function ns.Liquid.Start()
 				fury = fury * math.exp(-dt * FURY_DECAY)
 				pool.fury = fury > 0.01 and fury or nil
 			end
-			local rate = 1 + URGE_SPIN * pool:Urgency(dt) + FURY_SPIN * fury
+			local rate = (1 + URGE_SPIN * pool:Urgency(dt) + FURY_SPIN * fury) * (1 - (pool.frozen or 0))
 			pool.t = (pool.t or clock) + (db.liquidAnimate and dt * speed * rate or 0)
 			pool:Physics(dt)
 			if pool.frame:IsVisible() then

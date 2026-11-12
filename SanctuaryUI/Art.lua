@@ -122,6 +122,12 @@ ns.Art.slots = {
 	pollutionCurseGlow = { file = "pollution-curse-glow.png", lazy = true },
 	pollutionMagicMix = { file = "pollution-magic-mix.png", lazy = true },
 	pollutionMagicGlow = { file = "pollution-magic-glow.png", lazy = true },
+	-- The frozen globe (Freeze.lua), from tools/build_freeze_art.py: loaded on the first freeze.
+	freezeIce = { file = "freeze-ice.png", lazy = true },
+	freezeGrow = { file = "freeze-grow.png", lazy = true },
+	freezeShatter = { file = "freeze-shatter.png", lazy = true },
+	freezeGlint = { file = "freeze-glint.png", lazy = true },
+	freezeLiquid = { file = "freeze-liquid.png", lazy = true },
 	globeRim = { file = "globe-rim.png" },
 	surfaceGlow = { file = "surface-glow.png" },
 	surfaceShimmer = { file = "surface-shimmer.png" },
