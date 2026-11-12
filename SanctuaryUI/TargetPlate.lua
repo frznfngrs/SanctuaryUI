@@ -1649,6 +1649,61 @@ local function ToTFill(bar, red, r, g, b)
 	bar:SetStatusBarColor(r, g, b, 1)
 end
 
+-- The target of target's level, class icon, faction emblem and raid marker. Each hides when off
+-- or unreadable; a secret level the client can still print.
+local function UpdateToTMarks(art, unit, opt, isPlayer, class)
+	local marks = art.Marks
+	local coords = isPlayer and opt.totClassIcon ~= false and CLASS_ICON_TCOORDS
+		and not Secret(class) and class and CLASS_ICON_TCOORDS[class]
+	if coords then marks.class:SetTexCoord(unpack(coords)) end
+	marks.class:SetShown(coords and true or false)
+	local faction
+	if isPlayer and opt.totFactionIcon ~= false then
+		local group = UnitFactionGroup(unit)
+		if not Secret(group) and (group == "Alliance" or group == "Horde") then faction = group end
+	end
+	if faction and marks.factionShown ~= faction then
+		marks.faction:SetTexture("Interface\\TargetingFrame\\UI-PVP-" .. faction)
+		marks.faction:SetTexCoord(0, 0.65625, 0, 0.65625)
+	end
+	marks.factionShown = faction
+	marks.faction:SetShown(faction and true or false)
+	local index = opt.totRaidIcon ~= false and GetRaidTargetIndex and GetRaidTargetIndex(unit)
+	if Secret(index) then index = nil end
+	if index and SetRaidTargetIconTexture then
+		SetRaidTargetIconTexture(marks.raid, index)
+		marks.raid:Show()
+	else
+		marks.raid:Hide()
+	end
+	-- The level: "??" for a skull, coloured as the target's (Text > Level > Colour).
+	local text = marks.onBadge and marks.badge.text or marks.level
+	local other = marks.onBadge and marks.level or marks.badge
+	other:Hide()
+	local shown = opt.totLevel ~= false
+	local level = shown and UnitLevel(unit)
+	local r, g, b = 0.95, 0.9, 0.8
+	if not shown then
+		-- off
+	elseif Secret(level) then
+		shown = pcall(text.SetFormattedText, text, "%d", level)
+	elseif level and level ~= 0 then
+		text:SetText(level == -1 and "??" or level)
+		if opt.levelColor == "difficulty" then
+			if level == -1 then
+				r, g, b = 1, 0.1, 0.1
+			else
+				local ok, c = pcall(GetCreatureDifficultyColor or GetQuestDifficultyColor, level)
+				if ok and type(c) == "table" and c.r then r, g, b = c.r, c.g, c.b end
+			end
+		end
+	else
+		shown = false
+	end
+	text:SetTextColor(r, g, b)
+	if marks.onBadge then marks.badge:SetShown(shown) else marks.level:SetShown(shown) end
+end
+
 -- The button shows and hides itself (RegisterUnitWatch, also in combat); this keeps what it
 -- shows current. Polled (the client sends no events for targettarget); full also redraws the
 -- portrait, which otherwise only changes when the unit does (its model would restart).
@@ -1681,14 +1736,30 @@ local function UpdateToT(plate, full)
 		color = NAME_COLORS.normal
 		ToTFill(art.Health, true)
 	end
+	local opt = Opt()
+	local isPlayer = UnitIsPlayer(unit)
+	if Secret(isPlayer) then isPlayer = false end
+	local _, class = UnitClass(unit)
 	-- On you: your name in warning red, so a tank sees it at a glance.
 	if isYou then
 		art.Name:SetText(YOU or "You")
 		art.Name:SetTextColor(1, 0.38, 0.25)
 	else
-		if not pcall(art.Name.SetText, art.Name, ns.Or(ns.UnitDisplayName(unit, Opt().surnames ~= false), "")) then art.Name:SetText("") end
-		art.Name:SetTextColor(color[1], color[2], color[3])
+		if not pcall(art.Name.SetText, art.Name, ns.Or(ns.UnitDisplayName(unit, opt.surnames ~= false), "")) then art.Name:SetText("") end
+		local classColor
+		if isPlayer and opt.totClassColor ~= false and class ~= nil then
+			if not Secret(class) then
+				classColor = RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+			elseif C_ClassColor and C_ClassColor.GetClassColor then
+				local ok, c = pcall(C_ClassColor.GetClassColor, class)
+				if ok then classColor = c end
+			end
+		end
+		if not (classColor and pcall(art.Name.SetTextColor, art.Name, classColor.r, classColor.g, classColor.b)) then
+			art.Name:SetTextColor(color[1], color[2], color[3])
+		end
 	end
+	UpdateToTMarks(art, unit, opt, isPlayer, class)
 	-- Health may be secret: the bar takes it as is.
 	local health, maxHealth = UnitHealth(unit), UnitHealthMax(unit)
 	pcall(art.Health.SetMinMaxValues, art.Health, 0, ns.Or(maxHealth, 1))
@@ -2022,6 +2093,8 @@ function M.Layout()
 	local size = math.max(8, math.floor((opt.nameSize or 13) * 0.8 + 0.5))
 	ns.Fonts.Set(art.Name, "title", size, "OUTLINE", opt.nameFont)
 	SetTextGlow(art.Name, opt.textGlow ~= false)
+	ns.Fonts.Set(art.Marks.level, "body", math.max(7, size - 2), "OUTLINE", opt.levelFont)
+	ns.Fonts.Set(art.Marks.badge.text, "body", 8, "OUTLINE", opt.levelFont)
 	if opt.enabled and opt.tot ~= false then
 		RegisterUnitWatch(plate.ToT)
 	else
@@ -2182,6 +2255,7 @@ local function MakeToTArt(plate, parent)
 		box:ClearAllPoints()
 		box:SetPoint("TOPLEFT", art, "LEFT", frameLeft, (bar[2] + bar[4] / 2) * k + art.extra / 2)
 		if art.Portrait then art.Portrait:SetShown(show) end
+		if art.LayoutMarks then art.LayoutMarks() end
 	end
 	art.SetPortraitShown(true)
 	ns.Art.DrawSliced(box, "normal", piece[3] * k, k)
@@ -2225,6 +2299,60 @@ local function MakeToTArt(plate, parent)
 	art.Portrait = MakeRing(art, k)
 	art.Portrait:SetPoint("CENTER", art, "LEFT", reach * k, 0)
 	art.Portrait:SetShown(art.portraitShown)
+	-- Its level, and on players their class icon and faction emblem, with any raid marker: round
+	-- the portrait as on the target's, or with no portrait the level in the bar's left end and
+	-- the marks in a row over the frame. UpdateToT fills them in.
+	local marks = CreateFrame("Frame", nil, art)
+	marks:SetAllPoints()
+	marks:SetFrameLevel(art.Portrait:GetFrameLevel() + 4) -- over the ring's art and the bar's frame
+	marks.class = marks:CreateTexture(nil, "OVERLAY")
+	marks.class:SetTexture("Interface\\TargetingFrame\\UI-Classes-Circles")
+	marks.faction = marks:CreateTexture(nil, "OVERLAY")
+	marks.raid = marks:CreateTexture(nil, "OVERLAY", nil, 1)
+	marks.raid:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+	marks.class:Hide()
+	marks.faction:Hide()
+	marks.raid:Hide()
+	marks.badge = ns.Art.LevelBadge(marks, 36, 10, "silver", 8)
+	marks.badge:Hide()
+	marks.level = marks:CreateFontString(nil, "OVERLAY")
+	ns.Fonts.Set(marks.level, "body", 9, "OUTLINE")
+	marks.level:SetShadowColor(0, 0, 0, 0.85)
+	marks.level:SetShadowOffset(1, -1)
+	marks.level:SetJustifyH("LEFT")
+	marks.level:Hide()
+	art.Marks = marks
+	-- Spots from the portrait's middle: { x, y, size }. D3's ring at TOT_K (the target's
+	-- D3_MARKS a little closer in), and the rendered styles' 30 px socket.
+	local RING_SPOTS = { class = { -20, 17, 14 }, faction = { 20, 17, 17 }, raid = { 0, 25, 14 }, badge = { 0, -30, 36, 10 } }
+	local SOCKET_SPOTS = { class = { -12, 11, 11 }, faction = { 12, 11, 13 }, raid = { 0, 17, 11 }, badge = { 0, -18, 28, 9 } }
+	function art.LayoutMarks()
+		local portrait = art.Portrait
+		local onRing = art.styled or (art.portraitShown and portrait.ringArt)
+		local spots = art.styled and SOCKET_SPOTS or RING_SPOTS
+		for i, key in ipairs({ "class", "faction", "raid" }) do
+			local mark, spot = marks[key], spots[key]
+			mark:ClearAllPoints()
+			if art.styled or art.portraitShown then
+				mark:SetSize(spot[3], spot[3])
+				mark:SetPoint("CENTER", portrait, "CENTER", spot[1], spot[2])
+			else
+				local size = RING_SPOTS[key][3]
+				mark:SetSize(size, size)
+				mark:SetPoint("BOTTOMLEFT", box, "TOPLEFT", bar[1] * k + (i - 1) * 18, -1)
+			end
+		end
+		local badge = spots.badge
+		marks.badge:ClearAllPoints()
+		marks.badge:SetSize(badge[3], badge[4])
+		marks.badge:SetPoint("CENTER", portrait, "CENTER", badge[1], badge[2])
+		marks.level:ClearAllPoints()
+		marks.level:SetPoint("LEFT", health, "LEFT", 3, 0)
+		marks.onBadge = onRing and true or false
+		-- With the level in the bar, the centred name keeps clear of it on both sides.
+		local nameW = art.styled and health:GetWidth() or (health:GetWidth() - 6 - (onRing and 0 or 28))
+		art.Name:SetWidth(math.max(20, nameW))
+	end
 	-- The rendered styles' small frame: a socket with its own bar, in place of D3's. Its Width
 	-- and Height stretch it in slices (ns.Art.TARGET_TOT_STYLE, ns.Art.DrawTargetStyle).
 	local styleArt = CreateFrame("Frame", nil, art)
@@ -2271,6 +2399,7 @@ local function MakeToTArt(plate, parent)
 			portrait:SetPoint("CENTER", art, "LEFT", reach * k, 0)
 			art.SetPortraitShown(art.portraitShown)
 		end
+		art.LayoutMarks()
 	end
 	art.styled = false
 	-- The Width and Height options: the frame stretches between its ornaments and along the band

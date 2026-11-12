@@ -1641,6 +1641,12 @@ local function UnitPlatePage(K, M, order, title, intro, placeNote)
 		return option
 	end
 
+	-- A target of target option, greyed out while it's off.
+	local function TotToggle(order, name, desc, key)
+		local option = Toggle(order, name, desc, K, key)
+		option.disabled = function() return DB()[K].tot == false end
+		return option
+	end
 	-- A target text option, greyed out while that text is off.
 	local function TargetText(key, option)
 		option.disabled = function()
@@ -1746,6 +1752,11 @@ local function UnitPlatePage(K, M, order, title, intro, placeNote)
 					option.disabled = function() return DB()[K].tot == false end
 					return option
 				end)(),
+				totLevel = TotToggle(5, "Level", "On a small plaque under its portrait, or in its bar's left end with no portrait. Coloured as the " .. WHO .. "'s level is (Text > Level > Colour).", "totLevel"),
+				totClassColor = TotToggle(6, "Class colour on player names", "A player's name in their class colour. Your own name stays red when it's you.", "totClassColor"),
+				totClassIcon = TotToggle(7, "Class icon on players", "The class crest by its portrait. With no portrait, in a row over its bar.", "totClassIcon"),
+				totFactionIcon = TotToggle(8, "Faction emblem on players", "Alliance or Horde, whether or not they are flagged for PvP.", "totFactionIcon"),
+				totRaidIcon = TotToggle(9, "Raid marker", "The skull, cross or other marker on it, for anyone in your group who set one.", "totRaidIcon"),
 			}),
 		}),
 		text = Tab(3, "Text", {
@@ -2208,6 +2219,8 @@ local function Build()
 					threat = Toggle(5, "Threat halo", "A red halo on a member with aggro (orange as they near it).", "party", "threat"),
 					rangeFade = Toggle(6, "Fade out of range", nil, "party", "rangeFade"),
 					surnames = Toggle(7, "Last names", "Each member's full name, first and last. Off, first names only, which leaves more room on the Slab.", "party", "surnames"),
+					healthColor = Select(8, "Health colour", "Each player's health in their class colour, or all in your health globe's red. Pets always use the red. With class colours, names on the bar turn cream so they stay readable.", "party", "healthColor",
+						{ class = "Class colour", globe = "Globe red" }, { "class", "globe" }),
 				}),
 				auras = Card(6, "Auras", {
 					debuffs = Toggle(1, "Debuffs", "Their debuffs in D3's debuff frame, coloured by type: blue magic, purple curse, brown disease, green poison.", "party", "debuffs"),

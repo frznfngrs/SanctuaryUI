@@ -13,6 +13,7 @@ local S = ns.PartyStyles
 --   view.overShield      a glow for "more shield than room"
 --   view.power           the resource StatusBar, or nil (pets)
 --   view.name, .pct, .status   font strings (some nil)
+--   view.nameOnBar       true when the name sits on the health fill
 --   view.level, .levelBox  the level number and the badge it sits in (members only)
 --   view.cast            { bar, icon, spellName }, a frame shown while the member casts (members only)
 --   view.face            the 2D portrait texture; view.model the 3D one (slab), or nil
@@ -490,6 +491,7 @@ function S.BuildSlab(button, isPet)
 	local size = isPet and 9 or 12
 	view.name = Font(top, size, true)
 	view.name:SetPoint("LEFT", health, "LEFT", 4, 0.5)
+	view.nameOnBar = true -- cream there when the fill is in the class colour (Party.lua UpdateName)
 	view.name:SetJustifyH("LEFT")
 	view.name:SetWidth(h[3] - (isPet and 34 or 44))
 	view.status = Font(top, isPet and 8 or 10, true)
@@ -680,6 +682,7 @@ local function StyledText(view, top, health, socket, isPet, nameWidth)
 	end
 	view.name:SetPoint("LEFT", health, "LEFT", 4, 0.5)
 	view.name:SetWidth(nameWidth)
+	view.nameOnBar = true
 	view.status:SetPoint("RIGHT", health, "RIGHT", -4, 0.5)
 	view.pct = Font(top, 12, false)
 	view.pct:SetPoint("RIGHT", health, "RIGHT", -4, 0)

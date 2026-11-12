@@ -98,6 +98,36 @@ local function HealthColor()
 	return c[1], c[2], c[3]
 end
 
+local CREAM = { 0.95, 0.9, 0.8 }
+
+-- A member's class colour ({ r, g, b }, the numbers possibly secret), or nil for a pet.
+local function ClassColor(b)
+	if b.isPet then return nil end
+	local pv, class = PV(b), nil
+	if pv then
+		class = pv.class
+	else
+		if not UnitExists(b.unit) then return nil end
+		class = select(2, UnitClass(b.unit))
+	end
+	if Readable(class) then return RAID_CLASS_COLORS and RAID_CLASS_COLORS[class] end
+	if Secret(class) and C_ClassColor and C_ClassColor.GetClassColor then
+		local ok, color = pcall(C_ClassColor.GetClassColor, class)
+		if ok then return color end
+	end
+	return nil
+end
+
+-- A member's health fill: their class colour (Options > Party > Health colour), or your health
+-- globe's red for pets, on "globe", or when the class can't be read.
+local function MemberHealthColor(b)
+	if Opt().healthColor ~= "globe" then
+		local c = ClassColor(b)
+		if c and Readable(c.r) and Readable(c.g) and Readable(c.b) then return c.r, c.g, c.b end
+	end
+	return HealthColor()
+end
+
 local function PowerColorOf(token, powerType)
 	local colors = ns.Globes and ns.Globes.POWER_COLORS
 	local c = Readable(token) and colors and colors[token]
@@ -305,7 +335,7 @@ local function UpdateHealth(b)
 		UpdatePower(b)
 	end
 
-	local r, g, bl = HealthColor()
+	local r, g, bl = MemberHealthColor(b)
 	if state == "offline" then r, g, bl = 0.32, 0.32, 0.32 end
 	if state == "dead" or state == "ghost" then health = 0 end
 	if v.pool then
@@ -410,26 +440,6 @@ function UpdatePortrait(b, force)
 	v.face:Show()
 end
 
-local CREAM = { 0.95, 0.9, 0.8 }
-
--- A member's class colour ({ r, g, b }, the numbers possibly secret), or nil for a pet.
-local function ClassColor(b)
-	if b.isPet then return nil end
-	local pv, class = PV(b), nil
-	if pv then
-		class = pv.class
-	else
-		if not UnitExists(b.unit) then return nil end
-		class = select(2, UnitClass(b.unit))
-	end
-	if Readable(class) then return RAID_CLASS_COLORS and RAID_CLASS_COLORS[class] end
-	if Secret(class) and C_ClassColor and C_ClassColor.GetClassColor then
-		local ok, color = pcall(C_ClassColor.GetClassColor, class)
-		if ok then return color end
-	end
-	return nil
-end
-
 local function UpdateName(b)
 	local v = b.v
 	if not v or not v.name then return end
@@ -437,7 +447,8 @@ local function UpdateName(b)
 	if not pv and not UnitExists(unit) then return end
 	local name = pv and pv.name or ns.UnitDisplayName(unit, Opt().surnames ~= false)
 	if not pcall(v.name.SetText, v.name, name or "") then v.name:SetText("") end
-	local c = ClassColor(b)
+	-- In the class colour, unless it sits on a fill already in that colour.
+	local c = not (v.nameOnBar and Opt().healthColor ~= "globe") and ClassColor(b)
 	if c then
 		if not pcall(v.name.SetTextColor, v.name, c.r, c.g, c.b) then v.name:SetTextColor(CREAM[1], CREAM[2], CREAM[3]) end
 	else
