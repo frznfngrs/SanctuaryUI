@@ -1120,7 +1120,7 @@ local function AllyRingArgs()
 			get = function() return ns.AllyRing.preview and true or false end,
 			set = function(_, value) ns.AllyRing.SetPreview(value) end,
 		}, HALF),
-		when = Card(4, "Shown", {
+		when = Tab(4, "Shown", {
 			show = Width(Select(1, "When", nil, "allyRing", "show", {
 				pvp = "In PvP: flagged, or in a battleground",
 				combat = "In combat",
@@ -1134,7 +1134,7 @@ local function AllyRingArgs()
 				set = function(_, value) DB().map.rangeYards = value Changed() end,
 			}, THIRD),
 		}, { disabled = off }),
-		look = Card(5, "Look", {
+		look = Tab(5, "Look", {
 			radius = Width({
 				type = "range", order = 1, name = "Scale", desc = "How far the ring spreads: the farthest allies and totems sit at its edge.",
 				min = 0.4, max = 2.2, step = 0.05, isPercent = true,
@@ -1142,7 +1142,7 @@ local function AllyRingArgs()
 				set = function(_, value) DB().allyRing.radius = math.floor(value * 230 + 0.5) Changed() end,
 			}, THIRD),
 			inner = Width({
-				type = "range", order = 2, name = "Clear middle", desc = "How far from the middle the nearest allies sit, so they don't cover your character. Not used while your dot shows (Totems card): then everything is drawn true to you in the middle.",
+				type = "range", order = 2, name = "Clear middle", desc = "How far from the middle the nearest allies sit, so they don't cover your character. Not used while Your dot is on: then everything is drawn true to you in the middle.",
 				min = 0, max = 200, step = 5, disabled = function() return off() or DB().allyRing.selfDot end,
 				get = function() return DB().allyRing.inner end,
 				set = function(_, value) DB().allyRing.inner = value Changed() end,
@@ -1158,18 +1158,20 @@ local function AllyRingArgs()
 			circle = Third(Toggle(6, "Reach circle", nil, "allyRing", "circle")),
 			names = Third(Toggle(7, "Names", nil, "allyRing", "names")),
 			target = Third(Toggle(8, "Targeted member", "A pale gold halo round the pip of the group member you have targeted. Only group members can be marked: the game gives addons no position for an enemy or a stranger.", "allyRing", "target")),
+			selfDot = Third(Toggle(9, "Your dot", "A pip for you in the middle of the ring, with the same dots for the totems that reach you. While it shows, allies are drawn true to it too (the clear middle is set aside), so the whole ring measures from you the same way. Totems are always drawn true to the middle.", "allyRing", "selfDot")),
 		}, { disabled = off }),
-		totems = Card(5.5, "Totems", {
+		totems = Tab(6, "Totems", {
 			note = Note(1, "Each totem is pinned on the ring where it was dropped, with its time running out on the icon. The game gives addons no position for a totem, so the ring remembers the spot. A totem whose reach you are outside of turns grey. Other shamans' totems show only if they run SanctuaryUI: the game hides which spell a group member cast, so their addon tells yours. Not in dungeons or battlegrounds, where the game hides positions and refuses addon messages, and a reload forgets totems already down."),
 			totems = ShamanOnly(Third(Toggle(2, "Show my totems", "Your totems also bring the ring up when you are alone.", "allyRing", "totems"))),
 			shareTotems = ShamanOnly(Third(Toggle(3, "Share my totems", "Tell group members running SanctuaryUI where your totems are, over hidden addon messages.", "allyRing", "shareTotems"))),
 			groupTotems = Third(Toggle(4, "Group members' totems", "Totems of group members running SanctuaryUI, drawn a little smaller.", "allyRing", "groupTotems")),
 			totemReach = Third(Toggle(5, "Reach outline", "Each totem's reach, read from its spell's text, outlined in its element's colour, drawn true to the ring's scale. Allies inside it are within reach; near the middle, where the ring keeps your character clear, that is a close guide rather than exact. The icon itself turns grey when you are out of reach.", "allyRing", "totemReach")),
 			totemMarks = Third(Toggle(6, "Covered allies", "A small dot in the element's colour by each ally's pip for every totem that reaches them, worked out from their true distance to the totem. Exact, where the outlines are a guide.", "allyRing", "totemMarks")),
-			selfDot = Third(Toggle(7, "Your dot", "A pip for you in the middle of the ring, with the same dots for the totems that reach you. While it shows, allies are drawn true to it too (the Look card's clear middle is set aside), so the whole ring measures from you the same way. Totems are always drawn true to the middle.", "allyRing", "selfDot")),
 		}, { disabled = off }),
-		place = PositionCard(6, "On the middle of the screen by default. While frames are unlocked the ring shows, with stand-ins if you have no group, and a handle at its middle to drag. " .. UNLOCK,
-			function() ns.AllyRing.ResetPosition() end, function() local o = DB().allyRing return not o.moved and o.offsetY == 0 end),
+		place = Tab(7, "Position", {
+			place = PositionCard(1, "On the middle of the screen by default. While frames are unlocked the ring shows, with stand-ins if you have no group, and a handle at its middle to drag. " .. UNLOCK,
+				function() ns.AllyRing.ResetPosition() end, function() local o = DB().allyRing return not o.moved and o.offsetY == 0 end),
+		}),
 	}
 end
 
@@ -2262,7 +2264,7 @@ local function Build()
 			sectionMap = Section(39.2, "Map"),
 			map = Page(39.4, "Minimap", MapArgs(), "tab"),
 			mapOverlay = Page(39.6, "Overlay map", OverlayArgs()),
-			allyRing = Page(39.7, "Ally ring", AllyRingArgs()),
+			allyRing = Page(39.7, "Ally ring", AllyRingArgs(), "tab"),
 			gap40 = Gap(39.8),
 			sectionInventory = Section(40, "Inventory"),
 			bags = Page(41, "Bags", {
