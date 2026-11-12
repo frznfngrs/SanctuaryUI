@@ -356,6 +356,16 @@ ns.DEFAULTS = {
 			headerAlign = "style", -- style (right on the parchment, else centred) | left | center | right
 			headerScale = 1,
 			drawer = true, -- gather other addons' minimap buttons into one socket
+			-- with the drawer off: other addons' buttons round the map's edge (Map.lua LayoutRim)
+			-- shown or not, and on mouseover, with the buttons below (buttons.show)
+			rim = {
+				scale = 1,
+				distance = 0, -- in or out from the style's own line round the map
+				gap = 2,
+				start = 225, -- degrees, 0 east, counting anticlockwise: where the first unpinned button sits
+				clockwise = true, -- the way the unpinned ones run from there
+				pos = {}, -- button name -> degrees, for buttons dragged to a spot
+			},
 			-- the buttons: mail, tracking, the calendar and the drawer
 			buttons = {
 				show = "always", -- always | hover (while the mouse is on the map or on them) | never

@@ -1012,11 +1012,11 @@ local function MapArgs()
 			place = PositionCard(3, "Top right by default. " .. UNLOCK, function() ns.Map.ResetPosition() end, function() return not DB().map.moved end),
 		}),
 		buttons = Tab(4, "Buttons", {
-			intro = Note(1, "Mail, tracking, the calendar and the drawer of addon buttons."),
+			intro = Note(1, "Mail, tracking, the calendar and the drawer of addon buttons, or other addons' buttons round the map."),
 			shown = Card(2, "Shown", {
 				show = Width(ButtonField({
 					type = "select", order = 1, name = "When",
-					desc = "On mouseover: out of sight until the mouse is on the map or on the buttons' own spot. They stay up while frames are unlocked.",
+					desc = "These buttons and other addons' buttons alike. On mouseover: out of sight until the mouse is on the map or on the buttons. They stay up while frames are unlocked.",
 					values = { always = "Always", hover = "On mouseover", never = "Never" }, sorting = { "always", "hover", "never" },
 				}, "show", off), HALF),
 				mail = Third(ButtonField({ type = "toggle", order = 2, name = "Mail", desc = "Only while you have mail waiting." }, "mail", noButtons)),
@@ -1025,11 +1025,26 @@ local function MapArgs()
 				queue = Third(ButtonField({ type = "toggle", order = 4.5, name = "Queue eye", desc = "While you are queued for a battleground or a dungeon, the game's queue eye sits here: hover it for the wait, click it to leave or enter. It stays in view even when the buttons show on mouseover. Off, it goes back where the game puts it." }, "queue", noButtons)),
 				drawer = Width({
 					type = "toggle", order = 5, name = "Gather addon buttons", disabled = off,
-					desc = "Other addons' minimap buttons leave the map's rim for one button that opens on hover. Turning this off needs a reload to put them back.",
+					desc = "Other addons' minimap buttons leave the map's rim for one button that opens on hover. Off, they sit round the map's edge instead, fitted to its shape, and can be dragged along it: see Addon buttons on the rim. Either way they follow When above.",
 					get = function() return DB().map.drawer end,
 					set = function(_, value) DB().map.drawer = value Changed() end,
 				}, HALF),
 			}),
+			rim = Card(2.5, "Addon buttons on the rim", {
+				note = Note(1, "Drag a button round the map to pin it to that spot; the others run on from the start and close up round it. They follow the style's shape: the parchment's square, the globe's ring, the borderless map's edge."),
+				start = Select(3, "Start at", "Where the first button that has not been dragged sits.", "map.rim", "start", {
+					[90] = "Top", [45] = "Top right", [0] = "Right", [315] = "Bottom right",
+					[270] = "Bottom", [225] = "Bottom left", [180] = "Left", [135] = "Top left",
+				}, { 90, 45, 0, 315, 270, 225, 180, 135 }),
+				clockwise = Third(Toggle(4, "Run clockwise", "The way the others run from the start.", "map.rim", "clockwise")),
+				scale = Range(5, "Button size", nil, "map.rim", "scale", 0.5, 1.5, 0.05, true),
+				distance = Range(6, "In or out", "Moves the line they sit on toward the map's middle or away from it.", "map.rim", "distance", -40, 40, 1),
+				gap = Range(7, "Spacing", nil, "map.rim", "gap", 0, 20, 1),
+				reset = {
+					type = "execute", order = 8, name = "Forget dragged spots", func = function() ns.Map.ResetRim() end,
+					disabled = function() return next(DB().map.rim.pos) == nil end,
+				},
+			}, { hidden = function() return DB().map.drawer end, disabled = noButtons }),
 			where = Card(3, "Place", {
 				side = Width(ButtonField({
 					type = "select", order = 1, name = "Where",

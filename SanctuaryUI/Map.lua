@@ -27,7 +27,7 @@ local MAX_DOTS = 70
 local ROUND_MASK_ID = 186178 -- the client's own round mask, if ours is missing
 local SQUARE_MASK_ID = 130937
 
-local holder, outer, mapBox, art, pinLayer, header, bar, sockets, drawer, hidden
+local holder, outer, mapBox, art, pinLayer, header, bar, sockets, drawer, rim, hidden
 local markers, dots = {}, nil
 local taken = false
 local shape = "ROUND"
@@ -201,46 +201,217 @@ local function CalendarTip(tip)
 	tip:AddLine("|cffffffffRight-click|r stopwatch and alarm", 0.8, 0.8, 0.8)
 end
 
--- The drawer: every LibDBIcon button, off the map's rim and into one panel.
+-- The drawer: every LibDBIcon button, off the map's rim and into one panel. With the drawer
+-- turned off the same buttons go round the map's edge instead (LayoutRim), on a line that
+-- fits the style (the square of the parchment, the globe's ring, the borderless map's
+-- feathered edge), and can be dragged along it.
 local adopted = {}
 
+local function Gathered()
+	return Opt().drawer
+end
+
+-- Into the drawer or onto the rim, at the button's own scale times the one given.
+local function Seat(button, parent, scale)
+	if button:GetParent() ~= parent then
+		button:SetParent(parent)
+		button:SetFrameStrata("MEDIUM")
+		button:SetFrameLevel(parent:GetFrameLevel() + 2)
+	end
+	local want = (button.sanctuaryScale or 1) * scale
+	if math.abs(button:GetScale() - want) > 0.001 then button:SetScale(want) end
+	return want
+end
+
+local function ByName(a, b)
+	return (a:GetName() or "") < (b:GetName() or "")
+end
+
 local function LayoutDrawer()
-	if not drawer then return end
 	local shown = {}
 	for button in pairs(adopted) do
+		Seat(button, drawer, 1)
 		if button:IsShown() then shown[#shown + 1] = button end
 	end
-	table.sort(shown, function(a, b) return (a:GetName() or "") < (b:GetName() or "") end)
+	table.sort(shown, ByName)
 	local cols = math.min(DRAWER_COLS, math.max(1, #shown))
 	local rows = math.max(1, math.ceil(#shown / DRAWER_COLS))
 	drawer:SetSize(cols * DRAWER_CELL + 10, rows * DRAWER_CELL + 10)
 	placing = true
 	for i, button in ipairs(shown) do
 		local col, row = (i - 1) % DRAWER_COLS, math.floor((i - 1) / DRAWER_COLS)
+		local s = button:GetScale()
 		button:ClearAllPoints()
 		-- Filled from the right, under the drawer's socket.
-		button:SetPoint("CENTER", drawer, "TOPRIGHT", -5 - (col + 0.5) * DRAWER_CELL, -5 - (row + 0.5) * DRAWER_CELL)
+		button:SetPoint("CENTER", drawer, "TOPRIGHT", (-5 - (col + 0.5) * DRAWER_CELL) / s, (-5 - (row + 0.5) * DRAWER_CELL) / s)
 	end
 	placing = false
-	local had = drawer.count or 0
 	drawer.count = #shown
+end
+
+-- The line round the map the rim buttons sit on: a square (its half side) or a circle (its
+-- radius), from the map's middle.
+local function RimShape()
+	local opt = Opt()
+	local style, size, r = opt.style, opt.size, opt.rim
+	local square, radius = false, size / 2 - 2
+	if style == "parchment" then
+		square = true
+	elseif style == "globe" then
+		radius = size / 2 + (size * RING - size) / 4 -- the middle of the forged ring
+	end
+	return square, math.max(12, radius + r.distance)
+end
+
+local function RimLength(square, r)
+	return square and 8 * r or 2 * math.pi * r
+end
+
+-- A point on that line from the distance along it: 0 due east, running anticlockwise.
+local function RimPoint(t, square, h)
+	if not square then
+		local a = t / h
+		return math.cos(a) * h, math.sin(a) * h
+	end
+	t = t % (8 * h)
+	if t < h then return h, t end
+	if t < 3 * h then return h - (t - h), h end
+	if t < 5 * h then return -h, h - (t - 3 * h) end
+	if t < 7 * h then return -h + (t - 5 * h), -h end
+	return h, -h + (t - 7 * h)
+end
+
+-- The distance along the line of the point at a bearing (degrees, 0 east, anticlockwise).
+local function RimT(degrees, square, h)
+	local a = math.rad(degrees % 360)
+	if not square then return a * h end
+	local c, s = math.cos(a), math.sin(a)
+	local k = h / math.max(math.abs(c), math.abs(s))
+	local x, y = c * k, s * k
+	local e = 0.001
+	if x >= h - e and y >= 0 then return y end
+	if y >= h - e then return h + (h - x) end
+	if x <= -h + e then return 3 * h + (h - y) end
+	if y <= -h + e then return 5 * h + (x + h) end
+	return 7 * h + (y + h)
+end
+
+local function LayoutRim()
+	local r = Opt().rim
+	local square, radius = RimShape()
+	local length = RimLength(square, radius)
+	local list = {}
+	for button in pairs(adopted) do
+		Seat(button, rim, r.scale)
+		if button:IsShown() then list[#list + 1] = button end
+	end
+	table.sort(list, ByName)
+	local placed = {} -- x, y, half width of each button down so far
+	local function Put(button, x, y)
+		local s = button:GetScale()
+		placing = true
+		button:ClearAllPoints()
+		button:SetPoint("CENTER", rim, "CENTER", x / s, y / s)
+		placing = false
+		placed[#placed + 1] = { x, y, button:GetWidth() * s / 2 }
+	end
+	-- Buttons dragged to a spot first; the rest run on from the start, round them.
+	local free = {}
+	for _, button in ipairs(list) do
+		local deg = r.pos[button:GetName() or ""]
+		if deg then
+			Put(button, RimPoint(RimT(deg, square, radius), square, radius))
+		else
+			free[#free + 1] = button
+		end
+	end
+	local t = RimT(r.start, square, radius)
+	local dir = r.clockwise and -1 or 1
+	for _, button in ipairs(free) do
+		local half = button:GetWidth() * button:GetScale() / 2
+		local x, y
+		local walked = 0
+		repeat
+			x, y = RimPoint(t, square, radius)
+			local clear = true
+			for _, p in ipairs(placed) do
+				local need = p[3] + half + r.gap
+				local dx, dy = p[1] - x, p[2] - y
+				if dx * dx + dy * dy < need * need - 0.01 then
+					clear = false
+					break
+				end
+			end
+			if not clear then
+				t = t + dir * 2
+				walked = walked + 2
+			end
+		until clear or walked > length -- a full line: it goes on top of another
+		Put(button, x, y)
+	end
+end
+
+local function LayoutButtons(fromLayout)
+	if not drawer then return end
+	local had = drawer.count or 0
+	if Gathered() then
+		LayoutDrawer()
+	else
+		drawer:Hide()
+		drawer.count = 0
+		LayoutRim()
+	end
 	-- The drawer's socket comes and goes with its first button.
-	if (had > 0) ~= (#shown > 0) and taken then Map.Layout() end
+	if not fromLayout and taken and (had > 0) ~= (drawer.count > 0) then Map.Layout() end
+end
+
+-- Dragging a rim button: it follows the mouse round the line and stays where it is let go.
+local function RimDrag()
+	local button = Map.dragging
+	local cx, cy = rim:GetCenter()
+	if not button or not cx then return end
+	local x, y = GetCursorPosition()
+	local s = rim:GetEffectiveScale()
+	local deg = math.deg(math.atan2(y / s - cy, x / s - cx)) % 360
+	Opt().rim.pos[button:GetName() or ""] = math.floor(deg + 0.5) % 360
+	LayoutRim()
+end
+
+local function DragStart(self)
+	if Gathered() or not self:GetName() then return end
+	GameTooltip_Hide()
+	Map.dragging = self
+	rim:SetScript("OnUpdate", RimDrag)
+end
+
+local function DragStop(self)
+	if Map.dragging ~= self then return end
+	RimDrag()
+	Map.dragging = nil
+	rim:SetScript("OnUpdate", nil)
+end
+
+local function OverRim()
+	for button in pairs(adopted) do
+		if button:IsShown() and button:IsMouseOver() then return true end
+	end
+	return false
 end
 
 local function Adopt(button)
 	if not button or adopted[button] or not drawer then return end
 	adopted[button] = true
-	button:SetParent(drawer)
-	button:SetFrameLevel(drawer:GetFrameLevel() + 2)
-	-- No dragging round a rim it is no longer on.
-	button:SetScript("OnDragStart", nil)
-	button:SetScript("OnDragStop", nil)
+	button.sanctuaryScale = button:GetScale()
+	-- Their own dragging was round Blizzard's rim; on ours they move along the line, and in
+	-- the drawer not at all.
+	button:SetScript("OnDragStart", DragStart)
+	button:SetScript("OnDragStop", DragStop)
+	if button.RegisterForDrag then button:RegisterForDrag("LeftButton") end
 	hooksecurefunc(button, "SetPoint", function()
-		if not placing then LayoutDrawer() end
+		if not placing then LayoutButtons() end
 	end)
-	button:HookScript("OnShow", function() if not placing then LayoutDrawer() end end)
-	button:HookScript("OnHide", function() if not placing then LayoutDrawer() end end)
+	button:HookScript("OnShow", function() if not placing then LayoutButtons() end end)
+	button:HookScript("OnHide", function() if not placing then LayoutButtons() end end)
 end
 
 -- Buttons other addons hang on the minimap without the usual library. Told apart from map
@@ -269,25 +440,25 @@ local function CollectLoose(parent)
 end
 
 local function Collect()
-	if not taken or not Opt().drawer then return end
+	if not taken then return end
 	CollectLoose(Minimap)
 	CollectLoose(MinimapBackdrop)
 	local lib = LibStub and LibStub("LibDBIcon-1.0", true)
 	if not lib then
-		LayoutDrawer()
+		LayoutButtons()
 		return
 	end
 	for _, button in pairs(lib.objects or {}) do Adopt(button) end
 	if not Map.listening and lib.RegisterCallback then
 		Map.listening = true
 		lib.RegisterCallback(Map, "LibDBIcon_IconCreated", function(_, button)
-			if taken and Opt().drawer then
+			if taken then
 				Adopt(button)
-				LayoutDrawer()
+				LayoutButtons()
 			end
 		end)
 	end
-	LayoutDrawer()
+	LayoutButtons()
 end
 
 local function OverDrawer()
@@ -401,6 +572,13 @@ local function Build()
 			if GetTime() - self.leftAt > 0.6 then self:Hide() end
 		end
 	end)
+
+	-- Other addons' buttons round the map's edge, while the drawer is off. Over the map's pins.
+	rim = CreateFrame("Frame", nil, holder)
+	rim:SetFrameStrata("MEDIUM")
+	rim:SetFrameLevel(46)
+	rim:SetAllPoints(mapBox)
+	rim:EnableMouse(false)
 
 	Map.holder = holder
 	Map.mover = ns.MakeMover(holder, "Minimap", Opt, "Reset its position in /sanctuary > Minimap.")
@@ -605,6 +783,10 @@ function Map.Layout()
 		headH = (opt.zone and line1 or 0) + (second and line2 or 0) + 4
 		if plaque then headH = math.max(PLAQUE_H, headH + 14) - 6 end
 	end
+
+	-- Other addons' buttons: in the drawer, or round the edge
+	LayoutButtons(true)
+	rim:SetShown(not opt.drawer and b.show ~= "never") -- shown when the other buttons are
 
 	-- The buttons
 	SeatQueue()
@@ -986,6 +1168,14 @@ local function DrawPins()
 	for i = used + 1, MAX_MARKERS do markers[i]:Hide() end
 end
 
+-- A short fade either way.
+local function Fade(frame, hide)
+	local alpha, want = frame:GetAlpha(), hide and 0 or 1
+	if alpha ~= want then
+		frame:SetAlpha(math.max(0, math.min(1, alpha + (want > alpha and 0.34 or -0.34))))
+	end
+end
+
 local function OnUpdate(self, elapsed)
 	self.pinWait = (self.pinWait or 0) + elapsed
 	if self.pinWait >= 0.07 then
@@ -1011,14 +1201,13 @@ local function OnUpdate(self, elapsed)
 	self.hoverWait = (self.hoverWait or 0) + elapsed
 	if self.hoverWait >= 0.1 then
 		self.hoverWait = 0
-		local hide = Opt().buttons.show == "hover" and ns.DB().locked
-			and not (holder:IsMouseOver() or bar:IsMouseOver() or drawer:IsShown() or QueueShowing())
-		local alpha = bar:GetAlpha()
-		local want = hide and 0 or 1
-		if alpha ~= want then
-			-- A short fade either way.
-			bar:SetAlpha(math.max(0, math.min(1, alpha + (want > alpha and 0.34 or -0.34))))
-		end
+		-- The addon buttons round the rim go with the others: the mouse on any of them, or on
+		-- the map, brings them all up.
+		local hover = Opt().buttons.show == "hover" and ns.DB().locked
+		local over = hover and (holder:IsMouseOver() or bar:IsMouseOver() or drawer:IsShown()
+			or (rim:IsShown() and OverRim()) or Map.dragging)
+		Fade(bar, hover and not over and not QueueShowing())
+		Fade(rim, hover and not over)
 	end
 end
 
@@ -1036,6 +1225,12 @@ end
 function Map.ResetButtons()
 	local b = Opt().buttons
 	b.moved, b.mx, b.my, b.x, b.y = false, 0, 0, 0, 0
+	ns.Refresh()
+end
+
+-- Forget where rim buttons were dragged: they all run on from the start again.
+function Map.ResetRim()
+	wipe(Opt().rim.pos)
 	ns.Refresh()
 end
 
@@ -1068,7 +1263,7 @@ function Map.ApplySettings()
 		Map.askedReload = true
 		StaticPopup_Show("SANCTUARYUI_MAP_RELOAD")
 	end
-	if taken and Opt().drawer then Collect() end
+	if taken then Collect() end
 	Map.Layout()
 	Map.UpdateZoom(true)
 end
