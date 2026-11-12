@@ -184,7 +184,8 @@ do
 			local ok, l = pcall(debuglocals, 3)
 			if ok then locals = l end
 		end
-		if locals and locals ~= "" then
+		-- Locals can hold secret values; even comparing one throws (error [9], 2026-11-11).
+		if locals and not (issecretvalue and issecretvalue(locals)) and locals ~= "" then
 			stack = (stack or "") .. "\nLocals:\n" .. locals
 		end
 		ns.LogError("lua", message, stack)

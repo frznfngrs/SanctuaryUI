@@ -231,23 +231,38 @@ end
 ---------------------------------------------------------------------------
 -- Group members' pins
 
+-- Names come as "Name-Realm" in addon messages but as name and realm (none for your own realm)
+-- from UnitName, and realm spellings differ in spaces. Compare the two parts, realms squeezed.
+local function Squeeze(realm)
+	return (realm or ""):gsub("[%s%-']", ""):lower()
+end
+
+local function HomeRealm()
+	return Squeeze(GetNormalizedRealmName and GetNormalizedRealmName() or GetRealmName and GetRealmName() or "")
+end
+
+local function Same(sender, name, realm)
+	if not Plain(name) then return false end
+	local sname, srealm = sender:match("^([^-]+)-?(.*)$")
+	if sname ~= name then return false end
+	if not srealm or srealm == "" then return true end
+	local theirs = (Plain(realm) and realm ~= "") and Squeeze(realm) or HomeRealm()
+	return Squeeze(srealm) == theirs
+end
+
+-- Our own messages come back to us; they mustn't draw our totems a second time.
 local function Me(sender)
-	local name = UnitName("player")
-	return Plain(name) and (sender == name or (Ambiguate and Ambiguate(sender, "none") == name))
+	return Same(sender, UnitName("player"), nil)
 end
 
 -- Is this sender in the group? Names only, and never written down.
 local function InGroup(sender)
-	local short = Ambiguate and Ambiguate(sender, "none") or sender
 	local raid = IsInRaid()
 	for n = 1, raid and 40 or 4 do
 		local unit = (raid and "raid" or "party") .. n
 		if UnitExists(unit) then
 			local name, realm = UnitName(unit)
-			if Plain(name) then
-				local full = (Plain(realm) and realm ~= "") and (name .. "-" .. realm) or name
-				if full == short or full == sender then return true end
-			end
+			if Same(sender, name, realm) then return true end
 		end
 	end
 	return false
