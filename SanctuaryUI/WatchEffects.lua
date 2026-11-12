@@ -35,6 +35,10 @@ local ns = SanctuaryUI
 --                     whipped into a whirlpool, and on the health globe the gargoyle wakes), or a healing look: "vines",
 --                     "halo", "bloom", "veil", "rain", "pulse" or "embers". Players can change any
 --                     skill in the options (GlobeAura.lua LookOf)
+--   tally             with look = "radiate", shows as Slashes by default: that many claw slashes
+--                     (4 at most) burnt into the globe's glass over a low Radiance, one burning
+--                     off with each swing of yours that lands (Reckless.lua). Players can set any
+--                     buff to Slashes; one that says nothing here gets four
 --   flare             a burst played at the cast (and, for look = "flare", all it does):
 --                     a list of { globe, tint, dir = "out" | "in" }
 --   shell             with look = "shell", what it shows by default: "aegis" (runed gold plates round the
@@ -122,6 +126,10 @@ ns.WatchData.EFFECTS = {
 	{ key = "bloodrage", class = "WARRIOR", spells = { 2687 }, names = { "Bloodrage" }, look = "surge", surge = "inhale", globe = "health", tint = "blood", length = 10, strength = 1.2,
 		flare = { { globe = "power", tint = "rage", dir = "in" } },
 		label = "Bloodrage", desc = "streaks of blood rushing in to the health globe it costs, and the rage globe draws the rage in" },
+	-- Slashes: the cast's flares and a low glow from GlobeAura.lua, the tally from Reckless.lua.
+	{ key = "recklessSwings", class = "WARRIOR", names = { "Reckless Swings" }, look = "radiate", tally = 4, globe = "power", tint = "rage", length = 8, strength = 0.8,
+		flare = { { globe = "health", tint = "blood", dir = "out" }, { globe = "power", tint = "rage", dir = "in" } },
+		label = "Reckless Swings", desc = "blood bursts from the health globe it costs; four ember claw slashes burn into the rage globe, and each swing that lands burns one off as its rage comes in" },
 	{ key = "frenziedRegeneration", class = "DRUID", spells = { 22842 }, names = { "Frenzied Regeneration" }, look = "surge", surge = "veil", hot = true, globe = "health", tint = "nature", length = 10, tick = 1,
 		label = "Frenzied Regeneration", desc = "curtains of green light rising off the top of the health globe" },
 	{ key = "renew", class = "PRIEST", spells = { 139 }, names = { "Renew" }, look = "surge", surge = "halo", hot = true, globe = "health", tint = "holy", length = 15, tick = 3, target = "any",
@@ -213,11 +221,11 @@ ns.WatchData.CONSUMERS = {
 -- What a skill can be set to show (GlobeAura.lua LookOf), for the options: the names, and the
 -- order the choices are listed in. A buff picks from LOOK_ORDER, a one-off flare from FLARE_ORDER.
 ns.WatchData.LOOK_NAMES = {
-	radiate = "Radiance", shell = "Crystal shell", aegis = "Aegis", rime = "Rime", hex = "Hex ward", bulwark = "Bulwark", pour = "Pour", inhale = "Inhale", upwell = "Upwell", swirl = "Swirl", fury = "Fury",
+	radiate = "Radiance", tally = "Slashes", shell = "Crystal shell", aegis = "Aegis", rime = "Rime", hex = "Hex ward", bulwark = "Bulwark", frozen = "Frozen", pour = "Pour", inhale = "Inhale", upwell = "Upwell", swirl = "Swirl", fury = "Fury",
 	vines = "Vines", halo = "Halo", bloom = "Bloom", veil = "Veil", rain = "Rain", pulse = "Pulse", embers = "Embers",
 	burst = "Burst", mend = "Mend", benediction = "Benediction", mound = "Surge",
 }
-ns.WatchData.LOOK_ORDER = { "radiate", "shell", "aegis", "rime", "hex", "bulwark", "pour", "inhale", "upwell", "swirl", "fury", "vines", "halo", "bloom", "veil", "rain", "pulse", "embers" }
+ns.WatchData.LOOK_ORDER = { "radiate", "tally", "shell", "aegis", "rime", "hex", "bulwark", "frozen", "pour", "inhale", "upwell", "swirl", "fury", "vines", "halo", "bloom", "veil", "rain", "pulse", "embers" }
 ns.WatchData.FLARE_ORDER = { "burst", "mend", "benediction", "mound" }
 -- How a shield breaks, for the options. Only skills that can really break get the choice.
 ns.WatchData.BREAK_NAMES = { shatter = "Shatter", shockwave = "Shockwave", dissolve = "Dissolve", crumble = "Crumble", melt = "Melt" }

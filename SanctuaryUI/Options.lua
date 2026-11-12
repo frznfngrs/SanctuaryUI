@@ -511,7 +511,7 @@ local function GlobeAuraArgs()
 					return not DB().globeAuras.enabled or not DB().globeAuras.effects[effect.key]
 				end)
 				local native = flareOnly and (effect.heal or "burst") or effect.look == "surge" and (effect.surge or "swirl")
-					or effect.look == "shell" and (effect.shell or "shell") or effect.look
+					or effect.look == "shell" and (effect.shell or "shell") or effect.look == "radiate" and effect.tally and "tally" or effect.look
 				local lookValues, lookSorting = LookChoices(flareOnly and DATA.FLARE_ORDER or DATA.LOOK_ORDER,
 					{ { "default", "Default (" .. LOOK_NAMES[native] .. ")" } })
 				page.args[effect.key .. "Look"] = {

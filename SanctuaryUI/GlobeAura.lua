@@ -296,6 +296,10 @@ local function LookOf(effect)
 		if choice == "burst" or (choice and HEAL_SLOTS[choice]) then return "flare", choice end
 		return "flare", effect.heal or "burst"
 	end
+	-- Frozen (Freeze.lua draws all of it: the ice crust over the health globe, the liquid stopped).
+	if choice == "frozen" then return "frozen" end
+	-- Slashes (Reckless.lua draws the tally): Radiance behind the globe, quiet, under them.
+	if choice == "tally" or (choice == nil and effect.tally and effect.look == "radiate") then return "radiate", "tally" end
 	if choice == "radiate" or choice == "shell" then return choice end
 	if choice and SHIELD_LOOKS[choice] then return "shell", choice end
 	if choice == "swirl" or (choice and STYLE_SLOTS[choice]) then return "surge", choice end

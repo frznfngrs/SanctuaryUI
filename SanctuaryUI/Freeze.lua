@@ -22,6 +22,9 @@ local F = ns.Freeze
 -- the user asked for that on 2026-11-12.
 -- The stopping is Liquid.lua's: it reads pool.frozen (0..1) and scales its clocks by it.
 --
+-- It is also a globe aura look, "Frozen", listed with the others in Options > Globe auras >
+-- Skills: a skill set to it ices the globe while its buff is up (see SkillSource below).
+--
 -- Unlike Pollution.lua this is ordinary addon code on an OnUpdate, so it can ease and react,
 -- but it has to know a freeze is on, and in combat the client hides your debuffs. What it can
 -- learn, in order of trust:
@@ -332,20 +335,44 @@ end
 local sources = {} -- name -> { untilTime = number or nil }
 
 local function Resolve()
-	if not ns.DB().freeze then
-		F.Set(F.preview and true or false, "preview")
-		return
-	end
 	local now = GetTime()
+	local debuffs = ns.DB().freeze
 	local on, why = F.preview and true or false, "preview"
 	for name, src in pairs(sources) do
 		if src.untilTime and src.untilTime <= now then
 			sources[name] = nil
-		else
+		elseif src.skill or debuffs then
+			-- The debuff setting gates what is learned about debuffs, not a skill set to Frozen.
 			on, why = true, src.why or name
 		end
 	end
 	F.Set(on, why)
+end
+
+-- Frozen as a globe aura look: a skill set to it in Options > Globe auras > Skills (Ice Block,
+-- say) ices the health globe while it is up. Watch.lua follows the skill; GlobeAura.lua's
+-- LookOf answers "frozen" and draws nothing itself.
+local function SkillWanted(effect)
+	local opt = ns.DB().globeAuras
+	if not (opt and opt.enabled and opt.effects and opt.effects[effect.key]) then return false end
+	return ns.GlobeAura and ns.GlobeAura.LookOf and ns.GlobeAura.LookOf(effect) == "frozen" or false
+end
+
+local function SkillSource(effect)
+	local st = ns.Watch.State and ns.Watch.State(effect.key)
+	local name = "skill:" .. effect.key
+	if st and st.up and SkillWanted(effect) then
+		sources[name] = { skill = true, untilTime = st.expires, why = effect.label or effect.key }
+	else
+		sources[name] = nil
+	end
+end
+
+local function SkillSources()
+	if not (ns.Watch and ns.Watch.EFFECTS and ns.Watch.State) then return end
+	for _, effect in ipairs(ns.Watch.EFFECTS) do
+		if effect.look ~= "flare" then SkillSource(effect) end
+	end
 end
 
 -- Your debuffs, where the client lets them be read (out of combat). true/false, or nil when
@@ -471,12 +498,13 @@ function F.Preview(mode)
 end
 
 function F.ApplySettings()
-	if not ns.DB().freeze and not F.preview then
-		F.on = false
-		Stop()
-		return
+	SkillSources()
+	if ns.DB().freeze then
+		Learn("settings")
+	else
+		sources.aura, sources.control = nil, nil
+		Resolve()
 	end
-	Learn("settings")
 end
 
 -- One line for /sanctuary check.
@@ -506,7 +534,16 @@ function F.Init()
 		since = since + dt
 		if since < 0.1 then return end
 		since = 0
-		if next(sources) and ns.DB().freeze then Resolve() end
+		if next(sources) then Resolve() end
 	end)
+	if ns.Watch and ns.Watch.OnChange then
+		ns.Watch.OnChange(function(key)
+			local effect = ns.Watch.Effect and ns.Watch.Effect(key)
+			if effect and effect.look ~= "flare" then
+				SkillSource(effect)
+				Resolve()
+			end
+		end)
+	end
 	F.ApplySettings()
 end

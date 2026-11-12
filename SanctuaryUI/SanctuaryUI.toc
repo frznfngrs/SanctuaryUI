@@ -39,6 +39,7 @@ StatueEyes.lua
 WatchEffects.lua
 Watch.lua
 GlobeAura.lua
+Reckless.lua
 Stance.lua
 Totem.lua
 Trinket.lua

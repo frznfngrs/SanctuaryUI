@@ -128,6 +128,8 @@ ns.Art.slots = {
 	freezeShatter = { file = "freeze-shatter.png", lazy = true },
 	freezeGlint = { file = "freeze-glint.png", lazy = true },
 	freezeLiquid = { file = "freeze-liquid.png", lazy = true },
+	-- Reckless Swings' tally of slashes on the rage globe (Reckless.lua), from tools/build_reckless_art.py.
+	recklessMarks = { file = "reckless-marks.png", lazy = true },
 	globeRim = { file = "globe-rim.png" },
 	surfaceGlow = { file = "surface-glow.png" },
 	surfaceShimmer = { file = "surface-shimmer.png" },

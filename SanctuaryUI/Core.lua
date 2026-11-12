@@ -659,6 +659,7 @@ function ns.Check()
 		ns.Print(ns.Liquid.Status())
 		if ns.Pollution then ns.Print(ns.Pollution.Status()) end
 		if ns.Freeze then ns.Print(ns.Freeze.Status()) end
+		if ns.Reckless then ns.Print(ns.Reckless.Status()) end
 		if ns.StatueEyes then ns.Print(ns.StatueEyes.Status()) end
 		if ns.Party and ns.Party.DispelStatus then ns.Print(ns.Party.DispelStatus()) end
 	end
@@ -1100,6 +1101,7 @@ loader:SetScript("OnEvent", function(_, event)
 		Safe("party", ns.Party and ns.Party.Init)
 		Safe("pollution", ns.Pollution and ns.Pollution.Init)
 		Safe("freeze", ns.Freeze and ns.Freeze.Init)
+		Safe("reckless", ns.Reckless and ns.Reckless.Init)
 		Safe("statue eyes", ns.StatueEyes and ns.StatueEyes.Init)
 		Safe("experience", ns.Experience and ns.Experience.Init)
 		Safe("layout", ns.Layout)
