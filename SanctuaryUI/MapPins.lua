@@ -198,9 +198,13 @@ local function PollPing()
 	if x == lastPingX and y == lastPingY then return end
 	local first = lastPingX == nil
 	lastPingX, lastPingY = x, y
-	-- In case the reading is in the frame's own units rather than parts of its width.
-	local width = Minimap:GetWidth()
-	if (math.abs(x) > 1.5 or math.abs(y) > 1.5) and width and width > 0 then x, y = x / width, y / width end
+	-- The reading is in parts of the minimap's width (Blizzard's own ping code scales it by the
+	-- width), and a fresh ping is a click inside the map, so it reads half a width or less. A
+	-- bigger reading is the last ping falling behind as you travel, never a new one. (It used
+	-- to be taken for pixels and shrunk, which put a ping just behind you every few seconds
+	-- while flying: found in game on 2026-11-12.) It is still placed in the world, so that
+	-- flying back to it later is not taken for a new ping.
+	local outside = x * x + y * y > 0.6 * 0.6
 	local north, west = PingWorld(x, y)
 	if not north then return end
 	-- The reading is where the last ping lies from you, so it changes as you walk, turn or
@@ -208,7 +212,7 @@ local function PollPing()
 	-- new ping. (Walking used to raise one: found in game on 2026-11-11.)
 	local same = lastPingNorth and math.abs(north - lastPingNorth) < 8 and math.abs(west - lastPingWest) < 8
 	lastPingNorth, lastPingWest = north, west
-	if first or same then return end -- whatever it held at login is not a ping either
+	if first or same or outside then return end -- whatever it held at login is not a ping either
 	local now = GetTime()
 	if now < pingQuietUntil then return end
 	pingQuietUntil = now + 1.5
