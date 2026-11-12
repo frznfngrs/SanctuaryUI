@@ -119,6 +119,48 @@ local function RadiusFor(yards)
 	return opt.inner + (opt.radius - opt.inner) * math.min(1, yards / opt.maxYards)
 end
 
+-- The same scale with no clear middle: true to your dot in the middle. Totems use it while the
+-- dot is shown, so the dot sits inside a totem's circle exactly when you are in its reach.
+local function TrueRadius(yards)
+	local opt = Opt()
+	return (opt.radius - opt.inner) * math.min(1, yards / opt.maxYards)
+end
+
+-- Small dots by a pip, one per element whose totem reaches that spot (by true distance).
+local MARK = 6
+local function MakeMarks(pip)
+	pip.marks = {}
+	for i = 1, 4 do
+		local m = pip:CreateTexture(nil, "OVERLAY")
+		m:SetSize(MARK, MARK)
+		P.SetCell(m, "dot")
+		local color = ns.RingTotems.COLORS[i]
+		m:SetVertexColor(color[1], color[2], color[3])
+		m:Hide()
+		pip.marks[i] = m
+	end
+end
+
+local function ShowMarks(pip, east, north)
+	local cov = ns.RingTotems.Covering(east, north)
+	local count = 0
+	if cov then
+		for i = 1, 4 do if cov[i] then count = count + 1 end end
+	end
+	local j = 0
+	for i = 1, 4 do
+		local m = pip.marks[i]
+		if cov and cov[i] then
+			j = j + 1
+			m:ClearAllPoints()
+			m:SetPoint("CENTER", pip, "RIGHT", MARK / 2 + 1, (count - 1) * (MARK + 1) / 2 - (j - 1) * (MARK + 1))
+			m:Show()
+		else
+			m:Hide()
+		end
+	end
+end
+
 local function DrawCircle()
 	local opt = Opt()
 	local reach = ns.DB().map.rangeYards
@@ -146,6 +188,7 @@ local function Draw()
 		for i = 1, MAX_PIPS do pips[i]:Hide() end
 		for i = 1, SEGMENTS do circle[i]:Hide() end
 		frame.target:Hide()
+		frame.me:Hide()
 		ns.RingTotems.Hide()
 		return
 	end
@@ -154,6 +197,17 @@ local function Draw()
 	local n = Gather(north, west, instance)
 	local reach = ns.DB().map.rangeYards
 	local c, s = math.cos(facing), math.sin(facing)
+	-- Totems first: the pips ask which totems reach them.
+	ns.RingTotems.Draw(frame, north, west, instance, c, s, opt.selfDot and TrueRadius or RadiusFor,
+		R.preview or (R.unlocked and not IsInGroup()))
+	if opt.selfDot then
+		local color = ClassColor("player")
+		frame.me.icon:SetVertexColor(color[1], color[2], color[3])
+		ShowMarks(frame.me, 0, 0)
+		frame.me:Show()
+	else
+		frame.me:Hide()
+	end
 	for i = 1, MAX_PIPS do
 		local pip = pips[i]
 		local f = i <= n and found[i]
@@ -167,6 +221,7 @@ local function Draw()
 			pip:ClearAllPoints()
 			pip:SetPoint("CENTER", frame, "CENTER", east / len * r, up / len * r)
 			pip.text:SetText(P.Yards(f.yards))
+			ShowMarks(pip, f.east, f.north)
 			if f.dead then
 				pip.text:SetTextColor(0.6, 0.6, 0.6)
 			elseif reach > 0 and f.yards <= reach then
@@ -187,7 +242,6 @@ local function Draw()
 		end
 	end
 	DrawCircle()
-	ns.RingTotems.Draw(frame, north, west, instance, c, s, RadiusFor, R.preview or (R.unlocked and not IsInGroup()))
 
 	-- The group member you have targeted: a pale gold halo round their pip. Only group members
 	-- can be marked; the client gives no position for anyone else (an enemy, a stranger).
@@ -269,6 +323,7 @@ local function Build()
 		pip.name = pip:CreateFontString(nil, "OVERLAY")
 		ns.Fonts.Set(pip.name, "body", 11, "OUTLINE")
 		pip.name:SetPoint("BOTTOM", pip, "TOP", 0, 1)
+		MakeMarks(pip)
 		pip:Hide()
 		pips[i] = pip
 	end
@@ -281,6 +336,18 @@ local function Build()
 	dot.icon:SetVertexColor(1, 0.86, 0.45, 0.95)
 	dot:Hide()
 	frame.target = dot
+	-- You, in the middle (optional): a pip in your class colour, over the totems.
+	local me = CreateFrame("Frame", nil, frame)
+	me:SetSize(PIP - 4, PIP - 4)
+	me:SetPoint("CENTER")
+	me:SetFrameLevel(frame:GetFrameLevel() + 4)
+	me:EnableMouse(false)
+	me.icon = me:CreateTexture(nil, "ARTWORK")
+	me.icon:SetAllPoints()
+	P.SetCell(me.icon, "pip")
+	MakeMarks(me)
+	me:Hide()
+	frame.me = me
 	-- Nothing to say when positions are hidden: an empty frame, kept for the check above.
 	frame.rest = CreateFrame("Frame", nil, frame)
 	frame.rest:Hide()

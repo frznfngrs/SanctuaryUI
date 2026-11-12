@@ -33,6 +33,7 @@ local RESEND_DELAY = 2 -- after the group changes, tell newcomers what is down
 local SWIPE = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 -- By element, in Totem.lua's order: earth, fire, water, air.
 local COLORS = { { 0.55, 0.85, 0.35 }, { 1, 0.5, 0.15 }, { 0.35, 0.65, 1 }, { 0.85, 0.9, 1 } }
+T.COLORS = COLORS
 
 -- Yours: [element] = { spellID, key, icon, north, west, instance, at, reach, duration }
 local pins = {}
@@ -76,7 +77,9 @@ end
 local function DurationOf(spellID)
 	local text = TextOf(spellID)
 	if text then
+		-- "at the feet of the caster for 5 min", or "... by 7.  Lasts 2 min."
 		local n, unit = text:match("for (%d+) (%a+)")
+		if not n then n, unit = text:match("[Ll]asts (%d+) (%a+)") end
 		n = tonumber(n)
 		if n and unit:find("^min") then return n * 60 end
 		if n and unit:find("^sec") then return n end
@@ -236,6 +239,7 @@ local function Heard(text, sender)
 		total = tonumber(total)
 		local set = others[sender] or {}
 		others[sender] = set
+		ns.Log("ring totems: heard element %d, spell %s, reach %s, %s of %s s left", i, tostring(key), tostring(reach), tostring(remaining), tostring(total))
 		set[i] = {
 			key = tonumber(key), icon = GetSpellTexture(tonumber(key)),
 			north = tonumber(north), west = tonumber(west), instance = tonumber(instance),
@@ -330,6 +334,7 @@ local function HideOne(w)
 end
 
 function T.Hide()
+	activeCount = 0
 	if not layer then return end
 	for _, w in pairs(widgets) do HideOne(w) end
 end
@@ -344,7 +349,10 @@ local function ToRing(east, north, c, s, radiusFor)
 	return x / d * r, y / d * r
 end
 
-local function Place(w, east, up, reach, c, s, radiusFor, outline)
+-- The outline is a true circle round the icon, at the ring's own scale (ring units per yard
+-- between its clear middle and its edge). Bending it through the ring's squeeze, as the ally
+-- pips are, warped it out of round wherever it neared the middle or the edge.
+local function Place(w, east, up, reach, c, s, radiusFor, outline, perYard)
 	local x, y = ToRing(east, up, c, s, radiusFor)
 	w.holder:ClearAllPoints()
 	w.holder:SetPoint("CENTER", ringFrame, "CENTER", x, y)
@@ -356,9 +364,10 @@ local function Place(w, east, up, reach, c, s, radiusFor, outline)
 	local lines, segments = w.lines, w.segments
 	if outline and reach > 0 then
 		local px, py
+		local r = reach * perYard
 		for k = 0, segments do
 			local a = k / segments * 2 * math.pi
-			local qx, qy = ToRing(east + math.cos(a) * reach, up + math.sin(a) * reach, c, s, radiusFor)
+			local qx, qy = x + math.cos(a) * r, y + math.sin(a) * r
 			if k > 0 then
 				local l = lines[k]
 				l:SetStartPoint("CENTER", ringFrame, px, py)
@@ -394,9 +403,39 @@ local function EndFake(w)
 	return true
 end
 
+-- Every totem drawn this frame, yours and the group's: [n] = { east, up, reach, element }.
+-- The ally pips ask Covering() which of them reach an ally, by true distance.
+local active, activeCount = {}, 0
+local covered = {}
+
+local function Active(east, up, reach, element)
+	if reach <= 0 then return end
+	activeCount = activeCount + 1
+	local a = active[activeCount] or {}
+	active[activeCount] = a
+	a.east, a.up, a.reach, a.element = east, up, reach, element
+end
+
+-- Which elements' totems reach a spot east/north of you (yards, north-up), by its true
+-- distance from each totem. Returns a reused table, [element] = true, or nil for none.
+function T.Covering(east, north)
+	if not Opt().totemMarks or activeCount == 0 then return nil end
+	local any = false
+	for i = 1, 4 do covered[i] = false end
+	for n = 1, activeCount do
+		local a = active[n]
+		local dx, dy = east - a.east, north - a.up
+		if dx * dx + dy * dy <= a.reach * a.reach then
+			covered[a.element] = true
+			any = true
+		end
+	end
+	return any and covered or nil
+end
+
 -- Group members' totems near you, nearest first, into widgets 5 on.
 local near = {}
-local function DrawOthers(north, west, instance, c, s, radiusFor, outline, preview)
+local function DrawOthers(north, west, instance, c, s, radiusFor, outline, preview, perYard)
 	local n = 0
 	if preview then
 		n = 1
@@ -424,6 +463,10 @@ local function DrawOthers(north, west, instance, c, s, radiusFor, outline, previ
 		for k = n + 1, #near do near[k].yards = math.huge end
 		table.sort(near, function(a, b) return (a.yards or math.huge) < (b.yards or math.huge) end)
 	end
+	for k = 1, n do
+		local f = near[k]
+		Active(f.east, f.up, f.reach, f.element)
+	end
 	n = math.min(n, MAX_OTHERS)
 	for k = 1, n do
 		local f = near[k]
@@ -439,7 +482,7 @@ local function DrawOthers(north, west, instance, c, s, radiusFor, outline, previ
 				pcall(CooldownFrame_Set, w.cooldown, f.pin.start, f.pin.total, true)
 			end
 		end
-		Place(w, f.east, f.up, f.reach, c, s, radiusFor, outline)
+		Place(w, f.east, f.up, f.reach, c, s, radiusFor, outline, perYard)
 	end
 	for k = 4 + n + 1, #widgets do HideOne(widgets[k]) end
 end
@@ -448,6 +491,7 @@ end
 -- without a position); c, s: your facing's cosine and sine; radiusFor: yards to ring units.
 function T.Draw(frame, north, west, instance, c, s, radiusFor, preview)
 	local opt = Opt()
+	activeCount = 0
 	if not opt.totems and not opt.groupTotems then
 		T.Hide()
 		return
@@ -461,6 +505,7 @@ function T.Draw(frame, north, west, instance, c, s, radiusFor, preview)
 		fakeStart = nil
 	end
 	local mine = opt.totems and (not preview or ns.Totem.Knows())
+	local perYard = (radiusFor(opt.maxYards) - radiusFor(0)) / math.max(1, opt.maxYards)
 	for i = 1, 4 do
 		local w = widgets[i]
 		local east, up, reach
@@ -478,16 +523,61 @@ function T.Draw(frame, north, west, instance, c, s, radiusFor, preview)
 			end
 		end
 		if east then
-			Place(w, east, up, reach, c, s, radiusFor, opt.totemReach)
+			Active(east, up, reach, i)
+			Place(w, east, up, reach, c, s, radiusFor, opt.totemReach, perYard)
 		else
 			HideOne(w)
 		end
 	end
 	if opt.groupTotems then
-		DrawOthers(north, west, instance, c, s, radiusFor, opt.totemReach, preview)
+		DrawOthers(north, west, instance, c, s, radiusFor, opt.totemReach, preview, perYard)
 	else
 		for k = 5, #widgets do HideOne(widgets[k]) end
 	end
+end
+
+---------------------------------------------------------------------------
+-- /sanctuary ring totems: each totem's reach next to how far you really are from it, and out
+-- of combat whether you have its buff, to see where the ring and the game part ways.
+
+local function BuffNamed(name)
+	if InCombatLockdown() then return "unknown in combat" end
+	if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return "can't read" end
+	for n = 1, 40 do
+		local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", n, "HELPFUL")
+		if not ok or not aura then break end
+		if Plain(aura.name) and aura.name:find(name, 1, true) == 1 then return "yes" end
+	end
+	return "no (some totems give none: Searing, Magma, Stoneclaw...)"
+end
+
+local function ReportOne(who, i, pin, north, west, instance)
+	local name = (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(pin.spellID or pin.key)) or "?"
+	local line = ("%s %s: reach %d yd"):format(who, name, pin.reach)
+	if not north or pin.instance ~= instance then
+		ns.Print(line .. ", can't measure here")
+		return
+	end
+	local east, up = -(pin.west - west), pin.north - north
+	local yards = math.sqrt(east * east + up * up)
+	local buff = BuffNamed((name:gsub(" Totem$", "")))
+	local text = TextOf(pin.spellID or pin.key)
+	ns.Print(("%s, you are %.1f yd from it (%s on the ring), its buff on you: %s%s"):format(line, yards,
+		yards <= pin.reach and "in" or "out", buff, text and (" | spell text: " .. text:sub(1, 160)) or ""))
+end
+
+function T.Report()
+	local north, west, instance = ns.MapPins.Here()
+	local any = false
+	for i = 1, 4 do
+		if pins[i] then any = true ReportOne("yours", i, pins[i], north, west, instance) end
+	end
+	for _, set in pairs(others) do
+		for i = 1, 4 do
+			if set[i] then any = true ReportOne("group's", i, set[i], north, west, instance) end
+		end
+	end
+	if not any then ns.Print("no totems on the ring right now") end
 end
 
 function T.Init()
