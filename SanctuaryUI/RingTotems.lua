@@ -153,7 +153,8 @@ local function Prune()
 	local now, gone = GetTime(), false
 	for i = 1, 4 do
 		local pin = pins[i]
-		if pin and now - pin.at > GRACE and not ns.Totem.SlotDown(ns.Totem.SlotOf(i)) then
+		-- castAt, not at: Learn() moves at to the client's start time, which mustn't hold this off.
+		if pin and now - pin.castAt > GRACE and not ns.Totem.SlotDown(ns.Totem.SlotOf(i)) then
 			pins[i] = nil
 			SendGone(i)
 			gone = true
@@ -178,9 +179,24 @@ function T.Any()
 	return false
 end
 
+-- Totemic Call / Recall takes every totem back.
+local RECALL = { ["Totemic Call"] = true, ["Totemic Recall"] = true }
+
 local function OnCast(spellID)
 	local i, key = ns.Totem.ElementOfSpell(spellID)
-	if not i then return end
+	if not i then
+		local name = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)
+		if Plain(name) and RECALL[name] then
+			for e = 1, 4 do
+				if pins[e] then
+					pins[e] = nil
+					SendGone(e)
+				end
+			end
+			Changed()
+		end
+		return
+	end
 	local north, west, instance = ns.MapPins.Here()
 	if not north then
 		-- Dropped where we can't place it: it still replaces the old one.
@@ -193,7 +209,7 @@ local function OnCast(spellID)
 	end
 	pins[i] = {
 		spellID = spellID, key = key, icon = GetSpellTexture(spellID),
-		north = north, west = west, instance = instance, at = GetTime(),
+		north = north, west = west, instance = instance, at = GetTime(), castAt = GetTime(),
 		reach = ReachOf(spellID, key), duration = DurationOf(spellID),
 	}
 	local w = widgets[i]
@@ -247,6 +263,7 @@ local function Heard(text, sender)
 		}
 	elseif kind == "X" then
 		local i = tonumber(rest:match("^(%d)$"))
+		ns.Log("ring totems: heard element %s gone", tostring(i))
 		if i and others[sender] then others[sender][i] = nil end
 	end
 end
@@ -269,7 +286,7 @@ end
 -- Drawing
 
 local function MakeWidget(i, size, segments, lineAlpha)
-	local w = { segments = segments, lines = {}, lineAlpha = lineAlpha }
+	local w = { segments = segments, lines = {}, lineAlpha = lineAlpha, size = size }
 	for k = 1, segments do
 		local l = layer:CreateLine(nil, "BACKGROUND")
 		l:SetThickness(segments == SEGMENTS and 1.5 or 1)
@@ -353,6 +370,12 @@ end
 -- between its clear middle and its edge). Bending it through the ring's squeeze, as the ally
 -- pips are, warped it out of round wherever it neared the middle or the edge.
 local function Place(w, east, up, reach, c, s, radiusFor, outline, perYard)
+	local k = Opt().iconSize
+	if w.k ~= k then
+		w.k = k
+		w.holder:SetSize(w.size * k, w.size * k)
+		w.rim:SetSize(w.size * k + 7, w.size * k + 7)
+	end
 	local x, y = ToRing(east, up, c, s, radiusFor)
 	w.holder:ClearAllPoints()
 	w.holder:SetPoint("CENTER", ringFrame, "CENTER", x, y)

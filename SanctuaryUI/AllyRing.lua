@@ -119,7 +119,7 @@ end
 -- missed you; the user found this way better in game (2026-11-12).
 local function TrueRadius(yards)
 	local opt = Opt()
-	return (opt.radius - opt.inner) * math.min(1, yards / opt.maxYards)
+	return opt.radius * math.min(1, yards / opt.maxYards)
 end
 
 -- How far from the middle an ally (or the reach circle, or the target's halo) sits, in screen
@@ -148,6 +148,7 @@ local function MakeMarks(pip)
 end
 
 local function ShowMarks(pip, east, north)
+	local mark = MARK * Opt().iconSize
 	local cov = ns.RingTotems.Covering(east, north)
 	local count = 0
 	if cov then
@@ -159,7 +160,8 @@ local function ShowMarks(pip, east, north)
 		if cov and cov[i] then
 			j = j + 1
 			m:ClearAllPoints()
-			m:SetPoint("CENTER", pip, "RIGHT", MARK / 2 + 1, (count - 1) * (MARK + 1) / 2 - (j - 1) * (MARK + 1))
+			m:SetSize(mark, mark)
+			m:SetPoint("CENTER", pip, "RIGHT", mark / 2 + 1, (count - 1) * (mark + 1) / 2 - (j - 1) * (mark + 1))
 			m:Show()
 		else
 			m:Hide()
@@ -279,16 +281,22 @@ local function Draw()
 	end
 end
 
+-- Size (iconSize) is the pips' and icons' size; Scale (radius) is how far the ring spreads.
+-- The frame itself is never scaled: once both did the same thing (2026-11-12).
 local function Place()
 	local opt = Opt()
-	frame:SetScale(opt.scale)
+	frame:SetScale(1)
 	frame:SetAlpha(opt.opacity)
+	local k = opt.iconSize
+	for i = 1, MAX_PIPS do pips[i]:SetSize(PIP * k, PIP * k) end
+	frame.target:SetSize((PIP + 12) * k, (PIP + 12) * k)
+	frame.me:SetSize((PIP - 4) * k, (PIP - 4) * k)
 	frame:SetSize(opt.radius * 2, opt.radius * 2)
 	frame:ClearAllPoints()
 	if opt.moved then
 		frame:SetPoint("CENTER", UIParent, "BOTTOMLEFT", ns.MovedPoint(frame, opt))
 	else
-		frame:SetPoint("CENTER", UIParent, "CENTER", 0, opt.offsetY / opt.scale)
+		frame:SetPoint("CENTER", UIParent, "CENTER", 0, opt.offsetY)
 	end
 end
 

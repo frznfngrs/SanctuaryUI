@@ -1135,14 +1135,19 @@ local function AllyRingArgs()
 			}, THIRD),
 		}, { disabled = off }),
 		look = Card(5, "Look", {
-			radius = Range(1, "Size", "How far from the middle the farthest allies sit.", "allyRing", "radius", 100, 500, 5),
+			radius = Width({
+				type = "range", order = 1, name = "Scale", desc = "How far the ring spreads: the farthest allies and totems sit at its edge.",
+				min = 0.4, max = 2.2, step = 0.05, isPercent = true,
+				get = function() return DB().allyRing.radius / 230 end,
+				set = function(_, value) DB().allyRing.radius = math.floor(value * 230 + 0.5) Changed() end,
+			}, THIRD),
 			inner = Width({
 				type = "range", order = 2, name = "Clear middle", desc = "How far from the middle the nearest allies sit, so they don't cover your character. Not used while your dot shows (Totems card): then everything is drawn true to you in the middle.",
 				min = 0, max = 200, step = 5, disabled = function() return off() or DB().allyRing.selfDot end,
 				get = function() return DB().allyRing.inner end,
 				set = function(_, value) DB().allyRing.inner = value Changed() end,
 			}, THIRD),
-			scale = Range(3, "Scale", "Pips and numbers.", "allyRing", "scale", 0.5, 2, 0.05, true),
+			iconSize = Range(3, "Size", "Pips, totem icons and the dots that mark who a totem reaches.", "allyRing", "iconSize", 0.5, 2.5, 0.05, true),
 			opacity = Range(4, "Opacity", nil, "allyRing", "opacity", 0.2, 1, 0.01, true),
 			offsetY = Width({
 				type = "range", order = 5, name = "Up or down", desc = "Moves the ring off the middle of the screen, to sit on your character. Not used once you have dragged the ring somewhere.",

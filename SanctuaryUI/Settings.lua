@@ -442,6 +442,7 @@ ns.DEFAULTS = {
 			groupTotems = true, -- show totems group members running SanctuaryUI told us about
 			totemMarks = true, -- dots by each ally's pip for the totems that reach them (true distance)
 			selfDot = true, -- a pip for you in the middle, with the covered marks
+			iconSize = 1, -- pips, totem icons and their marks (Options: Size); `scale` is no longer used
 			moved = false,
 			mx = 0,
 			my = 0,
