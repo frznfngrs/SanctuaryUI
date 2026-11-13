@@ -74,8 +74,39 @@ local function Commas(n)
 	return (out:gsub("^,", ""))
 end
 
-local function Pick(list)
-	return list[math.random(#list)]
+-- A random line from list. With a deck name, the lines come out like cards from a shuffled
+-- deck kept in the saved log: none twice until all have been used. A first deck, or one
+-- reshuffled because lines were added, skips lines the diary already holds; no deck opens
+-- with the line just used.
+local function Pick(list, name)
+	local log = name and Log()
+	if not log or #list < 2 then return list[math.random(#list)] end
+	log.decks = log.decks or {}
+	local deck = log.decks[name]
+	if not deck or #deck == 0 or deck.size ~= #list then
+		local seen = {}
+		if not deck or deck.size ~= #list then
+			for _, e in ipairs(log.entries or {}) do seen[#seen + 1] = e.text end
+		end
+		local fresh, all = {}, {}
+		for i, line in ipairs(list) do
+			local pattern = "^" .. line:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0"):gsub("{%w+}", ".-") .. "$"
+			local used = false
+			for _, text in ipairs(seen) do
+				if text:find(pattern) then used = true break end
+			end
+			if i ~= (deck and deck.last) then
+				all[#all + 1] = i
+				if not used then fresh[#fresh + 1] = i end
+			end
+		end
+		deck = #fresh > 0 and fresh or all
+		deck.size = #list
+		log.decks[name] = deck
+	end
+	local i = table.remove(deck, math.random(#deck))
+	deck.last = i
+	return list[i]
 end
 
 local function Fill(text, fields)
@@ -231,6 +262,7 @@ function J.Write(text, quality)
 	local entries = log.entries
 	local day = DayNumber(log)
 	entries[#entries + 1] = { t = time(), day = day, text = text, q = quality }
+	if J.Story then J.Story(log) end
 	while #entries > MAX_ENTRIES do table.remove(entries, 1) end
 	if Opt().chat then
 		print("|cffd8b86aAngler's journal:|r |cffe6dfd0" .. text .. "|r")
@@ -287,7 +319,7 @@ local function Record(id, name, count, quality, zone)
 	local fields = { fish = name, item = name, zone = zone ~= "" and zone or "these parts" }
 	if IsTreasure(name) then
 		log.treasure = (log.treasure or 0) + 1
-		J.Write(Fill(Pick(lines.treasure), fields))
+		J.Write(Fill(Pick(lines.treasure, "treasure"), fields))
 		return
 	end
 	if quality == 0 and not FishByID()[id] then
@@ -295,7 +327,7 @@ local function Record(id, name, count, quality, zone)
 		local key = zone .. "|" .. Today()
 		if not log.junkDays[key] then
 			log.junkDays[key] = true
-			J.Write(Fill(Pick(lines.junk), fields))
+			J.Write(Fill(Pick(lines.junk, "junk"), fields))
 		end
 		return
 	end
@@ -329,13 +361,13 @@ local function Record(id, name, count, quality, zone)
 		local key = id .. "|" .. Today()
 		if rarity >= 3 or named or bloated or not log.rareDays[key] then
 			log.rareDays[key] = true
-			local line = named or (bloated and lines.bloated) or Pick(lines.rare[rarity])
+			local line = named or (bloated and lines.bloated) or Pick(lines.rare[rarity], "rare" .. rarity)
 			J.Write(Fill(line, fields), rarity)
 		end
 	elseif before == 0 then
 		J.Write(Fill(lines.first[1], fields))
 	elseif fresh then
-		local line = lines.special[id] or (name:find("Whimsyfin") and lines.whimsyfin) or Pick(lines.species)
+		local line = lines.special[id] or (name:find("Whimsyfin") and lines.whimsyfin) or Pick(lines.species, "species")
 		J.Write(Fill(line, fields))
 	end
 	for mark, line in pairs(lines.total) do
@@ -959,10 +991,38 @@ local function Caught(id)
 	return log and id and log.catches[id] or 0
 end
 
+-- The diary's story (D.STORY): day n's line goes in just ahead of the first entry of fishing
+-- day n, once, so the setup sits under Day 1 and the punchline under Day 2. A day with no
+-- entries yet waits; a day already trimmed off the front of the diary is skipped.
+function J.Story(log)
+	local story = D().STORY
+	if not story or not log.entries then return end
+	log.story = log.story or {}
+	local entries = log.entries
+	local oldest = entries[1] and entries[1].day or math.huge
+	for n, lines in ipairs(story) do
+		if not log.story[n] then
+			local at
+			for i, e in ipairs(entries) do
+				if e.day == n then at = i break end
+			end
+			if at then
+				local text = lines[1] or lines[MySide() or ""]
+				if text then
+					table.insert(entries, at, { t = entries[at].t, day = n, text = text, story = true })
+				end
+				log.story[n] = true
+			elseif n < oldest or (log.dayCount or 0) > n then
+				log.story[n] = true
+			end
+		end
+	end
+end
+
 function BUILD.diary()
-	B.opener("diary")
 	local log = Log()
 	if not log then return end
+	J.Story(log)
 	B.h("The tally")
 	local species = 0
 	for _ in pairs(log.catches) do species = species + 1 end
@@ -1000,9 +1060,22 @@ function BUILD.diary()
 		B.hand("Empty. Go catch something. Anything. A boot counts. Sort of.")
 		return
 	end
-	-- Newest first, under one heading per fishing day; a hairline between a day's entries.
+	-- Newest first, under one heading per fishing day; a hairline between a day's entries. The
+	-- day's story line, if it has one, opens the day under its heading.
+	local order, i = {}, #entries
+	while i >= 1 do
+		local day, first = entries[i].day, #order + 1
+		while i >= 1 and entries[i].day == day do
+			if entries[i].story then
+				table.insert(order, first, i)
+			else
+				order[#order + 1] = i
+			end
+			i = i - 1
+		end
+	end
 	local shown, lastDay = 0, nil
-	for i = #entries, 1, -1 do
+	for _, i in ipairs(order) do
 		local e = entries[i]
 		if e.day ~= lastDay then
 			if lastDay then B.flourish(0.5) end
@@ -1017,7 +1090,9 @@ function BUILD.diary()
 			Line(cursor - 4, 44, width - 44, INK, 0.12)
 		end
 		local q = e.q and QUALITY_INK[e.q]
-		Text(q and "title" or "page", q and 9.5 or 11, q or MUTED, q and RARITY[e.q] or date("%H:%M", e.t), 0, 42)
+		if not e.story then
+			Text(q and "title" or "page", q and 9.5 or 11, q or MUTED, q and RARITY[e.q] or date("%H:%M", e.t), 0, 42)
+		end
 		local _, h = Text("hand", 15, INK, e.text, 44, width - 44)
 		if q then
 			-- A rare find's entry: a faint wash of its rarity behind it, and its time under the word.
