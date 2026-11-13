@@ -14,11 +14,17 @@ local F = ns.Fishing
 --     oldest fish's rot)
 --   * a warning as the lure runs out
 --   * the console fades back while you fish, and comes back at once in combat or under the mouse
+--   * one key for everything: the Fishing key puts your fishing outfit on, then a lure, then
+--     casts, and while the line is out it's the game's interact key, so it hooks the bobber
+--   * a fishing outfit: the pole and +Fishing gear remembered per character, worn and taken off
+--     with a key, your weapons back in your hands when something attacks you
+--   * a louder splash (opt-in): sound effects up, music and ambience down while you fish
 --
 -- Casting and lures are protected: a secure button does them, reached through an override
 -- binding on the second right-click (set out of combat only, cleared after the click).
 
-_G["BINDING_NAME_CLICK SanctuaryUIFishingCast:LeftButton"] = "Cast Fishing (or put on a lure)"
+_G["BINDING_NAME_CLICK SanctuaryUIFishingCast:LeftButton"] = "Fish (outfit, lure, cast, hook)"
+BINDING_NAME_SANCTUARYUIFISHOUTFIT = "Fishing outfit on or off"
 
 local ATLAS = 1024
 local PLATE = { x = 640, y = 360, w = 366, h = 86, edge = 18 } -- journal.png, nine-sliced
@@ -41,6 +47,12 @@ local function Readable(v)
 end
 
 local function D() return ns.FishingData end
+
+-- This character's outfit: { outfit = { [slot] = itemID }, normal = { [slot] = itemID or 0 },
+-- sound = { [cvar] = value } while the splash is boosted }.
+local function Gear()
+	return ns.db and ns.db.char and ns.db.char.fishingGear
+end
 
 ---------------------------------------------------------------------------
 -- What's going on: the pole, the lure, the channel, the session.
@@ -135,7 +147,7 @@ end
 ---------------------------------------------------------------------------
 -- Double right-click to cast, through a secure button.
 
-local castButton, owner
+local castButton, owner, hookOwner
 local lastPress = 0
 local armed = false
 
@@ -150,6 +162,7 @@ local function Ready()
 	if not opt.doubleClick then return false, "double-click is off" end
 	if InCombatLockdown() then return false, "in combat" end
 	if not PoleEquipped() then return false, "no fishing pole on" end
+	if UnitExists and UnitExists("mouseover") then return false, "pointing at someone" end
 	if channeling then return false, "already fishing (the click goes to the bobber)" end
 	if IsMounted and IsMounted() then return false, "mounted" end
 	if IsSwimming and IsSwimming() then return false, "swimming" end
@@ -160,8 +173,24 @@ local function Ready()
 end
 
 -- Point the button at a lure (when the pole has none and you carry one) or at the cast.
+local HasOutfit -- (the outfit, below)
+
 local function Configure()
 	if InCombatLockdown() then return end
+	castButton.outfit = nil
+	if armed and not PoleEquipped() then
+		-- A right-click armed with the pole on, and the pole has gone since: do nothing.
+		castButton:SetAttribute("type", nil)
+		castButton.lure = nil
+		return
+	end
+	if not PoleEquipped() and HasOutfit() then
+		-- The key with no pole on: the outfit goes on (PostClick), and the next press fishes.
+		castButton:SetAttribute("type", nil)
+		castButton.lure = nil
+		castButton.outfit = true
+		return
+	end
 	local lure = Opt().autoLure and PoleEquipped() and not LureLeft() and BestLure()
 	if lure then
 		castButton:SetAttribute("type", "macro")
@@ -174,10 +203,11 @@ local function Configure()
 	end
 end
 
--- The first right-press binds the right button to the cast for a moment; a second press in
--- that moment is the double-click and casts. (On this client a binding set during a press
--- doesn't catch that press's release, so the binding has to be in place before the second
--- press starts.) No second press in time: the right button goes back to the game at once.
+-- A short right-click (released within HOLD) binds the right button to the cast for a moment;
+-- a second press in that moment is the double-click and casts. The binding is only set once the
+-- first press is over: set during it, the client can hand that same press to the binding, and
+-- every right-click would cast. Holding the button (turning the camera) never arms. No second
+-- press in time: the right button goes back to the game at once.
 local armedAt, secondAt = 0, 0
 
 local function Arm(now)
@@ -198,6 +228,10 @@ local function Arm(now)
 end
 
 -- A right-button press over the world, from either source (they can both see one press).
+local HOLD = 0.3 -- a press longer than this is a hold (camera), not a click
+local pressAt = 0
+local releaseWatch -- a frame that watches for the first press's release
+
 local function RightPress(source)
 	local now = GetTime()
 	if now - lastPress < 0.03 then return end
@@ -212,7 +246,18 @@ local function RightPress(source)
 		if PoleEquipped() then Trace("%s right-press, not casting: %s", source, why) end
 		return
 	end
-	Arm(now)
+	pressAt = now
+	releaseWatch:Show()
+end
+
+local function WatchRelease(self)
+	local now = GetTime()
+	if IsMouseButtonDown and IsMouseButtonDown("RightButton") then
+		if now - pressAt > HOLD then self:Hide() end -- held: the camera's, not ours
+		return
+	end
+	self:Hide()
+	if now - pressAt <= HOLD and Ready() then Arm(now) end
 end
 
 local function OnWorldMouseDown(_, button)
@@ -227,7 +272,15 @@ local function OverWorld()
 end
 
 local function BuildCasting()
-	owner = CreateFrame("Frame", "SanctuaryUIFishingOwner", UIParent)
+	-- The right button's binding belongs to a secure handler, so it can be dropped the moment
+	-- combat starts (addon code can't clear bindings in combat).
+	owner = CreateFrame("Frame", "SanctuaryUIFishingOwner", UIParent, "SecureHandlerStateTemplate")
+	owner:SetAttribute("_onstate-fishcombat", [[ if newstate == "1" then self:ClearBindings() end ]])
+	if RegisterStateDriver then RegisterStateDriver(owner, "fishcombat", "[combat] 1; 0") end
+	releaseWatch = CreateFrame("Frame")
+	releaseWatch:Hide()
+	releaseWatch:SetScript("OnUpdate", WatchRelease)
+	hookOwner = CreateFrame("Frame", "SanctuaryUIFishingHookOwner", UIParent)
 	castButton = CreateFrame("Button", "SanctuaryUIFishingCast", UIParent, "SecureActionButtonTemplate")
 	castButton:Hide()
 	castButton:RegisterForClicks("AnyUp", "AnyDown")
@@ -240,8 +293,10 @@ local function BuildCasting()
 		if not down then Configure() end
 	end)
 	castButton:SetScript("PostClick", function(self, button, down)
-		Trace("button clicked (%s, %s): %s", tostring(button), down and "down" or "up", self.lure and ("put on " .. self.lure) or "cast")
+		Trace("button clicked (%s, %s): %s", tostring(button), down and "down" or "up",
+			self.outfit and "outfit on" or self.lure and ("put on " .. self.lure) or "cast")
 		if self.lure and not down then lureName = self.lure end
+		if self.outfit and not down then F.WearOutfit() end
 		if not down then Disarm() end
 	end)
 	if WorldFrame and WorldFrame.HookScript then
@@ -253,6 +308,343 @@ local function BuildCasting()
 		global:SetScript("OnEvent", function(_, _, button)
 			if button == "RightButton" and OverWorld() then RightPress("global") end
 		end)
+	end
+end
+
+---------------------------------------------------------------------------
+-- One key to cast and hook: while the line is out, the Fishing key is the game's "Interact with
+-- Target", which reaches the bobber through soft targeting (SoftTargetInteract 3, and a range
+-- long enough for a cast). The binding goes back when the channel ends.
+
+local hooked, unhookLater = false, false
+local hintedInteract = false
+local CAST_BINDING = "CLICK SanctuaryUIFishingCast:LeftButton"
+local INTERACT_CVARS = { { "SoftTargetInteract", "3" }, { "SoftTargetInteractRange", "30" } }
+
+local function GetCVarValue(cvar)
+	local get = C_CVar and C_CVar.GetCVar or GetCVar
+	if not get then return end
+	local ok, v = pcall(get, cvar)
+	if ok and Readable(v) then return v end
+end
+
+-- Is soft-target interact set up for fishing? (ready, exists)
+function F.InteractReady()
+	local v = GetCVarValue("SoftTargetInteract")
+	return v == "3", v ~= nil
+end
+
+function F.SetUpInteract()
+	local _, exists = F.InteractReady()
+	if not exists then
+		ns.Print("This client has no soft-target interact, so the Fishing key can't hook the bobber. Right-click it.")
+		return
+	end
+	ns.AskCVarReload(INTERACT_CVARS, "Let the Fishing key hook your bobber?\n\nThis turns on the game's soft targeting for its Interact key everywhere (Interact with Target then also picks NPCs and objects near you), and lets it reach 30 yards, as far as a cast goes.")
+end
+
+local function CastKeys()
+	if not GetBindingKey then return {} end
+	return { GetBindingKey(CAST_BINDING) }
+end
+
+-- The left and right mouse buttons belong to the camera: the Fishing key bound to one of them
+-- (bare, no modifier) is given back to its game action, and never takes the hook.
+local MOUSE_ACTIONS = { BUTTON1 = "CAMERAORSELECTORMOVE", BUTTON2 = "TURNORACTION" }
+local guardLater = false
+
+local function GuardMouse()
+	if InCombatLockdown() or not SetBinding then return end
+	local panel = _G.SettingsPanel or _G.KeyBindingFrame
+	if panel and panel.IsShown and panel:IsShown() then
+		guardLater = true -- the bindings window is open: once it closes
+		return
+	end
+	guardLater = false
+	local fixed = {}
+	for _, key in ipairs(CastKeys()) do
+		local action = MOUSE_ACTIONS[key]
+		if action and pcall(SetBinding, key, action) then
+			fixed[#fixed + 1] = key == "BUTTON1" and "left" or "right"
+		end
+	end
+	if #fixed > 0 then
+		if SaveBindings and GetCurrentBindingSet then pcall(SaveBindings, GetCurrentBindingSet()) end
+		ns.Print(("The Fishing key was on your %s mouse button, which the camera needs: it's back to turning and moving. Bind the Fishing key to a keyboard key or a side mouse button."):format(table.concat(fixed, " and ")))
+	end
+end
+
+local function HookKeys()
+	if not Opt().oneKey or InCombatLockdown() or not hookOwner then return end
+	local keys = {}
+	for _, key in ipairs(CastKeys()) do
+		if not MOUSE_ACTIONS[key] then keys[#keys + 1] = key end
+	end
+	if #keys == 0 then return end
+	local ready, exists = F.InteractReady()
+	if not ready then
+		if exists and not hintedInteract then
+			hintedInteract = true
+			ns.Print("To hook the bobber with your Fishing key too, set it up in /sanctuary > Fishing tools > Casting.")
+		end
+		return
+	end
+	for _, key in ipairs(keys) do SetOverrideBinding(hookOwner, true, key, "INTERACTTARGET") end
+	hooked, unhookLater = true, false
+end
+
+local function Unhook()
+	if not hooked then return end
+	if InCombatLockdown() then
+		unhookLater = true
+		return
+	end
+	ClearOverrideBindings(hookOwner)
+	hooked, unhookLater = false, false
+end
+
+---------------------------------------------------------------------------
+-- The fishing outfit. Remembered: the pole and every piece you wear with Fishing on it.
+-- Taking it off puts back what each slot held before (kept as you change gear, so an upgrade
+-- you put on since is the one that comes back).
+
+local EquipItemByName = (C_Item and C_Item.EquipItemByName) or EquipItemByName
+local SLOTS = { 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18 }
+
+local function ItemName(id)
+	local name = C_Item and C_Item.GetItemNameByID and C_Item.GetItemNameByID(id)
+	if not Readable(name) or not name then name = GetItemInfo and GetItemInfo(id) end
+	return (Readable(name) and name) or ("item " .. id)
+end
+
+local function Worn(slot)
+	local id = GetInventoryItemID and GetInventoryItemID("player", slot)
+	if Readable(id) then return id end
+end
+
+-- Has the slot something for fishing in it? Its item ID if so.
+local GEAR_IDS
+local function FishingItemOn(slot)
+	local id = Worn(slot)
+	if not id then return end
+	if slot == 16 then return PoleEquipped() and id or nil end
+	if not GEAR_IDS then
+		GEAR_IDS = {}
+		for _, g in ipairs(D().GEAR) do if g[2] then GEAR_IDS[g[2]] = true end end
+	end
+	if GEAR_IDS[id] then return id end
+	-- Anything with Fishing and a number on it ("Increased Fishing +5.", "+2 Fishing"), but not
+	-- a "Requires Fishing (100)" line.
+	if C_TooltipInfo and C_TooltipInfo.GetInventoryItem then
+		local ok, data = pcall(C_TooltipInfo.GetInventoryItem, "player", slot)
+		if ok and type(data) == "table" and type(data.lines) == "table" then
+			local word = FishingName()
+			for i = 2, #data.lines do
+				local text = data.lines[i].leftText
+				if Readable(text) and type(text) == "string" and text:find(word, 1, true) and text:find("%d")
+					and not text:find("%(%d+%)") then
+					return id
+				end
+			end
+		end
+	end
+end
+
+HasOutfit = function()
+	local g = Gear()
+	return g and g.outfit[16] ~= nil
+end
+F.HasOutfit = HasOutfit
+
+-- What a slot holds when you're not fishing, noted as your gear changes.
+local function NoteNormal(slot)
+	local g = Gear()
+	if not g then return end
+	if slot == 17 then
+		if not PoleEquipped() then g.normal[17] = Worn(17) or 0 end
+		return
+	end
+	local id = Worn(slot)
+	if not id then
+		g.normal[slot] = 0 -- nothing there: taking the outfit off empties it again
+		return
+	end
+	if g.outfit[slot] == id or FishingItemOn(slot) then return end
+	g.normal[slot] = id
+end
+
+local function BagFor()
+	if not (C_Container and C_Container.GetContainerNumFreeSlots) then return end
+	for bag = 0, 4 do
+		local free, family = C_Container.GetContainerNumFreeSlots(bag)
+		if Readable(free) and free and free > 0 and (family or 0) == 0 then return bag end
+	end
+end
+
+-- Take a slot's item off into the first free bag slot.
+local function Unequip(slot)
+	if not PickupInventoryItem or not Worn(slot) then return end
+	local bag = BagFor()
+	if not bag then return end
+	ClearCursor()
+	PickupInventoryItem(slot)
+	if not (CursorHasItem and CursorHasItem()) then return end
+	if bag == 0 then
+		PutItemInBackpack()
+	else
+		PutItemInBag(C_Container.ContainerIDToInventoryID(bag))
+	end
+end
+
+-- Equip { { slot, itemID or 0 for empty }, ... } in order, trying twice more for what didn't take
+-- (the second weapon can find the first still moving).
+local function EquipList(list, tries)
+	tries = tries or 0
+	local left = {}
+	for _, e in ipairs(list) do
+		local slot, id = e[1], e[2]
+		local now = Worn(slot)
+		if id == 0 then
+			if now and tries == 0 then Unequip(slot) end
+		elseif now ~= id and EquipItemByName and (ItemCount and (ItemCount(id) or 0) or 1) > 0 then
+			pcall(EquipItemByName, id, slot)
+			left[#left + 1] = e
+		end
+	end
+	if #left > 0 and tries < 2 then
+		C_Timer.After(0.6, function()
+			if not InCombatLockdown() then EquipList(left, tries + 1) end
+		end)
+	end
+end
+
+function F.WearOutfit()
+	if InCombatLockdown() then ns.Print("Not in combat.") return end
+	local g = Gear()
+	if not HasOutfit() then
+		ns.Print("No fishing outfit yet: put your pole and fishing gear on, then /sanctuary fish outfit remember (or the button in /sanctuary > Fishing tools).")
+		return
+	end
+	local list = {}
+	for _, slot in ipairs(SLOTS) do
+		local want = g.outfit[slot]
+		local now = Worn(slot)
+		if want and now ~= want then
+			if not FishingItemOn(slot) then g.normal[slot] = now or 0 end
+			if slot == 16 and not PoleEquipped() then g.normal[17] = Worn(17) or 0 end
+			list[#list + 1] = { slot, want }
+		end
+	end
+	if #list == 0 then return end
+	Trace("outfit on: %d piece%s", #list, #list == 1 and "" or "s")
+	EquipList(list)
+end
+
+function F.TakeOffOutfit()
+	if InCombatLockdown() then ns.Print("Not in combat.") return end
+	local g = Gear()
+	if not g then return end
+	local pole = PoleEquipped()
+	local list = {}
+	for _, slot in ipairs(SLOTS) do
+		local now = Worn(slot)
+		local back = g.normal[slot]
+		local fishing
+		if slot == 16 then
+			fishing = pole
+		elseif slot == 17 then
+			fishing = pole or (g.outfit[17] ~= nil and now == g.outfit[17])
+		else
+			fishing = g.outfit[slot] ~= nil and now == g.outfit[slot]
+		end
+		if fishing and back and back ~= (now or 0) then list[#list + 1] = { slot, back } end
+	end
+	if #list == 0 then
+		if pole then ns.Print("SanctuaryUI doesn't know what you wear when you're not fishing yet: swap back by hand once and it will.") end
+		return
+	end
+	Trace("outfit off: %d piece%s", #list, #list == 1 and "" or "s")
+	EquipList(list)
+end
+
+function F.ToggleOutfit()
+	if PoleEquipped() then F.TakeOffOutfit() else F.WearOutfit() end
+end
+
+function F.RememberOutfit()
+	if InCombatLockdown() then ns.Print("Not in combat.") return end
+	local g = Gear()
+	if not g then return end
+	if not PoleEquipped() then
+		ns.Print("Put your fishing pole on, and any fishing gear, then remember the outfit.")
+		return
+	end
+	wipe(g.outfit)
+	local names = {}
+	for _, slot in ipairs(SLOTS) do
+		local id = FishingItemOn(slot)
+		if id then
+			g.outfit[slot] = id
+			names[#names + 1] = ItemName(id)
+		end
+	end
+	ns.Print(("Fishing outfit: %s."):format(table.concat(names, ", ")))
+	if not g.normal[16] then
+		ns.Print("Put your weapon back on once by hand, and the outfit key will know what to swap back.")
+	end
+end
+
+-- The outfit as a line for the options page.
+function F.OutfitText()
+	local g = Gear()
+	if not HasOutfit() then return "No outfit remembered yet. Put your pole and fishing gear on, then press Remember." end
+	local names = {}
+	for _, slot in ipairs(SLOTS) do
+		if g.outfit[slot] then names[#names + 1] = ItemName(g.outfit[slot]) end
+	end
+	return "Your outfit: " .. table.concat(names, ", ") .. "."
+end
+
+-- Attacked with the pole in your hands: your weapons come back (the game lets weapons change in
+-- combat; armour waits).
+local function WeaponsBack()
+	local g = Gear()
+	if not Opt().combatWeapons or not g or not PoleEquipped() or not EquipItemByName then return end
+	local main, off = g.normal[16], g.normal[17]
+	if not main or main == 0 then return end
+	Trace("attacked with the pole on: weapons back")
+	pcall(EquipItemByName, main, 16)
+	if off and off ~= 0 then
+		C_Timer.After(0.4, function() pcall(EquipItemByName, off, 17) end)
+	end
+end
+
+---------------------------------------------------------------------------
+-- A louder splash (opt-in): sound effects up, music and ambience down while you fish, put back
+-- after. The values it replaced are kept in the saved variables, so a crash or a reload while
+-- fishing still gets them back.
+
+local SPLASH = { Sound_SFXVolume = "up", Sound_MusicVolume = "down", Sound_AmbienceVolume = "down" }
+
+local function Splash(on)
+	local g = Gear()
+	if not g or InCombatLockdown() then return end
+	local set = C_CVar and C_CVar.SetCVar or SetCVar
+	if on then
+		if g.sound then return end
+		g.sound = {}
+		for cvar, how in pairs(SPLASH) do
+			local v = GetCVarValue(cvar)
+			if v then
+				g.sound[cvar] = v
+				pcall(set, cvar, how == "up" and "1" or ("%.2f"):format((tonumber(v) or 0) * 0.25))
+			end
+		end
+		Trace("louder splash")
+	elseif g.sound then
+		for cvar, v in pairs(g.sound) do pcall(set, cvar, v) end
+		g.sound = nil
+		Trace("sound put back")
 	end
 end
 
@@ -574,6 +966,8 @@ function F.ApplySettings()
 		ns.Cluster:SetAlpha(1)
 	end
 	if not Opt().doubleClick then Disarm() end
+	if not Opt().oneKey then Unhook() end
+	if not Opt().splash then Splash(false) end
 end
 
 function F.Init()
@@ -581,12 +975,15 @@ function F.Init()
 	BuildCasting()
 	BuildPanel()
 	F.Place()
+	-- What you're wearing now, unless it's for fishing, is what comes back after.
+	for _, slot in ipairs(SLOTS) do NoteNormal(slot) end
+	GuardMouse()
 	local events = CreateFrame("Frame")
 	for _, event in ipairs({ "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_CHANNEL_STOP", "UNIT_SPELLCAST_FAILED" }) do
 		if not pcall(events.RegisterUnitEvent, events, event, "player") then pcall(events.RegisterEvent, events, event) end
 	end
 	for _, event in ipairs({ "SKILL_LINES_CHANGED", "CHAT_MSG_SKILL", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED",
-		"UNIT_INVENTORY_CHANGED", "ZONE_CHANGED_NEW_AREA" }) do
+		"UNIT_INVENTORY_CHANGED", "ZONE_CHANGED_NEW_AREA", "PLAYER_EQUIPMENT_CHANGED", "PLAYER_LOGOUT", "UPDATE_BINDINGS" }) do
 		pcall(events.RegisterEvent, events, event)
 	end
 	events:SetScript("OnEvent", function(_, event, unit, _, spellID)
@@ -606,8 +1003,11 @@ function F.Init()
 				if not session or GetTime() - lastCast > SESSION_IDLE then NewSession() end
 				if armed or GetTime() - lastPress < 2 then Trace("cast started") end
 				channeling = true
+				HookKeys()
+				if Opt().splash then Splash(true) end
 			else
 				channeling = false
+				Unhook()
 			end
 			lastCast = GetTime()
 			F.Refresh()
@@ -620,6 +1020,18 @@ function F.Init()
 				fadeNow = 1
 				ns.Cluster:SetAlpha(1)
 			end
+			WeaponsBack()
+		elseif event == "PLAYER_REGEN_ENABLED" then
+			if unhookLater and not channeling then Unhook() end
+			F.Refresh()
+		elseif event == "PLAYER_EQUIPMENT_CHANGED" then
+			if type(unit) == "number" then NoteNormal(unit) end
+			if unit == 16 then NoteNormal(17) end
+			F.Refresh()
+		elseif event == "PLAYER_LOGOUT" then
+			Splash(false)
+		elseif event == "UPDATE_BINDINGS" then
+			guardLater = true -- (checked on the next tick, after the change settles)
 		else
 			F.Refresh()
 		end
@@ -632,6 +1044,9 @@ function F.Init()
 		if tick >= 1 then
 			tick = 0
 			CheckLure()
+			if guardLater then GuardMouse() end
+			local g = Gear()
+			if g and g.sound and not Active() then Splash(false) end
 			if panel:IsShown() or session then F.Refresh() end
 		end
 	end)

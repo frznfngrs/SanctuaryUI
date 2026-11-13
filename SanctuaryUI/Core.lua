@@ -337,12 +337,15 @@ StaticPopupDialogs.SANCTUARYUI_CVAR_RELOAD = {
 	button1 = "Change and reload",
 	button2 = "Not now",
 	OnAccept = function()
-		local change = pendingCVar
+		local changes = pendingCVar
 		pendingCVar = nil
-		if not change or InCombatLockdown() then return end
+		if not changes or InCombatLockdown() then return end
 		local SetCVar = C_CVar and C_CVar.SetCVar or SetCVar
-		pcall(SetCVar, change.cvar, change.value)
-		ns.Log("cvar %s = %s, reloading", change.cvar, tostring(change.value))
+		for _, change in ipairs(changes) do
+			pcall(SetCVar, change[1], change[2])
+			ns.Log("cvar %s = %s", change[1], tostring(change[2]))
+		end
+		ns.Log("reloading for the cvars")
 		ReloadUI()
 	end,
 	OnCancel = function() pendingCVar = nil end,
@@ -352,14 +355,27 @@ StaticPopupDialogs.SANCTUARYUI_CVAR_RELOAD = {
 }
 
 -- Ask to set a Blizzard CVar and reload. Nothing happens in combat or if it already has the value.
+-- Several at once: ns.AskCVarReload({ { cvar, value }, ... }, why).
 function ns.AskCVarReload(cvar, value, why)
+	local list = cvar
+	if type(cvar) ~= "table" then
+		list = { { cvar, value } }
+	else
+		why = value
+	end
 	local GetCVar = C_CVar and C_CVar.GetCVar or GetCVar
-	if GetCVar and GetCVar(cvar) == tostring(value) then return end
+	local changes = {}
+	for _, change in ipairs(list) do
+		if not (GetCVar and GetCVar(change[1]) == tostring(change[2])) then
+			changes[#changes + 1] = { change[1], tostring(change[2]) }
+		end
+	end
+	if #changes == 0 then return end
 	if InCombatLockdown() then
 		ns.Print("cannot change Blizzard settings in combat")
 		return
 	end
-	pendingCVar = { cvar = cvar, value = tostring(value) }
+	pendingCVar = changes
 	StaticPopup_Show("SANCTUARYUI_CVAR_RELOAD", why .. "\n\nChanging a Blizzard setting needs a reload, or Blizzard's own frames start throwing errors.")
 end
 
@@ -688,7 +704,7 @@ local function Slash(msg)
 			ns.Options.Open()
 		end
 	elseif cmd == "help" then
-		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n> (bars), globes <n>|match, bar 2-9 on|off, bind, pie [1-6] (pie menus), trinkets, swing (preview the swing timer), fish [chapter|log|words] (the angler's journal; log: what the game said while you fished; anything else searches it), minimap, ring (preview the ally ring; totems: each totem's reach against your distance), map (overlay map; probe|peek for what the client allows; totems to probe group casts), test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, meter [analysis|glory|awards|test|reset|probe] (damage meter), proc (preview the proc highlight), aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), debug on|off, log, report [on|off], request (suggest a feature), updates [on|off] (new version notices over the realm channel)")
+		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n> (bars), globes <n>|match, bar 2-9 on|off, bind, pie [1-6] (pie menus), trinkets, swing (preview the swing timer), fish [chapter|log|outfit|outfit remember|words] (the angler's journal; log: what the game said while you fished; outfit: fishing gear on or off; anything else searches it), minimap, ring (preview the ally ring; totems: each totem's reach against your distance), map (overlay map; probe|peek for what the client allows; totems to probe group casts), test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, meter [analysis|glory|awards|test|reset|probe] (damage meter), proc (preview the proc highlight), aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), debug on|off, log, report [on|off], request (suggest a feature), updates [on|off] (new version notices over the realm channel)")
 	elseif cmd == "grid" then
 		-- grid: toggle; grid on|off; grid <spacing>. The grid only shows while frames are
 		-- unlocked, so showing it unlocks them.
@@ -726,6 +742,8 @@ local function Slash(msg)
 		local want = rest:lower()
 		if want == "log" then ns.Journal.PrintHeard() return end
 		if want == "clicks" then ns.Fishing.PrintTrace() return end
+		if want == "outfit" then ns.Fishing.ToggleOutfit() return end
+		if want == "outfit remember" then ns.Fishing.RememberOutfit() return end
 		local key
 		for _, c in ipairs(ns.Journal.CHAPTERS) do
 			if want ~= "" and (c.key == want or c.title:lower():find(want, 1, true)) then key = c.key break end

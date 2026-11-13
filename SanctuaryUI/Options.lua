@@ -868,13 +868,36 @@ end
 local function FishingToolsArgs()
 	local function F() return ns.Fishing end
 	return {
-		intro = Note(1, "Quality of life for fishing. With a fishing pole on: double right-click the water to cast, and the first double-click with no lure on your pole puts on the best lure you carry. Catches are looted for you, a panel keeps the session's tally, and the console fades back while you fish."),
+		intro = Note(1, "Quality of life for fishing. With a fishing pole on: double right-click the water to cast, and the first double-click with no lure on your pole puts on the best lure you carry. Or fish with one key: it puts your fishing outfit on, then a lure, casts, and hooks the bobber. Catches are looted for you, a panel keeps the session's tally, and the console can fade back while you fish."),
 		casting = Card(2, "Casting", {
 			doubleClick = Toggle(1, "Double right-click to cast", "With a fishing pole on, out of combat, and not mounted, swimming or flying. A right-click on your bobber still reels it in.", "fishing", "doubleClick"),
 			autoLure = Toggle(2, "Lure on the same click", "With no lure on the pole, the double-click puts the best lure in your bags on first; the next one casts.", "fishing", "autoLure"),
 			autoLoot = Toggle(3, "Loot catches", "Take everything from the bobber at once. Off, or with the game's own auto loot on, nothing changes.", "fishing", "autoLoot"),
 			lureWarn = Toggle(4, "Lure warning", "A message and a chime a minute before your lure runs out, while you fish.", "fishing", "lureWarn"),
-			key = Note(5, "There's also a key for it: Key Bindings > AddOns > \"Cast Fishing (or put on a lure)\". If double-clicking doesn't cast, /sanctuary fish clicks shows what the addon saw."),
+			key = Note(5, "One key does it all: bind Key Bindings > AddOns > \"Fish (outfit, lure, cast, hook)\". Each press does the next thing: your fishing outfit on, a lure on, a cast, and while the line is out, a hook. If double-clicking doesn't cast, /sanctuary fish clicks shows what the addon saw."),
+			oneKey = Toggle(6, "The key hooks the bobber too", "While your line is out, the Fishing key works as the game's Interact with Target, which picks the bobber when it's the nearest thing you can interact with. Needs the set-up on the right.", "fishing", "oneKey"),
+			interact = Width({
+				type = "execute", order = 7,
+				name = function() return F().InteractReady() and "Interact key: set up" or "Set up the interact key" end,
+				desc = "Turns on the game's soft targeting for its Interact key and lets it reach 30 yards, so it finds your bobber. It changes Blizzard settings, so it asks first and reloads.",
+				disabled = function() return F().InteractReady() end,
+				func = function() F().SetUpInteract() end,
+			}, HALF),
+		}),
+		outfit = Card(2.5, "Fishing outfit", {
+			about = Note(1, function() return F().OutfitText() end),
+			how = Note(2, "Put your pole and fishing gear on, then press Remember: the pole and everything with Fishing on it is your outfit. The Fishing key puts it on when you have no pole in hand; \"Fishing outfit on or off\" (Key Bindings > AddOns, or /sanctuary fish outfit) swaps either way. Taking it off puts back what you wore before."),
+			remember = Width({
+				type = "execute", order = 3, name = "Remember this outfit",
+				desc = "Remembers the pole and every piece you're wearing with Fishing on it.",
+				func = function() F().RememberOutfit() end,
+			}, HALF),
+			toggle = Width({
+				type = "execute", order = 4, name = "Outfit on / off",
+				disabled = function() return not F().HasOutfit() end,
+				func = function() F().ToggleOutfit() end,
+			}, HALF),
+			combatWeapons = Toggle(5, "Weapons back when attacked", "Something attacks you with the pole in your hands: your weapons go back on at once (the game allows weapon swaps in combat; your hat and boots wait).", "fishing", "combatWeapons"),
 		}),
 		panel = Card(3, "Session panel", {
 			panel = Toggle(1, "Show while fishing", "Your skill, the lure's time, this session's catches, fish an hour, got-aways, skill-ups and the catches to your next point. It stays three minutes after your last cast.", "fishing", "panel"),
@@ -890,6 +913,7 @@ local function FishingToolsArgs()
 		fade = Card(4, "Fishing mode", {
 			fade = Toggle(1, "Fade the console while fishing", "The console and globes fade back while you fish, and come back at once in combat or under the mouse.", "fishing", "fade"),
 			fadeAlpha = Range(2, "Faded to", nil, "fishing", "fadeAlpha", 0, 0.9, 0.05, true),
+			splash = Toggle(3, "Louder splash", "While you fish: sound effects at full, music and ambience at a quarter, so you hear the bobber. Put back after. This changes Blizzard's sound settings while you play, which can upset Blizzard's own frames: if you see errors from Blizzard's UI after fishing, turn it off and /reload.", "fishing", "splash"),
 		}),
 		place = PositionCard(5, "The panel sits left of the console by default. " .. UNLOCK, function() F().ResetPosition() end, function() return not DB().fishing.panelPos.moved end),
 	}

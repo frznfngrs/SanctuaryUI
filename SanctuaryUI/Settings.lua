@@ -522,6 +522,9 @@ ns.DEFAULTS = {
 			lureWarn = true, -- a warning a minute before the lure runs out
 			fade = false, -- the console fades back while you fish
 			fadeAlpha = 0.25,
+			oneKey = true, -- while the line is out, the Fishing key hooks the bobber (interact key)
+			combatWeapons = true, -- attacked with the pole on: your weapons back in your hands
+			splash = false, -- sound effects up, music and ambience down while you fish
 		},
 
 		-- the angler's journal (FishingJournal.lua)
@@ -610,6 +613,9 @@ ns.DEFAULTS = {
 			dayCount = 0,
 			total = 0,
 		},
+		-- the fishing outfit (Fishing.lua): outfit[slot] = itemID; normal[slot] = what the slot
+		-- holds when you're not fishing (0: nothing); sound = Blizzard volumes to put back
+		fishingGear = { outfit = {}, normal = {} },
 	},
 	global = {
 		-- LibDBIcon keeps the minimap button's angle and visibility here, shared by all profiles.
