@@ -135,6 +135,14 @@ local FLYOUT = {
 		toggle = TogglePvP,
 		available = function() return TogglePVPUI or TogglePVPFrame or PVPFrame or _G.PVPMicroButton end,
 	},
+	{
+		-- The angler's journal (FishingJournal.lua).
+		key = "fishing",
+		label = "Angler's Journal",
+		binding = "SANCTUARYUIFISHING",
+		toggle = function() ns.Journal.Toggle() end,
+		available = function() return ns.Journal and ns.Journal.Toggle and ns.DB().journal.flyout end,
+	},
 	-- No Currency or Reputation: they are tabs of the character sheet, and opening that from
 	-- addon code taints it (see the Character button).
 }

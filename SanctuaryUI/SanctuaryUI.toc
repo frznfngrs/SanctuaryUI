@@ -69,6 +69,8 @@ Experience.lua
 InventoryWindow.lua
 Bags.lua
 Bank.lua
+FishingData.lua
+FishingJournal.lua
 Options.lua
 Minimap.lua
 VersionCheck.lua

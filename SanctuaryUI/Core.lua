@@ -688,7 +688,7 @@ local function Slash(msg)
 			ns.Options.Open()
 		end
 	elseif cmd == "help" then
-		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n> (bars), globes <n>|match, bar 2-9 on|off, bind, pie [1-6] (pie menus), trinkets, swing (preview the swing timer), minimap, ring (preview the ally ring; totems: each totem's reach against your distance), map (overlay map; probe|peek for what the client allows; totems to probe group casts), test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, meter [analysis|glory|awards|test|reset|probe] (damage meter), proc (preview the proc highlight), aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), debug on|off, log, report [on|off], request (suggest a feature), updates [on|off] (new version notices over the realm channel)")
+		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n> (bars), globes <n>|match, bar 2-9 on|off, bind, pie [1-6] (pie menus), trinkets, swing (preview the swing timer), fish [chapter|log|words] (the angler's journal; log: what the game said while you fished; anything else searches it), minimap, ring (preview the ally ring; totems: each totem's reach against your distance), map (overlay map; probe|peek for what the client allows; totems to probe group casts), test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, meter [analysis|glory|awards|test|reset|probe] (damage meter), proc (preview the proc highlight), aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), debug on|off, log, report [on|off], request (suggest a feature), updates [on|off] (new version notices over the realm channel)")
 	elseif cmd == "grid" then
 		-- grid: toggle; grid on|off; grid <spacing>. The grid only shows while frames are
 		-- unlocked, so showing it unlocks them.
@@ -721,6 +721,21 @@ local function Slash(msg)
 		end
 		ns.Print(db.snapping and "bar snapping on (hold Shift while dragging to place freely)" or "bar snapping off")
 		ns.Refresh()
+	elseif cmd == "fish" or cmd == "fishing" or cmd == "journal" then
+		-- fish [chapter]: the angler's journal, on a chapter by its key or title's first word.
+		local want = rest:lower()
+		if want == "log" then ns.Journal.PrintHeard() return end
+		local key
+		for _, c in ipairs(ns.Journal.CHAPTERS) do
+			if want ~= "" and (c.key == want or c.title:lower():find(want, 1, true)) then key = c.key break end
+		end
+		if key then
+			ns.Journal.Open(key)
+		elseif want ~= "" then
+			ns.Journal.Search(rest)
+		else
+			ns.Journal.Toggle()
+		end
 	elseif cmd == "lock" then
 		ns.SetLocked(true)
 	elseif cmd == "unlock" then
@@ -1104,6 +1119,7 @@ loader:SetScript("OnEvent", function(_, event)
 		Safe("reckless", ns.Reckless and ns.Reckless.Init)
 		Safe("statue eyes", ns.StatueEyes and ns.StatueEyes.Init)
 		Safe("experience", ns.Experience and ns.Experience.Init)
+		Safe("fishing journal", ns.Journal and ns.Journal.Init)
 		Safe("layout", ns.Layout)
 		Safe("position", ns.ApplyPosition)
 		Safe("options", ns.Options and ns.Options.Init)

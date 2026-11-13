@@ -27,7 +27,8 @@ for n in BottomBar_GameRes BottomBar_GameRes_DH 2DUIBottomBar bottomBar_buttonFX
 	healthBall_liquid health_liquid_alpha health_hotline_alpha health_hotline_liquid health_hotline_color \
 	healthBall_streaks_alpha 2DUIGlows 2DUISkills 2DUIBuffIcons 2DUIEnemyHPbar \
 	2DUI_BarbarianResourceGlobe 2DUI_CrusaderResourceGlobe 2DUI_DemonHunterResourceGlobe 2DUI_MonkResourceGlobe \
-	2DUI_NecromancerResourceGlobe 2DUI_WitchDoctorResourceGlobe 2DUI_WizardResourceGlobe; do
+	2DUI_NecromancerResourceGlobe 2DUI_WitchDoctorResourceGlobe 2DUI_WizardResourceGlobe \
+	2DUIQuestLore 2DUIQuestLoreB 2DUILoreNotify; do
 	echo "Base/Textures/$n.tex"
 done | "$CASC" -dir "$MIRROR" -o "$OUT" 2>&1 | grep -E 'FAIL|hud/' || true
 

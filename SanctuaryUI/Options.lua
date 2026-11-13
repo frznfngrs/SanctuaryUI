@@ -864,6 +864,74 @@ local function TrinketArgs()
 	}
 end
 
+-- Options > Professions > Fishing journal (FishingJournal.lua).
+local function JournalArgs()
+	local function J() return ns.Journal end
+	return {
+		intro = Note(1, "A fishing guide for WoW Forever in a D3 journal: where to fish for your skill, what bites where, lures, poles, camps, the Sunday Extravaganza. It reads your fishing skill, zone and lure as you go, and keeps a diary of this character's catches. Open it with /sanctuary fish, its key (Key Bindings > AddOns) or the fish in the console menu's flyout."),
+		open = {
+			type = "execute", order = 2, name = "Open the journal",
+			func = function()
+				LibStub("AceConfigDialog-3.0"):Close(APP)
+				J().Open("now")
+			end,
+		},
+		diary = Card(3, "Diary", {
+			diary = Toggle(1, "Write diary entries", "Firsts, new kinds of fish, milestones, treasure, the odd boot: a line in the diary each time.", "journal", "diary"),
+			chat = Toggle(2, "Print them in chat", "Each new diary line also shows in your chat window.", "journal", "chat"),
+			log = {
+				type = "execute", order = 2.5, width = "relative", relWidth = HALF,
+				name = "What the game said",
+				desc = "Prints the last messages the game gave while you fished, and the escapes counted. If got-aways aren't counted, this shows the line to match.",
+				func = function() J().PrintHeard() end,
+			},
+			clear = {
+				type = "execute", order = 3, width = "relative", relWidth = HALF,
+				name = "Clear this character's diary",
+				desc = "Forgets this character's catches, tally and entries. The guide stays.",
+				confirm = true,
+				confirmText = "Throw this character's angling diary in the lake?",
+				func = function()
+					local log = J().Log()
+					if not log then return end
+					wipe(log.catches) wipe(log.names) wipe(log.zones) wipe(log.entries) wipe(log.days) wipe(log.junkDays)
+					wipe(log.trophies) wipe(log.rareDays) wipe(log.quality)
+					wipe(log.field.zones) wipe(log.field.unknown)
+					log.total, log.dayCount, log.escapes, log.missed, log.treasure, log.junk, log.rare = 0, 0, 0, 0, 0, 0, 0
+					log.started, log.skillSeen, log.rankSeen, log.sunday = nil, nil, nil, nil
+					J().Refresh()
+				end,
+			},
+		}),
+		popup = Card(3.5, "Pop-up", {
+			note = Note(0, "Each new diary line slides in on D3's \"new lore\" notice, glowing as it arrives. Hover to hold it, click to open the diary, right-click to dismiss. Unlock frames to move it."),
+			toast = Toggle(1, "Show the pop-up", nil, "journal", "toast"),
+			toastSound = Toggle(2, "Page-turn sound", nil, "journal", "toastSound"),
+			toastScale = Range(3, "Scale", nil, "journal", "toastScale", 0.5, 2, 0.05, true),
+			toastTime = Range(4, "Seconds shown", "How long it rests before fading. Long lines stay a little longer.", "journal", "toastTime", 3, 20, 1),
+			preview = {
+				type = "execute", order = 5, width = "relative", relWidth = THIRD,
+				name = "Show a sample",
+				func = function() J().PreviewToast() end,
+			},
+			reset = {
+				type = "execute", order = 6, width = "relative", relWidth = HALF,
+				name = "Reset its position",
+				disabled = function() return not DB().journal.toastPos.moved end,
+				func = function() J().ResetToastPosition() end,
+			},
+		}),
+		look = Card(4, "Look", {
+			scale = Range(1, "Scale", nil, "journal", "scale", 0.5, 1.6, 0.01, true),
+			textScale = Range(2, "Text size", "The page's text, on top of the window's scale.", "journal", "textScale", 0.8, 1.4, 0.05, true),
+			diaryFont = Select(3, "Diary hand", "The diary's lines and chapter openers. Diablo Script by default.", "journal", "diaryFont", TEXT_FONTS, TEXT_FONT_ORDER),
+			pageFont = Select(4, "Page font", "The guide's text and tables. Diablo Serif by default.", "journal", "pageFont", TEXT_FONTS, TEXT_FONT_ORDER),
+			flyout = Width(Toggle(5, "Fish in the console menu's flyout", "A fish plate among the Spellbook & Panels flyout's buttons. Takes effect after a /reload.", "journal", "flyout"), 0.666),
+		}),
+		place = PositionCard(5, "Left of centre by default. Drag the window by its stone or header to move it.", function() J().ResetPosition() end, function() return not DB().journal.moved end),
+	}
+end
+
 local function SwingArgs()
 	return {
 		intro = Note(1, "A bar for each weapon that fills as your next auto attack winds up, and stays full while the swing is ready. While your target is out of a weapon's reach, its bar dims once the swing in hand is done. Haste mid-swing stretches or shortens what's left. Blizzard has a swing timer of its own (Options > Combat); turn one of them off so you don't see two."),
@@ -2387,6 +2455,9 @@ local function Build()
 					Changed()
 				end),
 			}),
+			gap43 = Gap(43),
+			sectionProfessions = Section(43.5, "Professions"),
+			fishing = Page(44, "Fishing journal", JournalArgs()),
 			bank = Page(42, "Bank", {
 				enabled = Width(Toggle(1, "Use the SanctuaryUI bank window", "D3's stash in place of Blizzard's bank. Needs the bag window on. Turning it off needs a /reload.", "bank", "enabled"), 1),
 				layout = Card(2, "Layout", {

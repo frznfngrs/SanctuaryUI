@@ -510,6 +510,27 @@ ns.DEFAULTS = {
 			my = 0,
 		},
 
+		-- the angler's journal (FishingJournal.lua)
+		journal = {
+			scale = 1,
+			point = "LEFT",
+			x = 60,
+			y = 0,
+			moved = false,
+			chapter = "now", -- the chapter it opens on
+			diary = true, -- write diary entries from catches and milestones
+			chat = false, -- and print each new entry in chat
+			toast = true, -- and show it in D3's "new lore" pop-up
+			toastSound = true, -- a page turn as it arrives
+			toastScale = 1,
+			toastTime = 7, -- seconds it rests before fading (long lines stay longer)
+			toastPos = { moved = false, mx = 0, my = 0 }, -- its mover (ns.MakeMover)
+			flyout = true, -- a fish plate in the console menu's flyout (needs a /reload)
+			diaryFont = "d3script", -- the diary's hand
+			pageFont = "d3serif", -- the guide's print
+			textScale = 1,
+		},
+
 		-- bank window
 		bank = {
 			enabled = true,
@@ -558,6 +579,23 @@ ns.DEFAULTS = {
 		},
 		-- MeterHistory.lua: saved fights, personal bests, the streak and the rival's tally.
 		meter = {},
+		-- FishingJournal.lua: this character's catches and diary.
+		fishing = {
+			catches = {}, -- itemID -> count
+			names = {}, -- itemID -> name, as looted
+			quality = {}, -- itemID -> rarity, as looted
+			zones = {}, -- zone -> itemID -> count
+			entries = {}, -- { t = time, day = n, text = "" }, oldest first
+			days = {}, -- "YYYY-MM-DD" -> true, the days you fished
+			junkDays = {}, -- "zone|date" -> true: one junk line per zone a day
+			trophies = {}, -- rare finds: { id, name, q (rarity), t, zone }, oldest first
+			rareDays = {}, -- "itemID|date" -> true: one line a day for an uncommon find
+			-- Field notes (tools/fishing_audit.py): zones[zone] = { catches, escapes, minCatch,
+			-- maxCatch, minEscape, maxEscape } in effective skill; unknown[itemID] = { name, q, zones }
+			field = { zones = {}, unknown = {} },
+			dayCount = 0,
+			total = 0,
+		},
 	},
 	global = {
 		-- LibDBIcon keeps the minimap button's angle and visibility here, shared by all profiles.
@@ -711,6 +749,7 @@ function ns.Refresh()
 	Run("menu", ns.Menu and ns.Menu.ApplySettings)
 	Run("bags", ns.Bags and ns.Bags.ApplySettings)
 	Run("bank", ns.Bank and ns.Bank.ApplySettings)
+	Run("fishing journal", ns.Journal and ns.Journal.ApplySettings)
 	Run("stance", ns.Stance and ns.Stance.ApplySettings)
 	Run("totems", ns.Totem and ns.Totem.ApplySettings)
 	Run("trinkets", ns.Trinket and ns.Trinket.ApplySettings)
