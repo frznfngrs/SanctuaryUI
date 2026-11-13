@@ -105,6 +105,41 @@ local function Suppress(frame)
 	pcall(frame.EnableMouse, frame, false)
 end
 
+-- Blizzard help tips that point at a frame SanctuaryUI hides (the backpack button, for the
+-- reagent bag tutorial; a micro button) have nothing on screen to point at, and the step that
+-- would close them (opening Blizzard's bags) never comes, so they hang over the HUD (#15).
+-- Closed as soon as they open.
+local function HiddenByUs(region)
+	local hider = ns.Hider
+	for _ = 1, 20 do
+		if not region or not hider then return false end
+		if region == hider then return true end
+		if rawget(region, "sanctuaryHooked") and not rawget(region, "sanctuaryAllow") then return true end
+		region = region.GetParent and region:GetParent()
+	end
+	return false
+end
+
+function ns.Blizzard.CloseOrphanTips()
+	local pool = HelpTip and HelpTip.framePool
+	if not pool or not pool.EnumerateActive then return end
+	local orphans = {}
+	for tip in pool:EnumerateActive() do
+		if tip.info and HiddenByUs(tip.relativeRegion) then orphans[#orphans + 1] = tip end
+	end
+	for _, tip in ipairs(orphans) do
+		pcall(tip.Close, tip)
+	end
+end
+
+local function WatchHelpTips()
+	if ns.Blizzard.tipsWatched or not HelpTip or type(HelpTip.Show) ~= "function" then return end
+	ns.Blizzard.tipsWatched = true
+	hooksecurefunc(HelpTip, "Show", function(_, parent, _, region)
+		if HiddenByUs(region or parent) then ns.Blizzard.CloseOrphanTips() end
+	end)
+end
+
 function ns.Blizzard.Hide()
 	if InCombatLockdown() then return end
 	if not ns.Hider then
@@ -148,6 +183,8 @@ function ns.Blizzard.Hide()
 			end
 		end
 	end
+	WatchHelpTips()
+	ns.Blizzard.CloseOrphanTips()
 end
 
 local function Restore(frame, parent)
