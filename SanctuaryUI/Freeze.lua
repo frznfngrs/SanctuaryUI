@@ -415,6 +415,22 @@ local function ScanControl()
 			local id, text = data.spellID, data.displayText
 			if Secret(id) and Secret(text) then
 				unknown = true
+				-- What the client does still say about it, kept for /sanctuary check and logged
+				-- once per kind: the type (ROOT, STUN...) if readable, and the priority and
+				-- display type, which the client documents as never secret. If these tell a
+				-- root from a stun, roots alone could ice the globe.
+				local function Say(v)
+					if v == nil then return "nil" end
+					if Secret(v) then return "secret" end
+					return tostring(v)
+				end
+				local seen = ("type %s, priority %s, display %s"):format(Say(data.locType), Say(data.priority), Say(data.displayType))
+				F.controlSeen = F.controlSeen or {}
+				if not F.controlSeen[seen] then
+					F.controlSeen[seen] = true
+					F.controlLast = seen
+					if ns.Log then ns.Log("freeze: hidden loss of control: %s", seen) end
+				end
 			else
 				local name
 				if not Secret(id) and id and C_Spell and C_Spell.GetSpellName then
@@ -511,7 +527,7 @@ end
 function F.Status()
 	return ("freeze: %s, %s, debuffs %s, loss of control %s%s"):format(ns.DB().freeze and "on" or "off",
 		F.failed and "failed" or F.built and (F.phase or "idle") or "not built", F.auraPath or "unread",
-		F.controlPath or "none seen", F.lastError and (" (" .. F.lastError .. ")") or "")
+		(F.controlPath or "none seen") .. (F.controlLast and (" [" .. F.controlLast .. "]") or ""), F.lastError and (" (" .. F.lastError .. ")") or "")
 end
 
 function F.Init()
