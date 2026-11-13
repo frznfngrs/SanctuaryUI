@@ -2271,7 +2271,7 @@ local function Build()
 					buffs = Toggle(3, "Buffs", "Buffs on each member, in D3's gold frame: yours (heals over time, shields) or everyone's.", "party", "buffs"),
 					buffsFrom = Select(3.5, "Whose buffs", "Only the ones you cast, or every buff they have. Changes wait for the end of combat.", "party", "buffsFrom",
 						{ mine = "Yours", all = "Everyone's" }, { "mine", "all" }),
-					maxBuffs = Range(4, "Most buffs", nil, "party", "maxBuffs", 1, 6, 1),
+					maxBuffs = Range(4, "Most buffs", nil, "party", "maxBuffs", 1, 16, 1),
 					dispelGlow = Toggle(5, "Dispel halo", "A pulsing halo in the debuff's colour while a member has one you can remove.", "party", "dispelGlow"),
 				}),
 				place = PositionCard(7, "Under your portrait by default. Stand-ins show while frames are unlocked. " .. UNLOCK .. " Changes wait for the end of combat.", function() ns.Party.ResetPosition() end, function() return not DB().party.moved end),

@@ -26,6 +26,7 @@ local READY_LINGER = 6 -- seconds the ready check's answers stay up after it end
 local DISPEL_PULSE, DISPEL_PULSE_LOW = 0.55, 0.3 -- the dispel halo's pulse: seconds each way, and how far it dims
 local AURA_SIZE = { globes = 18, slab = 20 }
 local AURA_GAP = 2
+local MAX_BUFFS = 16 -- the most buffs a member's row can show (Options > Party > Most buffs), on one line
 -- The anchor hides only in a raid (raid1 is there in any raid). It does not wait for a party:
 -- the members' own unit watches show them. With [group:party] here, a party joined in combat
 -- stayed hidden until the fight ended.
@@ -1009,7 +1010,7 @@ local function ConfigureAuras(b)
 		end)
 	end
 	if b.buffBox then
-		local box, max = b.buffBox, math.min(6, opt.maxBuffs or 3)
+		local box, max = b.buffBox, math.min(MAX_BUFFS, opt.maxBuffs or 3)
 		local on = opt.buffs ~= false and not pv
 		pcall(function()
 			box:SetAuraGroupEnabled("mine", on)
