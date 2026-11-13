@@ -23,6 +23,8 @@ local ns = SanctuaryUI
 --                     so it goes the moment it breaks
 --   fragile           spends charges: ends when a buff icon goes with a hit and nothing
 --                     else explains it
+--   charges           a fragile buff's charges: physical hits count them down, and once they're
+--                     gone any buff icon going ends it
 --   strength          how bright, against the others (1 if not set): raised where a colour sits
 --                     close to its globe's or the look is quiet by nature
 --   long              a buff kept up for minutes (Inner Fire, Lightning Shield): after lighting
@@ -112,7 +114,7 @@ ns.WatchData.EFFECTS = {
 		label = "Rapid Fire", desc = "amber light radiates from behind the resource globe" },
 	{ key = "innerFire", class = "PRIEST", spells = { 588 }, names = { "Inner Fire" }, look = "radiate", globe = "health", tint = "holy", length = 600, fragile = true, long = true,
 		label = "Inner Fire", desc = "gold light radiates from behind the health globe until its charges are spent (off at first: a 10-minute buff)" },
-	{ key = "lightningShield", class = "SHAMAN", spells = { 324 }, names = { "Lightning Shield" }, look = "radiate", globe = "health", tint = "storm", length = 600, fragile = true, storm = true, long = true,
+	{ key = "lightningShield", class = "SHAMAN", spells = { 324 }, names = { "Lightning Shield" }, look = "radiate", globe = "health", tint = "storm", length = 600, fragile = true, charges = 3, storm = true, long = true,
 		label = "Lightning Shield", desc = "crackling blue light radiates from behind the health globe until its charges are spent" },
 
 	-- Surges.

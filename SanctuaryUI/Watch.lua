@@ -201,7 +201,11 @@ local function Up(effect, start, expires, length, source, reason)
 	local was = st.up
 	local moved = not was or math.abs((st.expires or 0) - (expires or 0)) > 0.25 or st.source ~= source
 	st.up, st.start, st.expires, st.length, st.source = true, start, expires, length, source
-	if source ~= "reading" then st.castAt = start end
+	if source ~= "reading" then
+		st.castAt = start
+		-- A cast (or recast) puts every charge back.
+		if source == "cast" and effect.charges then st.charges = effect.charges end
+	end
 	if not was then st.since = GetTime() end
 	if moved then
 		ns.Log("watch: %s up (%s, %s)", effect.key, reason,
@@ -225,7 +229,7 @@ end
 local function Down(effect, reason)
 	local st = state[effect.key]
 	if not st or not st.up then return end
-	st.up, st.start, st.expires, st.length, st.source, st.castAt = false, nil, nil, nil, nil, nil
+	st.up, st.start, st.expires, st.length, st.source, st.castAt, st.charges = false, nil, nil, nil, nil, nil, nil
 	st.since = GetTime()
 	ns.Log("watch: %s down (%s)", effect.key, reason)
 	if EARLY[reason] then ForgetSkill(effect) end
@@ -323,6 +327,8 @@ end
 
 local absorbProbe -- when your shield landed, waiting for the absorb event
 local lastAbsorbEvent, lastHit = -math.huge, -math.huge
+local lostAt = -math.huge -- a buff icon went that nothing has explained yet
+local MELEE = 1 -- UNIT_COMBAT's school mask for a physical hit, the kind that spends a charge
 local iconCount = 0 -- the buff frame's icon count, as of the last frame
 
 local function AbsorbWorks()
@@ -423,6 +429,8 @@ local function Scan()
 					if hit.id then lengths[hit.id] = duration end
 					if hit.name then lengths[hit.name] = duration end
 					Up(effect, expires - duration, expires, duration, "reading", "reading")
+					local left = aura.applications
+					if effect.charges and Readable(left) and left > 0 then state[effect.key].charges = left end
 				else
 					-- Up with no timer we can read (eating, drinking): keep a cast's timing if any.
 					local st = state[effect.key]
@@ -674,8 +682,22 @@ local function OnChannel(event, spellID, now)
 	end
 end
 
+-- A charge buff (Lightning Shield) is spent: the first one up ends.
+local function Spend()
+	for _, effect in ipairs(EFFECTS) do
+		local st = state[effect.key]
+		if effect.fragile and st and st.up then
+			Down(effect, "spent")
+			return true
+		end
+	end
+	return false
+end
+
 -- A buff icon went. If nothing we know explains it, and it came with an absorb change or a
--- hit, a shield broke or a charge buff was spent.
+-- hit, a shield broke or a charge buff was spent. The hit's event can come a frame or two
+-- after the icon goes, so an icon nothing explained yet waits (lostAt) for a hit (#13). And a
+-- charge buff whose charges the hits have used up is spent by any icon going, hit or not.
 local function IconLost(now)
 	if readable or test then return end
 	if pending then return end -- Judgement's own window
@@ -692,15 +714,15 @@ local function IconLost(now)
 			end
 		end
 	end
-	if now - lastHit <= HIT_WINDOW then
-		for _, effect in ipairs(EFFECTS) do
-			local st = state[effect.key]
-			if effect.fragile and st and st.up then
-				Down(effect, "spent")
-				return
-			end
+	if now - lastHit <= HIT_WINDOW and Spend() then return end
+	for _, effect in ipairs(EFFECTS) do
+		local st = state[effect.key]
+		if effect.fragile and st and st.up and st.charges and st.charges <= 0 then
+			Down(effect, "spent")
+			return
 		end
 	end
+	lostAt = now
 end
 
 -- A trusted gate closing ends the group outright (a seal that ran out early, was cancelled or
@@ -892,7 +914,7 @@ function ns.Watch.Init()
 		pcall(driver.RegisterUnitEvent, driver, event, "player")
 	end
 	local gateDirty = false
-	driver:SetScript("OnEvent", function(_, event, _, a2, a3, a4)
+	driver:SetScript("OnEvent", function(_, event, _, a2, a3, a4, a5)
 		if test and event ~= "SPELLS_CHANGED" then
 			if event == "UNIT_SPELLCAST_SUCCEEDED" then NoteCast("a cast ignored: test mode is on") end
 			return
@@ -922,7 +944,22 @@ function ns.Watch.Init()
 			UpdateAbsorb()
 		elseif event == "UNIT_COMBAT" then
 			-- Only a wound spends a charge; heals and regen move health too. (unit, event, ...)
-			if not Readable(a2) or a2 == "WOUND" then lastHit = now end
+			if not Readable(a2) or a2 == "WOUND" then
+				lastHit = now
+				-- A physical wound spends one charge (unit, event, flagText, amount, schoolMask:
+				-- the mask is never secret).
+				if Readable(a5) and a5 == MELEE then
+					for _, effect in ipairs(EFFECTS) do
+						local st = state[effect.key]
+						if effect.charges and st and st.up and st.charges then st.charges = st.charges - 1 end
+					end
+				end
+				-- The icon went first: this hit explains it.
+				if now - lostAt <= HIT_WINDOW and not readable then
+					lostAt = -math.huge
+					Spend()
+				end
+			end
 		elseif event == "PLAYER_DEAD" then
 			for group in pairs(GROUPS) do groupCast[group] = nil end
 			for _, effect in ipairs(EFFECTS) do
