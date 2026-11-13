@@ -28,6 +28,27 @@ local KEEP_PARENT = {
 	MainStatusTrackingBarContainer = true,
 }
 
+-- Of those, the ones whose own event handlers are stopped too (ElvUI's build for this client does
+-- the same). Hidden, they still ran on every pet, page, combat and experience change: showing
+-- and hiding their buttons, re-anchoring the bar stack. In combat that is protected work, and
+-- once anything on the way is tainted, every one of those calls is blocked and reported against
+-- SanctuaryUI; a hunter tester got them by the hundred (#17, #18). With no events, none of their
+-- code runs. Their methods stay, for Blizzard code that calls them. Pet autocast still works:
+-- it is the pet button's own click.
+local SILENCED = {
+	MainActionBar = true,
+	MainMenuBar = true,
+	StanceBar = true,
+	PetActionBar = true,
+	PossessActionBar = true,
+	OverrideActionBar = true,
+	StatusTrackingBarManager = true,
+}
+
+local function Silence(frame)
+	if frame and frame.UnregisterAllEvents then pcall(frame.UnregisterAllEvents, frame) end
+end
+
 -- Hidden only while the SanctuaryUI part that replaces them is on (portraits, target plate).
 local function PartyStyled(db)
 	-- Any of our looks (globes, slab, the target styles); "none" leaves Blizzard's frames up.
@@ -57,6 +78,19 @@ local MULTI_BARS = {
 	MultiBar7 = 15,
 }
 local multiParent = {}
+
+-- A Blizzard bar hidden under a row's page is silenced too (see SILENCED): its combat
+-- visibility and grid events would show and hide it and its buttons in combat. Given back, it
+-- gets the same events again (EditModeActionBar_OnLoad and ActionBar_OnLoad register these).
+local multiSilenced = {}
+local function MultiEvents(frame)
+	local events = { "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED" }
+	for _, key in ipairs({ "showGridEventName", "hideGridEventName" }) do
+		local event = rawget(frame, key)
+		if type(event) == "string" then events[#events + 1] = event end
+	end
+	return events
+end
 
 -- The pages enabled SanctuaryUI rows show, their form pages included.
 local function RowPages(db)
@@ -154,6 +188,7 @@ function ns.Blizzard.Hide()
 				pcall(frame.SetParent, frame, ns.Hider)
 			end
 			pcall(Suppress, frame)
+			if SILENCED[name] then Silence(frame) end
 		end
 	end
 	ns.Blizzard.Replaced()
@@ -279,7 +314,15 @@ function ns.Blizzard.Replaced()
 				frame.sanctuaryAllow = nil
 				pcall(frame.SetParent, frame, ns.Hider)
 				pcall(Suppress, frame)
+				if not multiSilenced[name] then
+					multiSilenced[name] = true
+					for _, event in ipairs(MultiEvents(frame)) do pcall(frame.UnregisterEvent, frame, event) end
+				end
 			elseif frame:GetParent() == ns.Hider then
+				if multiSilenced[name] then
+					multiSilenced[name] = nil
+					for _, event in ipairs(MultiEvents(frame)) do pcall(frame.RegisterEvent, frame, event) end
+				end
 				-- Given back as Blizzard left it: shown only if its own state says so (the
 				-- Show override isn't called from here, see RawHide). A bar with combat
 				-- visibility sorts itself out on the next change of combat.
