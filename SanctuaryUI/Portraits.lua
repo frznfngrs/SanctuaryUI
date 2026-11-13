@@ -35,6 +35,34 @@ local function Secret(value)
 	return issecretvalue and issecretvalue(value)
 end
 
+-- Pet happiness: C_PetInfo on this client (the old global on others). 1 unhappy, 2 content,
+-- 3 happy, as Blizzard's character sheet draws them.
+local GetHappiness = (C_PetInfo and C_PetInfo.GetPetHappiness) or GetPetHappiness
+local GetFoodTypes = (C_PetInfo and C_PetInfo.GetPetFoodTypes) or GetPetFoodTypes
+local HAPPINESS_ATLAS = { "UI-PetMad", "UI-PetNeutral", "UI-PetHappiness" }
+
+local function ShowHappiness(self)
+	if GameTooltip:IsForbidden() or not self.mood then return end
+	GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+	GameTooltip:SetText(_G["PET_HAPPINESS" .. self.mood] or "", 1, 0.82, 0)
+	if type(self.damage) == "number" and not Secret(self.damage) and PET_DAMAGE_PERCENTAGE then
+		GameTooltip:AddLine(PET_DAMAGE_PERCENTAGE:format(self.damage), 1, 1, 1)
+	end
+	if type(self.loyalty) == "number" and not Secret(self.loyalty) then
+		if self.loyalty < 0 and LOSING_LOYALTY then
+			GameTooltip:AddLine(LOSING_LOYALTY, 1, 1, 1)
+		elseif self.loyalty > 0 and GAINING_LOYALTY then
+			GameTooltip:AddLine(GAINING_LOYALTY, 1, 1, 1)
+		end
+	end
+	local diet = GetFoodTypes and { GetFoodTypes() }
+	if diet and type(diet[1]) == "table" then diet = diet[1] end
+	if diet and #diet > 0 and PET_DIET_TEMPLATE then
+		GameTooltip:AddLine(PET_DIET_TEMPLATE:format(table.concat(diet, PET_FOOD_DELIMIT or ", ")), 1, 1, 1, true)
+	end
+	GameTooltip:Show()
+end
+
 local function Fill(bar, value, maxValue)
 	if maxValue ~= nil and not Secret(maxValue) then
 		bar:SetMinMaxValues(0, maxValue)
@@ -146,11 +174,19 @@ local function MakePortrait(parent, unit, name, k, withHealth)
 	button.raid:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
 	button.raid:Hide()
 
-	button.happiness = art:CreateTexture(nil, "OVERLAY")
-	button.happiness:SetSize(icon * 1.2, icon * 1.2)
-	button.happiness:SetPoint("LEFT", frame, "RIGHT", -2 * k, -h * 0.15)
-	button.happiness:SetTexture("Interface\\PetPaperDollFrame\\UI-PetHappiness")
-	button.happiness:Hide()
+	-- The pet's mood beside its frame, with Blizzard's happiness tooltip (damage, loyalty, diet)
+	-- on hover: the character sheet's pet tab is the only other place it shows (#16).
+	local happy = CreateFrame("Frame", nil, art)
+	happy:SetSize(icon * 1.4, icon * 1.4)
+	happy:SetPoint("LEFT", frame, "RIGHT", -2 * k, -h * 0.15)
+	happy:SetFrameLevel(art:GetFrameLevel() + 2)
+	happy.icon = happy:CreateTexture(nil, "OVERLAY")
+	happy.icon:SetAllPoints()
+	if happy.SetMouseMotionEnabled then happy:SetMouseMotionEnabled(true) else happy:EnableMouse(true) end
+	happy:SetScript("OnEnter", ShowHappiness)
+	happy:SetScript("OnLeave", GameTooltip_Hide)
+	happy:Hide()
+	button.happiness = happy
 
 	if withHealth then
 		button.level = art:CreateFontString(nil, "OVERLAY")
@@ -238,14 +274,24 @@ local function UpdateIcons(button)
 		button.raid:Hide()
 	end
 
-	local happiness = button.unit == "pet" and unit == "pet" and GetPetHappiness and GetPetHappiness()
-	if not Secret(happiness) and happiness then
-		-- UI-PetHappiness: unhappy, content, happy left to right.
-		local x = ({ 0.375, 0.1875, 0 })[happiness] or 0
-		button.happiness:SetTexCoord(x, x + 0.1875, 0, 0.359375)
-		button.happiness:Show()
+	local happiness, damage, loyalty = nil, nil, nil
+	if button.unit == "pet" and unit == "pet" and GetHappiness then
+		local _, hunterPet = HasPetUI()
+		if not Secret(hunterPet) and hunterPet then happiness, damage, loyalty = GetHappiness() end
+	end
+	local happy = button.happiness
+	if not Secret(happiness) and HAPPINESS_ATLAS[happiness] then
+		happy.mood, happy.damage, happy.loyalty = happiness, damage, loyalty
+		if not (C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(HAPPINESS_ATLAS[happiness])
+			and pcall(happy.icon.SetAtlas, happy.icon, HAPPINESS_ATLAS[happiness])) then
+			-- Older clients: the one strip, unhappy, content and happy left to right.
+			local x = ({ 0.375, 0.1875, 0 })[happiness]
+			happy.icon:SetTexture("Interface\\PetPaperDollFrame\\UI-PetHappiness")
+			happy.icon:SetTexCoord(x, x + 0.1875, 0, 0.359375)
+		end
+		happy:Show()
 	else
-		button.happiness:Hide()
+		happy:Hide()
 	end
 
 	local level = UnitLevel(unit)
