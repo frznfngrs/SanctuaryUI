@@ -458,6 +458,7 @@ ns.DEFAULTS = {
 			show = "always", -- always | combat | group
 			view = "DamageDone", -- Meter.lua VIEWS key
 			segment = "current", -- current | overall
+			groupReset = "always", -- clear the game's tallies on joining or leaving a group: never | ask | always
 			scale = 1, -- 100% is the mockup's size
 			width = 560, -- rail length, in the art's pixels
 			railHeight = 50, -- rail height, in the art's pixels

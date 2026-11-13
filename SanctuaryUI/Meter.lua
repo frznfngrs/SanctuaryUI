@@ -815,13 +815,76 @@ function ns.Meter.SegmentMenu(owner)
 	end
 end
 
+-- quiet: no line in chat (the automatic clear when your group changes).
+local function Clear(quiet)
+	local ok = pcall(API().ResetAllCombatSessions)
+	verdict, detail = nil, nil
+	segment = "current"
+	offset = 0
+	ns.Meter.Draw()
+	if not quiet then
+		ns.Print(ok and "damage meter cleared." or "the game refused to clear the damage meter.")
+	end
+	return ok
+end
+
 function ns.Meter.Reset()
 	if not ns.Meter.Supported() then return end
-	local ok = pcall(API().ResetAllCombatSessions)
-	verdict = nil
-	segment = "current"
-	ns.Meter.Draw()
-	ns.Print(ok and "damage meter cleared." or "the game refused to clear the damage meter.")
+	Clear(false)
+end
+
+-- Anything left over from before: the overall session has a player in it.
+local function HasFights()
+	local session = Fetch("overall", TypeValue(VIEWS[1]))
+	return session ~= nil and #session.combatSources > 0
+end
+
+-- Clearing when your group changes. Joining or leaving a group leaves the last fight (and its
+-- verdict) on show with players no longer with you, so Opt().groupReset clears it:
+-- never | ask | always. Never in combat: the clear waits for the fight to end.
+StaticPopupDialogs.SANCTUARYUI_METER_GROUP_RESET = {
+	text = "Your group changed. Clear the damage meter?\n\nSaved fights and records stay.",
+	button1 = "Clear",
+	button2 = "Keep",
+	OnAccept = function() Clear(false) end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+}
+
+local grouped -- in a group when last looked; nil until the first look after login
+local groupResetPending = false
+
+local function Ask()
+	StaticPopup_Show("SANCTUARYUI_METER_GROUP_RESET")
+end
+
+local function GroupReset()
+	groupResetPending = false
+	if not ns.Meter.Supported() or not HasFights() then return end
+	local mode = Opt().groupReset
+	if mode == "ask" then
+		Ask()
+	elseif mode == "always" then
+		Clear(true)
+		-- If the game would not clear it unasked, ask: the button press lets it through.
+		C_Timer.After(1, function()
+			if HasFights() then Ask() end
+		end)
+	end
+end
+
+local function GroupChanged()
+	local now = (IsInGroup and IsInGroup()) and true or false
+	local was = grouped
+	grouped = now
+	if was == nil or was == now then return end
+	if (Opt().groupReset or "never") == "never" then return end
+	if inCombat then
+		groupResetPending = true
+	else
+		GroupReset()
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -1019,7 +1082,27 @@ local function Build()
 		end
 	end)
 	holder.open = open
-	holder.clock:SetPoint("RIGHT", open, "LEFT", -10, -1)
+	-- The meter's page in the options, left of the analysis button.
+	local gear = CreateFrame("Button", nil, over)
+	gear:SetSize(30, 30)
+	gear:SetPoint("RIGHT", open, "LEFT", -6, 0)
+	gear.icon = gear:CreateTexture(nil, "ARTWORK")
+	gear.icon:SetAllPoints()
+	gear.icon:SetTexture("Interface\\WorldMap\\Gear_64Grey")
+	gear.icon:SetVertexColor(GOLD[1], GOLD[2], GOLD[3])
+	gear:SetScript("OnEnter", function(self)
+		self.icon:SetVertexColor(1, 1, 1)
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip:SetText("Damage meter options")
+		GameTooltip:Show()
+	end)
+	gear:SetScript("OnLeave", function(self)
+		self.icon:SetVertexColor(GOLD[1], GOLD[2], GOLD[3])
+		GameTooltip_Hide()
+	end)
+	gear:SetScript("OnClick", function() ns.Options.Open("meter") end)
+	holder.gear = gear
+	holder.clock:SetPoint("RIGHT", gear, "LEFT", -10, -1)
 	holder.sub = Text(over, BodyFont(), 21, CREAM)
 	holder.sub:SetPoint("LEFT", holder.title, "RIGHT", 24, -1)
 	holder.sub:SetPoint("RIGHT", holder.clock, "LEFT", -12, 0)
@@ -1191,13 +1274,16 @@ function ns.Meter.Init()
 			ns.Meter.UpdateShown()
 			dirty = true
 			WaitForPlain()
+			if groupResetPending then GroupReset() end
 		elseif event == "PLAYER_ENTERING_WORLD" then
 			local affecting = UnitAffectingCombat and UnitAffectingCombat("player")
 			inCombat = not Secret(affecting) and affecting and true or false
 			ns.Meter.UpdateShown()
 			dirty = true
+			GroupChanged()
 		elseif event == "GROUP_ROSTER_UPDATE" then
 			ns.Meter.UpdateShown()
+			GroupChanged()
 		else
 			if event == "DAMAGE_METER_RESET" then
 				verdict, detail = nil, nil
