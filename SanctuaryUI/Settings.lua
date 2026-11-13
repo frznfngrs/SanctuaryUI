@@ -255,13 +255,24 @@ ns.DEFAULTS = {
 			spacing = 0, -- added to the gap between members; negative squeezes them together
 			stone = 1, -- the slab's stone opacity: down to 0.55 or so for the see-through look
 			pets = true,
+			petPos = "under", -- under (where the style hangs them) | before (right of the frame) | after (right of the auras) | free (own block)
+			petScale = 1,
+			petX = 0, -- nudges from that place (not free)
+			petY = 0,
+			petPlace = { moved = false, mx = 0, my = 0 }, -- the free block's position (its own mover)
+			portraits = true, -- members' portraits; off, the frames lose the socket (or medallion, or ring) and get narrower
+			petPortraits = true, -- the same for the pets' frames
+			targetPortraits = true, -- the same for their targets' frames
 			portrait3d = true, -- slab: the moving 3D bust in the socket when in view
 			healthText = "percent", -- none | percent | current | missing
 			healthColor = "class", -- class: players' health in their class colour | globe: your health globe's red
-			targets = true, -- each member's target, in a column right of their frame
+			targets = true, -- each member's target, beside their frame
+			targetStyle = "same", -- same (the party style's small frame) | globes | slab | ring
+			targetPos = "after", -- after (right of the auras) | before (right of the frame, auras move over) | free (own block)
 			targetScale = 1, -- its size against the style's pet frame
-			targetX = 0, -- nudges from its place in the column
+			targetX = 0, -- nudges from its place (after / before)
 			targetY = 0,
+			targetPlace = { moved = false, mx = 0, my = 0 }, -- the free block's position (its own mover)
 			healPrediction = true,
 			debuffs = true,
 			maxDebuffs = 4,

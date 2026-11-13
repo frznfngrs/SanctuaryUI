@@ -29,6 +29,8 @@ local S = ns.PartyStyles
 --   view.debuffAt/buffAt { point, x, y } where the aura containers start, from the button
 --   view.size            { w, h } the button's size in this style
 --   view.midY            the body's middle line from the top (globes; else half the height)
+--   view.bodyW           the body's width, without the name to its right (globes; else size[1])
+--   view.shiftable       what S.Shift moves right of the body (globes: name, cast bar)
 --   view.isTarget        a member's target (S.BuildTarget): the pet frame plus name and marker
 --
 -- Sizes are UI units at scale 1 (the anchor carries the scale); the art is 2x.
@@ -80,6 +82,24 @@ local function Icons(view, parent)
 	for _, t in ipairs({ view.leader, view.role, view.mark, view.ready }) do t:Hide() end
 end
 
+-- With the portrait taken off: an empty frame where the socket was, at the frame's left end, so
+-- the leader, role, marker, ready check and level badge keep their places around it.
+local function StandIn(view, root, x, y, w, h)
+	local socket = CreateFrame("Frame", nil, root)
+	socket:SetSize(w, h)
+	socket:SetPoint("TOPLEFT", root, "TOPLEFT", x, -y)
+	socket:EnableMouse(false)
+	view.socket = socket
+	view.noPortrait = true
+	return socket
+end
+
+-- A halo spec squeezed W units narrower, for a frame without its portrait.
+local function Narrower(spec, W)
+	if not W or W <= 0 then return spec end
+	return { size = { spec.size[1] - W, spec.size[2] }, rect = spec.rect }
+end
+
 -- The threat halo (ours) and the box the dispel halo's aura slot is pinned to.
 local function Halos(view, root, style, spec, around)
 	local glow = Piece(root, "BACKGROUND", "party" .. (style == "globes" and "Globes" or "Slab"), style, spec.rect, -8)
@@ -104,11 +124,18 @@ local function Halos(view, root, style, spec, around)
 end
 
 -- A piece of the frame's metal: the iron, and an added copy of it for the class colour.
-local function Metal(view, parent, slot, style, cell, sublevel)
+-- at: { x, w, h } to place it in part of the parent (a cut slab's halves), else all of it.
+local function Metal(view, parent, slot, style, cell, sublevel, at)
 	local tex = Piece(parent, "ARTWORK", slot, style, cell.iron, sublevel or 0)
-	tex:SetAllPoints()
 	local tint = Piece(parent, "ARTWORK", slot, style, cell.iron, (sublevel or 0) + 1)
-	tint:SetAllPoints()
+	for _, t in ipairs({ tex, tint }) do
+		if at then
+			t:SetPoint("TOPLEFT", parent, "TOPLEFT", at[1], 0)
+			t:SetSize(at[2], at[3])
+		else
+			t:SetAllPoints()
+		end
+	end
 	tint:SetBlendMode("ADD")
 	tint:Hide()
 	view.metal[#view.metal + 1] = { tex = tex, iron = cell.iron, gold = cell.gold, tint = tint }
@@ -228,7 +255,7 @@ local function GlobeLevels(view, base)
 	end
 end
 
-function S.BuildGlobes(button, isPet)
+function S.BuildGlobes(button, isPet, noPortrait)
 	local G = ns.Art.PARTY.globes
 	local view = { style = "globes", metal = {} }
 	local root = CreateFrame("Frame", nil, button)
@@ -243,7 +270,7 @@ function S.BuildGlobes(button, isPet)
 	art:SetSize(cell.size[1], cell.size[2])
 	view.art = art
 	local padL, padT = 0, 0
-	if not isPet then
+	if not isPet and not noPortrait then
 		local m = G.medallion
 		padL = math.max(0, -(cell.size[1] / 2 + m.at[1] - m.size[1] / 2))
 		padT = math.max(0, -(cell.size[2] / 2 + m.at[2] - m.size[2] / 2))
@@ -251,6 +278,7 @@ function S.BuildGlobes(button, isPet)
 	art:SetPoint("TOPLEFT", root, "TOPLEFT", padL, -padT)
 	view.size = isPet and { cell.size[1], cell.size[2] } or { padL + cell.size[1] + 112, padT + cell.size[2] }
 	view.midY = padT + cell.size[2] / 2 -- the bezel's middle, where a target frame lines up
+	view.bodyW = padL + cell.size[1] -- the bezel's right edge; the name and auras run on from it
 
 	local g = cell.globe
 	local globe = MiniGlobe(view, root, g[3], isPet and 0.3 or 0.45)
@@ -279,27 +307,35 @@ function S.BuildGlobes(button, isPet)
 		groove:SetColorTexture(0, 0, 0, 0)
 		view.power = power
 
-		-- The portrait medallion over the upper-left shoulder.
+		-- The portrait medallion over the upper-left shoulder; without the portrait, an empty
+		-- stand-in on the bezel's shoulder that the leader, role and level icons sit around.
 		local m = G.medallion
 		local medal = CreateFrame("Frame", nil, root)
-		medal:SetSize(m.size[1], m.size[2])
-		medal:SetPoint("CENTER", art, "CENTER", m.at[1], -m.at[2])
 		view.medal = medal
-		-- The round 2D portrait, a hair wider than the hole so it runs under the rim. MaskCircle
-		-- masks to the anchor's box, so the face gets a holder the hole's size.
-		local hole = m.hole
-		local holder = CreateFrame("Frame", nil, medal)
-		holder:SetSize(hole[3] + 1, hole[3] + 1)
-		holder:SetPoint("CENTER", medal, "TOPLEFT", hole[1], -hole[2])
-		local back = Tex(holder, "BACKGROUND")
-		back:SetAllPoints()
-		back:SetColorTexture(0.03, 0.02, 0.02, 1)
-		ns.Art.MaskCircle(back, holder)
-		local face = Tex(holder, "ARTWORK")
-		face:SetAllPoints()
-		ns.Art.MaskCircle(face, holder)
-		view.face = face
-		Metal(view, medal, "partyGlobes", "globes", m, 1)
+		local face
+		if noPortrait then
+			view.noPortrait = true
+			medal:SetSize(22, 22)
+			medal:SetPoint("CENTER", art, "TOPLEFT", 9, -9)
+		else
+			medal:SetSize(m.size[1], m.size[2])
+			medal:SetPoint("CENTER", art, "CENTER", m.at[1], -m.at[2])
+			-- The round 2D portrait, a hair wider than the hole so it runs under the rim. MaskCircle
+			-- masks to the anchor's box, so the face gets a holder the hole's size.
+			local hole = m.hole
+			local holder = CreateFrame("Frame", nil, medal)
+			holder:SetSize(hole[3] + 1, hole[3] + 1)
+			holder:SetPoint("CENTER", medal, "TOPLEFT", hole[1], -hole[2])
+			local back = Tex(holder, "BACKGROUND")
+			back:SetAllPoints()
+			back:SetColorTexture(0.03, 0.02, 0.02, 1)
+			ns.Art.MaskCircle(back, holder)
+			face = Tex(holder, "ARTWORK")
+			face:SetAllPoints()
+			ns.Art.MaskCircle(face, holder)
+			view.face = face
+			Metal(view, medal, "partyGlobes", "globes", m, 1)
+		end
 
 		-- Health text in the globe, the name and the level to the right of the bezel.
 		view.pct = Font(top, 12, false)
@@ -307,7 +343,6 @@ function S.BuildGlobes(button, isPet)
 		view.status = Font(top, 9, true)
 		view.status:SetPoint("CENTER", globe, "CENTER", 0, -1)
 		view.name = Font(top, 12, true)
-		view.name:SetPoint("TOPLEFT", art, "TOPRIGHT", 2, -10)
 		view.name:SetWidth(150) -- room for a first and last name
 		view.name:SetJustifyH("LEFT")
 
@@ -320,13 +355,26 @@ function S.BuildGlobes(button, isPet)
 		view.mark:SetSize(icon + 2, icon + 2)
 		view.mark:SetPoint("BOTTOM", art, "TOP", 6, -6)
 		view.ready:SetSize(22, 22)
-		view.ready:SetPoint("CENTER", face, "CENTER")
+		view.ready:SetPoint("CENTER", face or globe, "CENTER")
 		-- Under the medallion, left of the globe's text (health, Dead, Offline) and above the pet.
-		LevelBadge(view, top, 16):SetPoint("CENTER", medal, "BOTTOM", -1, -1)
+		local badge = LevelBadge(view, top, 16)
+		badge:SetPoint("CENTER", medal, "BOTTOM", -1, -1)
+		if noPortrait then
+			-- No medallion: the level on the bezel's upper-left rim, the crown just outside it and
+			-- the role at the bezel's left side, all clear of the pet bolted on at the lower left.
+			badge:ClearAllPoints()
+			badge:SetPoint("CENTER", art, "TOPLEFT", 12, -12)
+			view.leader:ClearAllPoints()
+			view.leader:SetPoint("CENTER", art, "TOPLEFT", 0, 1)
+			view.role:ClearAllPoints()
+			view.role:SetPoint("CENTER", art, "TOPLEFT", -1, -34)
+		end
 
 		-- The cast bar, between the name and the debuffs.
 		view.cast = CastBar(root, 92, 7, 11)
-		view.cast:SetPoint("TOPLEFT", art, "TOPRIGHT", 15, -22)
+		-- The name and cast bar move right (Party.lua) when the member's target sits between.
+		view.shiftable = { { view.name, art, 2, -10 }, { view.cast, art, 15, -22 } }
+		S.Shift(view, 0)
 
 		-- Auras: debuffs under the name, your buffs under them, clear of the pet if it hangs right.
 		local clear = G.pet.at[1] > 0 and math.max(0, G.pet.at[1] + G.pet.size[1] / 2 - cell.size[1] / 2) + 4 or 4
@@ -415,7 +463,23 @@ local function Band(parent, after, r, g, b, a)
 	return band
 end
 
-function S.BuildSlab(button, isPet)
+-- Without the portrait the slab loses its socket: the right end cap (its studs and the grooves'
+-- end rim), mirrored, closes its left end, and the slab picks up again where the grooves' insides
+-- begin, so the cap's rim is their left rim too. cap: the end cap's width (from the grooves' end
+-- to the cell's edge); from: where the slab picks up (units, from the cell's left).
+local SLAB_CUT = { member = { cap = 6, from = 50 }, pet = { cap = 6, from = 26 } }
+
+-- A slab layer (stone, iron, gold) as its mirrored end cap plus the rest from `from`: atlas rects
+-- for the two parts and where they go.
+local function SlabParts(rect, cut, h)
+	local x, y, w, hh = rect[1], rect[2], rect[3], rect[4]
+	return {
+		{ { x + w, y, -cut.cap * 2, hh }, 0, cut.cap },
+		{ { x + cut.from * 2, y, w - cut.from * 2, hh }, cut.cap, w / 2 - cut.from },
+	}
+end
+
+function S.BuildSlab(button, isPet, noPortrait)
 	local L = ns.Art.PARTY.slab
 	local cell = isPet and L.pet or L.member
 	local view = { style = "slab", metal = {} }
@@ -423,29 +487,49 @@ function S.BuildSlab(button, isPet)
 	root:SetAllPoints()
 	root:EnableMouse(false)
 	view.root = root
-	view.size = { cell.size[1], cell.size[2] }
+	local cut = noPortrait and SLAB_CUT[isPet and "pet" or "member"]
+	local W = cut and cut.from - cut.cap or 0 -- how much narrower it gets
+	view.size = { cell.size[1] - W, cell.size[2] }
 
-	local stone = Piece(root, "BACKGROUND", "partySlab", "slab", cell.stone)
-	stone:SetAllPoints()
-	view.stone = stone
+	if cut then
+		local parts = {}
+		for i, part in ipairs(SlabParts(cell.stone, cut)) do
+			local t = Piece(root, "BACKGROUND", "partySlab", "slab", part[1])
+			t:SetPoint("TOPLEFT", root, "TOPLEFT", part[2], 0)
+			t:SetSize(part[3], cell.size[2])
+			parts[i] = t
+		end
+		-- The opacity setting reaches both halves.
+		view.stone = { SetAlpha = function(_, a) for _, t in ipairs(parts) do t:SetAlpha(a) end end }
+	else
+		local stone = Piece(root, "BACKGROUND", "partySlab", "slab", cell.stone)
+		stone:SetAllPoints()
+		view.stone = stone
+	end
 
 	-- The portrait in its socket: the 3D bust (square, so it fits uncropped), or the 2D one.
 	local s = cell.socket
-	local socket = CreateFrame("Frame", nil, root)
-	socket:SetSize(s[3], s[4])
-	socket:SetPoint("TOPLEFT", root, "TOPLEFT", s[1], -s[2])
-	local back = Tex(socket, "BACKGROUND")
-	back:SetAllPoints()
-	back:SetColorTexture(0.02, 0.015, 0.012, 1)
-	view.face = Tex(socket, "ARTWORK")
-	view.face:SetAllPoints()
-	if not isPet then
-		view.model = CreateFrame("PlayerModel", nil, socket)
-		view.model:SetAllPoints()
+	local socket
+	if cut then
+		socket = StandIn(view, root, 0, 0, cut.cap, cell.size[2])
+	else
+		socket = CreateFrame("Frame", nil, root)
+		socket:SetSize(s[3], s[4])
+		socket:SetPoint("TOPLEFT", root, "TOPLEFT", s[1], -s[2])
+		local back = Tex(socket, "BACKGROUND")
+		back:SetAllPoints()
+		back:SetColorTexture(0.02, 0.015, 0.012, 1)
+		view.face = Tex(socket, "ARTWORK")
+		view.face:SetAllPoints()
+		if not isPet then
+			view.model = CreateFrame("PlayerModel", nil, socket)
+			view.model:SetAllPoints()
+		end
+		view.socket = socket
 	end
-	view.socket = socket
 
 	local h = cell.health
+	if W > 0 then h = { h[1] - W, h[2], h[3], h[4] } end
 	local health = Groove(root, h)
 	health:SetPoint("TOPLEFT", root, "TOPLEFT", h[1], -h[2])
 	local gback = Tex(health, "BACKGROUND")
@@ -473,6 +557,7 @@ function S.BuildSlab(button, isPet)
 
 	if not isPet then
 		local p = cell.power
+		if W > 0 then p = { p[1] - W, p[2], p[3], p[4] } end
 		local power = Groove(root, p)
 		power:SetPoint("TOPLEFT", root, "TOPLEFT", p[1], -p[2])
 		local pback = Tex(power, "BACKGROUND")
@@ -485,7 +570,15 @@ function S.BuildSlab(button, isPet)
 	art:SetAllPoints()
 	art:EnableMouse(false)
 	view.art = art
-	Metal(view, art, "partySlab", "slab", cell)
+	if cut then
+		local iron, gold = SlabParts(cell.iron, cut), SlabParts(cell.gold, cut)
+		for i = 1, 2 do
+			Metal(view, art, "partySlab", "slab", { iron = iron[i][1], gold = gold[i][1] }, 0,
+				{ iron[i][2], iron[i][3], cell.size[2] })
+		end
+	else
+		Metal(view, art, "partySlab", "slab", cell)
+	end
 
 	local top = CreateFrame("Frame", nil, root)
 	top:SetAllPoints()
@@ -518,14 +611,14 @@ function S.BuildSlab(button, isPet)
 		-- The cast bar lies over the resource groove while a member casts.
 		local g = cell.power
 		view.cast = CastBar(root, g[3], g[4])
-		view.cast:SetPoint("TOPLEFT", root, "TOPLEFT", g[1], -g[2])
+		view.cast:SetPoint("TOPLEFT", root, "TOPLEFT", g[1] - W, -g[2])
 
 		-- Auras outside the slab, to its right: debuffs, then your buffs under them.
-		view.debuffAt = { "TOPLEFT", cell.size[1] + 4, -1 }
-		view.buffAt = { "TOPLEFT", cell.size[1] + 4, -23 }
-		Halos(view, root, "slab", L.glow, root)
+		view.debuffAt = { "TOPLEFT", view.size[1] + 4, -1 }
+		view.buffAt = { "TOPLEFT", view.size[1] + 4, -23 }
+		Halos(view, root, "slab", Narrower(L.glow, W), root)
 	else
-		Halos(view, root, "slab", L.petGlow, root)
+		Halos(view, root, "slab", Narrower(L.petGlow, W), root)
 	end
 
 	view.SetLevels = function(base)
@@ -728,9 +821,13 @@ local function StyledLevels(view, parts)
 end
 
 -- Lintel, Slim Lintel, Forged Bracket or Tablet for a member; pets get the target of target frame.
-local function BuildRendered(name, button)
+local function BuildRendered(name, button, noPortrait)
 	local C = ns.Art.PARTY.styled
 	local st = ns.Art.TargetStyleSized(name, 1, 1)
+	local roundPortrait = st.portrait.round
+	-- Without the portrait: the socket (the Bracket's ring) cut out of the art.
+	local cutStyle = noPortrait and ns.Art.TargetStyleCut(st)
+	if cutStyle then st = cutStyle end
 	local view = { style = name, metal = {} }
 	local k = C.scale
 	local root, top = StyledRoot(view, button, k, st.size[1], st.size[2])
@@ -741,19 +838,24 @@ local function BuildRendered(name, button)
 	ns.Art.DrawTargetStyle(art, st, "normal")
 
 	local p = st.portrait
-	local round = p.round and { round = true, cx = p.cx, cy = p.cy, hole = p.hole * 2 + 2 } or p
-	local socket = StyledSocket(view, root, round, false, p.round and p.model)
+	local socket
 	local over
-	if p.round then
-		-- The Bracket's ring, over the bust so its corners hide.
-		over = CreateFrame("Frame", nil, root)
-		over:SetSize(140, 140)
-		over:SetPoint("CENTER", socket, "CENTER")
-		over:EnableMouse(false)
-		view.ring = over:CreateTexture(nil, "OVERLAY")
-		view.ring:SetAllPoints()
-		if ns.Art.Apply(view.ring, "targetStyleParts") then
-			view.ring:SetTexCoord(ns.Art.TargetPartTexCoord("ring", "normal"))
+	if cutStyle then
+		socket = StandIn(view, root, 0, 0, 12, st.size[2])
+	else
+		local round = p.round and { round = true, cx = p.cx, cy = p.cy, hole = p.hole * 2 + 2 } or p
+		socket = StyledSocket(view, root, round, false, p.round and p.model)
+		if p.round then
+			-- The Bracket's ring, over the bust so its corners hide.
+			over = CreateFrame("Frame", nil, root)
+			over:SetSize(140, 140)
+			over:SetPoint("CENTER", socket, "CENTER")
+			over:EnableMouse(false)
+			view.ring = over:CreateTexture(nil, "OVERLAY")
+			view.ring:SetAllPoints()
+			if ns.Art.Apply(view.ring, "targetStyleParts") then
+				view.ring:SetTexCoord(ns.Art.TargetPartTexCoord("ring", "normal"))
+			end
 		end
 	end
 	local b = st.bar
@@ -767,7 +869,9 @@ local function BuildRendered(name, button)
 	view.cast:SetPoint("TOPLEFT", root, "TOPLEFT", g[1] * k, -g[2] * k)
 	view.debuffAt = { "TOPLEFT", view.size[1] + 4, -1 }
 	view.buffAt = { "TOPLEFT", view.size[1] + 4, -23 }
-	StyledHalos(view, root, name, st.art[1], st.art[2], st.art[3], st.art[4])
+	-- A cut-out ring would leave its bump in the halo: the Slim's plain bar halo instead.
+	local haloKey = (cutStyle and roundPortrait) and "slim" or name
+	StyledHalos(view, root, haloKey, st.art[1], st.art[2], st.art[3], st.art[4])
 
 	view.SetMetal = function(gold)
 		gold = gold and true or false
@@ -785,49 +889,62 @@ end
 
 -- D3's monster bar for a member: the hero portrait ring, the bar frame drawn over its fill, the
 -- resource a strip along the fill's foot.
-local function BuildMonsterBar(button)
+local function BuildMonsterBar(button, noPortrait)
 	local C = ns.Art.PARTY.styled
 	local L = C.d3
 	local view = { style = "d3", metal = {} }
 	local k = C.d3scale
-	local root, top = StyledRoot(view, button, k, L.size[1], L.size[2])
-	local hole = ns.Art.TARGET_RING_HOLE + 2
-	local socket = StyledSocket(view, root, { round = true, cx = L.ring[1], cy = L.ring[2], hole = hole }, false, 46)
+	local piece = ns.Art.UNIT.normal
+	-- Without the portrait the ring goes, and the bar frame moves to the top left corner.
+	local fx, fy = L.frame[1], L.frame[2]
+	local w, h = L.size[1], L.size[2]
+	if noPortrait then fx, fy, w, h = 0, 0, piece[3], piece[4] + 11 end
+	local root, top = StyledRoot(view, button, k, w, h)
 	local over = CreateFrame("Frame", nil, root)
 	over:SetAllPoints(root)
 	over:EnableMouse(false)
-	local cell = ns.Art.TARGET_RING_CELL
-	view.ring = over:CreateTexture(nil, "OVERLAY")
-	view.ring:SetSize(cell, cell)
-	view.ring:SetPoint("CENTER", socket, "CENTER")
-	if ns.Art.Apply(view.ring, "targetRings") then
-		view.ring:SetTexCoord(ns.Art.TargetRingTexCoord("normal"))
+	local socket
+	if noPortrait then
+		socket = StandIn(view, root, 0, 0, 24, piece[4])
+	else
+		local hole = ns.Art.TARGET_RING_HOLE + 2
+		socket = StyledSocket(view, root, { round = true, cx = L.ring[1], cy = L.ring[2], hole = hole }, false, 46)
+		local cell = ns.Art.TARGET_RING_CELL
+		view.ring = over:CreateTexture(nil, "OVERLAY")
+		view.ring:SetSize(cell, cell)
+		view.ring:SetPoint("CENTER", socket, "CENTER")
+		if ns.Art.Apply(view.ring, "targetRings") then
+			view.ring:SetTexCoord(ns.Art.TargetRingTexCoord("normal"))
+		end
 	end
-	local piece = ns.Art.UNIT.normal
 	local box = CreateFrame("Frame", nil, over)
 	box:SetSize(piece[3], piece[4])
-	box:SetPoint("TOPLEFT", root, "TOPLEFT", L.frame[1], -L.frame[2])
+	box:SetPoint("TOPLEFT", root, "TOPLEFT", fx, -fy)
 	box:EnableMouse(false)
 	ns.Art.DrawSliced(box, "normal", piece[3], 1)
 	view.art = box
 	local bar = piece.bar
-	local x, y = L.frame[1] + bar[1], L.frame[2] + bar[2]
+	local x, y = fx + bar[1], fy + bar[2]
 	local health = StyledHealth(view, root, x, y, bar[3], bar[4], "unitWell")
 	StyledPower(view, root, x, y + bar[4] - 4, bar[3], 4)
 	StyledText(view, top, health, socket, false, bar[3] * k - 44)
 	-- The cast bar under the frame.
 	view.cast = CastBar(top, bar[3] * k, 7 * k)
-	view.cast:SetPoint("TOPLEFT", root, "TOPLEFT", x * k, -(L.frame[2] + piece[4] + 2) * k)
+	view.cast:SetPoint("TOPLEFT", root, "TOPLEFT", x * k, -(fy + piece[4] + 2) * k)
 	view.debuffAt = { "TOPLEFT", view.size[1] + 4, -1 }
 	view.buffAt = { "TOPLEFT", view.size[1] + 4, -23 }
 	local bx = L.box
-	StyledHalos(view, root, "d3", bx[1], bx[2], bx[3], bx[4])
+	if noPortrait then
+		StyledHalos(view, root, "slim", -14, -14, piece[3] + 28, piece[4] + 28)
+	else
+		StyledHalos(view, root, "d3", bx[1], bx[2], bx[3], bx[4])
+	end
 
 	view.SetMetal = function(gold)
 		gold = gold and true or false
 		if view.gold == gold then return end
 		view.gold = gold
-		if ns.Art.Path("targetRings") then
+		if view.ring and ns.Art.Path("targetRings") then
 			view.ring:SetTexCoord(ns.Art.TargetRingTexCoord(gold and "elite" or "normal"))
 		end
 	end
@@ -836,9 +953,11 @@ local function BuildMonsterBar(button)
 end
 
 -- A pet in any of these looks: the rendered styles' target of target frame, a small ring and bar.
-local function BuildStyledPet(name, button)
+local function BuildStyledPet(name, button, noPortrait)
 	local C = ns.Art.PARTY.styled
 	local st = ns.Art.TargetStyleSized(ns.Art.TARGET_TOT_STYLE, 1, 1)
+	local cutStyle = noPortrait and ns.Art.TargetStyleCut(st)
+	if cutStyle then st = cutStyle end
 	local view = { style = name, metal = {} }
 	local k = C.pet.scale
 	local root, top = StyledRoot(view, button, k, st.size[1], st.size[2])
@@ -848,19 +967,24 @@ local function BuildStyledPet(name, button)
 	view.art = art
 	ns.Art.DrawTargetStyle(art, st, "normal")
 	local p = st.portrait
-	local socket = StyledSocket(view, root, { round = true, cx = p.cx, cy = p.cy, hole = 23 }, true)
+	local socket
+	if cutStyle then
+		socket = StandIn(view, root, 0, 0, 8, st.size[2])
+	else
+		socket = StyledSocket(view, root, { round = true, cx = p.cx, cy = p.cy, hole = 23 }, true)
+	end
 	local b = st.bar
 	local health = StyledHealth(view, root, b[1], b[2], b[3] - b[1], b[4] - b[2])
 	StyledText(view, top, health, socket, true, (b[3] - b[1]) * k - 24)
-	StyledHalos(view, root, "tot", st.art[1], st.art[2], st.art[3], st.art[4])
+	StyledHalos(view, root, cutStyle and "slim" or "tot", st.art[1], st.art[2], st.art[3], st.art[4])
 	view.SetLevels = StyledLevels(view, { art = art })
 	return view
 end
 
-function S.BuildStyled(style, button, isPet)
-	if isPet then return BuildStyledPet(style, button) end
-	if style == "d3" then return BuildMonsterBar(button) end
-	return BuildRendered(style, button)
+function S.BuildStyled(style, button, isPet, noPortrait)
+	if isPet then return BuildStyledPet(style, button, noPortrait) end
+	if style == "d3" then return BuildMonsterBar(button, noPortrait) end
+	return BuildRendered(style, button, noPortrait)
 end
 
 -- The frame's metal: gold on your target; else iron in the class colour (c), or plain iron when
@@ -879,15 +1003,25 @@ function S.SetMetal(view, gold, c)
 	end
 end
 
-function S.Build(style, button, isPet)
-	if button.isTarget then return S.BuildTarget(style, button) end
-	return S.BuildFrame(style, button, isPet)
+-- noPortrait: the frame without its portrait (Options > Party), narrower where the art allows.
+function S.Build(style, button, isPet, noPortrait)
+	if button.isTarget then return S.BuildTarget(style, button, noPortrait) end
+	return S.BuildFrame(style, button, isPet, noPortrait)
+end
+
+-- Moves what runs right of a globe member's bezel (name, cast bar) by dx, for a target frame
+-- placed straight after it. The auras move with Party.lua's own shift.
+function S.Shift(view, dx)
+	for _, item in ipairs(view.shiftable or {}) do
+		item[1]:ClearAllPoints()
+		item[1]:SetPoint("TOPLEFT", item[2], "TOPRIGHT", item[3] + dx, item[4])
+	end
 end
 
 -- A member's target: the style's pet frame, plus its raid marker and, on the globes (whose pet
 -- has no name), the name to the right of the globe.
-function S.BuildTarget(style, button)
-	local view = S.BuildFrame(style, button, true)
+function S.BuildTarget(style, button, noPortrait)
+	local view = S.BuildFrame(style, button, true, noPortrait)
 	view.isTarget = true
 	local top = view.top
 	if not view.name then
@@ -905,8 +1039,9 @@ function S.BuildTarget(style, button)
 	return view
 end
 
-function S.BuildFrame(style, button, isPet)
-	if STYLED[style] then return S.BuildStyled(style, button, isPet) end
-	if style == "slab" then return S.BuildSlab(button, isPet) end
-	return S.BuildGlobes(button, isPet)
+function S.BuildFrame(style, button, isPet, noPortrait)
+	-- "ring": the small ring and bar that the target looks give pets, picked for a target alone.
+	if STYLED[style] or style == "ring" then return S.BuildStyled(style, button, isPet, noPortrait) end
+	if style == "slab" then return S.BuildSlab(button, isPet, noPortrait) end
+	return S.BuildGlobes(button, isPet, noPortrait)
 end

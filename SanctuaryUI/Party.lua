@@ -1041,6 +1041,12 @@ local function MakeAuras(b)
 	if not okD and ns.LogError then ns.LogError("party", "dispel slot: " .. tostring(errD)) end
 end
 
+-- Where an aura row starts, moved right past the member's target when it sits straight after
+-- the frame (P.auraShift, from Layout).
+local function Shifted(at)
+	return { at[1], at[2] + (P.auraShift or 0), at[3] }
+end
+
 -- Filters, counts, sizes and places: out of combat only (the buttons are locked in it).
 local function ConfigureAuras(b)
 	if InCombatLockdown() then return end
@@ -1063,8 +1069,9 @@ local function ConfigureAuras(b)
 			ns.ResizeAuraButtons(box, "debuffs", size, function(button) button:SetSize(size, size) end, box.sanctuarySizes)
 			Flow(box, max, size)
 			box:ClearAllPoints()
-			box:SetPoint(v.debuffAt[1], b, "TOPLEFT", v.debuffAt[2], v.debuffAt[3])
-			PlaceTips(b, "debuffs", v.debuffAt, on and max or 0, size, unit, standIn and "HELPFUL" or TIP_FILTER.debuffs)
+			local at = Shifted(v.debuffAt)
+			box:SetPoint(at[1], b, "TOPLEFT", at[2], at[3])
+			PlaceTips(b, "debuffs", at, on and max or 0, size, unit, standIn and "HELPFUL" or TIP_FILTER.debuffs)
 			box:SetUnit(unit)
 			box:SetShown(on)
 			box:UpdateAllAuras()
@@ -1082,8 +1089,9 @@ local function ConfigureAuras(b)
 			ns.ResizeAuraButtons(box, "mine", size, function(button) button:SetSize(size, size) end, box.sanctuarySizes)
 			Flow(box, max, size)
 			box:ClearAllPoints()
-			box:SetPoint(v.buffAt[1], b, "TOPLEFT", v.buffAt[2], v.buffAt[3])
-			PlaceTips(b, "mine", v.buffAt, on and max or 0, size, unit, TIP_FILTER.mine)
+			local at = Shifted(v.buffAt)
+			box:SetPoint(at[1], b, "TOPLEFT", at[2], at[3])
+			PlaceTips(b, "mine", at, on and max or 0, size, unit, TIP_FILTER.mine)
 			box:SetUnit(unit)
 			box:SetShown(on)
 			box:UpdateAllAuras()
@@ -1149,15 +1157,37 @@ local function MakeButton(parent, unit, name, index, isPet, isTarget)
 	return b
 end
 
--- Show one style's view on a button, building it the first time.
+-- The look of the members' targets (Options > Party > Targets > Look): the party style's own
+-- small frame, or one picked apart from it. Any of the target frame's looks means the ring.
+local TARGET_LOOKS = { globes = true, slab = true, ring = true }
+function P.TargetLook()
+	local look = Opt().targetStyle
+	if TARGET_LOOKS[look] then return look end
+	local style = P.Style()
+	if style == "globes" or style == "slab" then return style end
+	return "ring"
+end
+
+-- Whether a button shows its portrait: members, pets and targets each have a switch.
+local function ShowsPortrait(b)
+	local opt = Opt()
+	if b.isTarget then return opt.targetPortraits ~= false end
+	if b.isPet then return opt.petPortraits ~= false end
+	return opt.portraits ~= false
+end
+
+-- Show one style's view on a button, building it the first time (with and without the portrait,
+-- each built once).
 local function Activate(b, style)
-	if not b.views[style] then
-		b.views[style] = ns.PartyStyles.Build(style, b, b.isPet)
+	local noPortrait = not ShowsPortrait(b)
+	local key = noPortrait and style .. ":noportrait" or style
+	if not b.views[key] then
+		b.views[key] = ns.PartyStyles.Build(style, b, b.isPet, noPortrait)
 	end
-	for key, view in pairs(b.views) do
-		view.root:SetShown(key == style)
+	for k, view in pairs(b.views) do
+		view.root:SetShown(k == key)
 	end
-	local v = b.views[style]
+	local v = b.views[key]
 	b.v = v
 	v.SetLevels(b:GetFrameLevel() + 1)
 	b:SetSize(v.size[1], v.size[2])
@@ -1202,45 +1232,90 @@ function P.Layout()
 	end
 
 	anchor:SetScale(ns.Art.D3Scale(opt.scale))
-	for _, b in ipairs(P.all) do Activate(b, style) end
+	local targetLook = P.TargetLook()
+	for _, b in ipairs(P.all) do Activate(b, b.isTarget and targetLook or style) end
 
 	local G, L = ns.Art.PARTY.globes, ns.Art.PARTY.slab
 	local previewing = P.Previewing()
 	local gap = (GAP[style] or GAP.slab) + (tonumber(opt.spacing) or 0)
 	local y, width = 0, 0
-	-- Members' targets: a column right of everything a member shows (name, auras), the same x for
-	-- all, centred on each member's body. Their scale is their own (Size), so offsets divide by it.
-	local showTargets = opt.targets ~= false
-	local targetScale = math.max(0.5, math.min(2, tonumber(opt.targetScale) or 1))
+	-- Pets and members' targets (Options > Party > Pets, Targets). Each sits:
+	--   under  pets only: where the style hangs them (bolted to the globe, under the slab or frame)
+	--   before straight after the frame, pets first; the auras (and a globe's name and cast bar)
+	--          move over to make room
+	--   after  past everything a member shows (name, the longest aura row), targets first
+	--   free   in a block of their own, rows level with the members', dragged while unlocked
+	-- Each is centred on its member's body at its own scale (Size), so offsets divide by it.
 	local auraCount = math.max(opt.debuffs ~= false and math.min(8, opt.maxDebuffs or 4) or 0,
 		opt.buffs ~= false and math.min(MAX_BUFFS, opt.maxBuffs or 3) or 0)
+	local function Side(frames, block, shown, pos, scale, nx, ny)
+		scale = math.max(0.5, math.min(2, tonumber(scale) or 1))
+		local free = pos == "free"
+		return { frames = frames, block = block, shown = shown, pos = pos, scale = scale,
+			w = frames[1].v.size[1] * scale, nx = free and 0 or tonumber(nx) or 0, ny = free and 0 or tonumber(ny) or 0 }
+	end
+	local pets = Side(P.pets, P.petAnchor, opt.pets ~= false, opt.petPos or "under", opt.petScale, opt.petX, opt.petY)
+	local targets = Side(P.targets, P.targetAnchor, opt.targets ~= false, opt.targetPos or "after", opt.targetScale, opt.targetX, opt.targetY)
+	local shift = 0
+	for _, side in ipairs({ pets, targets }) do
+		if side.shown and side.pos == "before" then shift = shift + side.nx + side.w + 6 end
+	end
+	P.auraShift = shift > 0 and math.max(0, shift + 2) or 0
+	local freeX -- where a free block sits until dragged: the "after" column
 	for i, b in ipairs(P.members) do
 		local v = b.v
 		b:ClearAllPoints()
 		b:SetPoint("TOPLEFT", anchor, "TOPLEFT", 0, -y)
-		local pet = P.pets[i]
-		pet:ClearAllPoints()
-		local below = 0 -- how far the pet hangs below its owner
-		if style == "globes" then
-			pet:SetPoint("CENTER", v.art, "CENTER", G.pet.at[1], -G.pet.at[2])
-			local _, padT = 0, v.size[2] - G.bezel.size[2]
-			below = math.max(0, padT + G.bezel.size[2] / 2 + G.pet.at[2] + G.pet.size[2] / 2 - v.size[2])
-		elseif style == "slab" then
-			pet:SetPoint("TOPLEFT", b, "BOTTOMLEFT", L.pet.indent, -L.pet.gap)
-			below = L.pet.gap + L.pet.size[2]
-		else
-			local sp = ns.Art.PARTY.styled.pet
-			pet:SetPoint("TOPLEFT", b, "BOTTOMLEFT", sp.indent, -sp.gap)
-			below = sp.gap + pet.v.size[2]
+		ns.PartyStyles.Shift(v, P.auraShift)
+		local midY = v.midY or v.size[2] / 2
+		local column = math.max(v.size[1], (v.debuffAt and v.debuffAt[2] or v.size[1]) + auraCount * (AuraSize() + AURA_GAP)) + 8 + P.auraShift
+		freeX = freeX or column
+		local beforeX, afterX = (v.bodyW or v.size[1]) + 6, column
+		local below = 0 -- how far a pet hung under its owner reaches below it
+		local function PlaceSide(side)
+			local f = side.frames[i]
+			local k = side.scale
+			f:ClearAllPoints()
+			f:SetScale(k)
+			local ty = -midY + side.ny
+			if side.pos == "under" then
+				local pw, ph = f.v.size[1] * k, f.v.size[2] * k
+				if style == "globes" then
+					f:SetPoint("CENTER", v.art, "CENTER", (G.pet.at[1] + side.nx) / k, (-G.pet.at[2] + side.ny) / k)
+					local padT = v.size[2] - G.bezel.size[2]
+					below = math.max(0, padT + G.bezel.size[2] / 2 + G.pet.at[2] + ph / 2 - v.size[2])
+				else
+					local sp = style == "slab" and L.pet or ns.Art.PARTY.styled.pet
+					f:SetPoint("TOPLEFT", b, "BOTTOMLEFT", (sp.indent + side.nx) / k, (-sp.gap + side.ny) / k)
+					below = sp.gap + ph
+					width = math.max(width, sp.indent + pw)
+				end
+			elseif side.pos == "free" then
+				f:SetPoint("LEFT", side.block, "TOPLEFT", 0, (ty - y) / k)
+			else
+				local x
+				-- A side that's turned off keeps no room.
+				if side.pos == "before" then
+					x = beforeX + side.nx
+					if side.shown then beforeX = x + side.w + 6 end
+				else
+					x = afterX + side.nx
+					if side.shown then afterX = x + side.w + 6 end
+				end
+				f:SetPoint("LEFT", b, "TOPLEFT", x / k, ty / k)
+				if side.shown then width = math.max(width, x + side.w) end
+			end
 		end
+		-- Pets first straight after the frame; targets first past the auras.
+		for _, side in ipairs({ pets, targets }) do
+			if side.pos ~= "after" then PlaceSide(side) end
+		end
+		for _, side in ipairs({ targets, pets }) do
+			if side.pos == "after" then PlaceSide(side) end
+		end
+
 		local tb = P.targets[i]
-		tb:ClearAllPoints()
-		tb:SetScale(targetScale)
-		local column = math.max(v.size[1], (v.debuffAt and v.debuffAt[2] or v.size[1]) + auraCount * (AuraSize() + AURA_GAP)) + 8
-		local tx = column + (tonumber(opt.targetX) or 0)
-		local ty = -(v.midY or v.size[2] / 2) + (tonumber(opt.targetY) or 0)
-		tb:SetPoint("LEFT", b, "TOPLEFT", tx / targetScale, ty / targetScale)
-		if not showTargets then
+		if not targets.shown then
 			UnregisterUnitWatch(tb)
 			tb:Hide()
 		elseif previewing and not UnitExists(tb.unit) then
@@ -1250,9 +1325,8 @@ function P.Layout()
 			RegisterUnitWatch(tb)
 		end
 
-		y = y + v.size[2] + (opt.pets and below or 0) + gap
+		y = y + v.size[2] + ((pets.shown and pets.pos == "under") and below or 0) + gap
 		width = math.max(width, v.size[1] + 120)
-		if showTargets then width = math.max(width, tx + tb.v.size[1] * targetScale) end
 
 		if previewing then
 			UnregisterUnitWatch(b)
@@ -1260,7 +1334,8 @@ function P.Layout()
 		else
 			RegisterUnitWatch(b)
 		end
-		if not opt.pets then
+		local pet = P.pets[i]
+		if not pets.shown then
 			UnregisterUnitWatch(pet)
 			pet:Hide()
 		elseif previewing and not UnitExists(pet.unit) then
@@ -1273,6 +1348,19 @@ function P.Layout()
 	end
 	anchor:SetSize(width, math.max(1, y - gap))
 	Place()
+	-- The free blocks: in the "after" column (pets past the targets) until dragged, then wherever
+	-- they were left.
+	local height = math.max(1, y - gap)
+	for _, side in ipairs({ targets, pets }) do
+		local block, place = side.block, side == pets and opt.petPlace or opt.targetPlace
+		block:ClearAllPoints()
+		block:SetSize(side.w, height)
+		if place and place.moved then
+			block:SetPoint("CENTER", UIParent, "BOTTOMLEFT", ns.MovedPoint(block, place))
+		else
+			block:SetPoint("TOPLEFT", anchor, "TOPLEFT", (freeX or 0) + (side == pets and targets.w + 6 or 0), 0)
+		end
+	end
 	if previewing then
 		UnregisterStateDriver(anchor, "visibility")
 		anchor:Show()
@@ -1293,6 +1381,29 @@ end
 
 function P.ApplySettings()
 	P.Layout()
+end
+
+function P.ResetTargetPosition()
+	local place = Opt().targetPlace
+	place.moved, place.mx, place.my = false, 0, 0
+	ns.Refresh()
+end
+
+-- Its mover shows only while their targets are on and placed freely.
+function P.TargetsFree()
+	local opt = Opt()
+	return P.Style() and opt.targets ~= false and opt.targetPos == "free" or false
+end
+
+function P.ResetPetPosition()
+	local place = Opt().petPlace
+	place.moved, place.mx, place.my = false, 0, 0
+	ns.Refresh()
+end
+
+function P.PetsFree()
+	local opt = Opt()
+	return P.Style() and opt.pets ~= false and opt.petPos == "free" or false
 end
 
 function P.ResetPosition()
@@ -1436,7 +1547,7 @@ local function OnUpdate(_, elapsed)
 		end
 	end
 	local style = P.Style()
-	if style and style ~= "globes" then -- the grooves' liquid
+	if style and (style ~= "globes" or P.TargetLook() ~= "globes") then -- the grooves' liquid
 		local db = ns.DB()
 		if db.liquidAnimate ~= false then
 			P.liquidClock = (P.liquidClock or 0) + elapsed * (tonumber(db.liquidSpeed) or 1)
@@ -1483,6 +1594,19 @@ function P.Init()
 		MakeAuras(b)
 	end
 	P.mover = ns.MakeMover(anchor, "Party", Opt, "Reset its position in /sanctuary > Party.")
+	-- The members' targets placed freely (Targets > Position: Free) hang off this block. It is
+	-- the party anchor's child, so a raid hides it with the party.
+	local block = CreateFrame("Frame", "SanctuaryUIPartyTargets", anchor)
+	block:SetSize(100, 100)
+	P.targetAnchor = block
+	P.targetMover = ns.MakeMover(block, "Party targets", function() return Opt().targetPlace end,
+		"Reset its position in /sanctuary > Party > Targets.")
+	-- The same for the pets (Pets > Position: Free).
+	local petBlock = CreateFrame("Frame", "SanctuaryUIPartyPets", anchor)
+	petBlock:SetSize(100, 100)
+	P.petAnchor = petBlock
+	P.petMover = ns.MakeMover(petBlock, "Party pets", function() return Opt().petPlace end,
+		"Reset its position in /sanctuary > Party > Pets.")
 
 	local events = CreateFrame("Frame", nil, UIParent)
 	for _, event in ipairs(GROUP_EVENTS) do pcall(events.RegisterEvent, events, event) end

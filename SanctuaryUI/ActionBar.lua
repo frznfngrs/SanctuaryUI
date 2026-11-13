@@ -1460,6 +1460,8 @@ function ns.ActionBar.UpdateMovers(hide)
 	end
 	if ns.Party and ns.Party.mover then
 		ns.Party.mover:SetShown(unlocked and ns.Party.Style() and true or false)
+		if ns.Party.targetMover then ns.Party.targetMover:SetShown(unlocked and ns.Party.TargetsFree() and true or false) end
+		if ns.Party.petMover then ns.Party.petMover:SetShown(unlocked and ns.Party.PetsFree() and true or false) end
 	end
 	if ns.Auras and ns.Auras.mover then
 		ns.Auras.mover:SetShown(unlocked and ns.DB().auras.enabled)

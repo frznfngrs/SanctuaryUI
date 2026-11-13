@@ -1889,8 +1889,20 @@ end
 
 local function Build()
 	-- A party target option, greyed out while their targets are off.
-	local function PartyTarget(option)
-		option.disabled = function() return DB().party.targets == false end
+	-- A party pet option, greyed out while their pets are off (notFree: as below).
+	local function PartyPet(option, notFree)
+		option.disabled = function()
+			local party = DB().party
+			return party.pets == false or (notFree and party.petPos == "free") or false
+		end
+		return option
+	end
+	-- notFree: a nudge, which the free block doesn't use (it's dragged).
+	local function PartyTarget(option, notFree)
+		option.disabled = function()
+			local party = DB().party
+			return party.targets == false or (notFree and party.targetPos == "free") or false
+		end
 		return option
 	end
 	local options = {
@@ -2234,59 +2246,101 @@ local function Build()
 					set = OwningFlag("party", ns.Party, function(_, value) ns.Party.SetPreview(value) end),
 					disabled = function() return not ns.Party.Style() end,
 				}, HALF),
-				size = Card(4, "Size and spacing", {
-					scale = Range(1, "Scale", "100% is the art's own size.", "party", "scale", 0.5, 2, 0.05, true),
-					spacing = Range(2, "Spacing", "The space between party members. Lower squeezes them closer together; far enough in, they overlap.", "party", "spacing", -30, 20, 1),
-					stone = Width({
-						type = "range",
-						order = 3,
-						name = "Stone opacity",
-						desc = "The slab's stone. Turn it down to let the world show through; the metal stays solid.",
-						min = 0.2, max = 1, step = 0.05, isPercent = true,
-						get = function() return DB().party.stone end,
-						set = function(_, value) DB().party.stone = value Changed() end,
-						disabled = function() return DB().party.style ~= "slab" end,
-					}, THIRD),
+				frames = Tab(4, "Frames", {
+					size = Card(1, "Size and spacing", {
+						scale = Range(1, "Scale", "100% is the art's own size.", "party", "scale", 0.5, 2, 0.05, true),
+						spacing = Range(2, "Spacing", "The space between party members. Lower squeezes them closer together; far enough in, they overlap.", "party", "spacing", -30, 20, 1),
+						stone = Width({
+							type = "range",
+							order = 3,
+							name = "Stone opacity",
+							desc = "The slab's stone. Turn it down to let the world show through; the metal stays solid.",
+							min = 0.2, max = 1, step = 0.05, isPercent = true,
+							get = function() return DB().party.stone end,
+							set = function(_, value) DB().party.stone = value Changed() end,
+							disabled = function() return DB().party.style ~= "slab" end,
+						}, THIRD),
+					}),
+					portraits = Card(1.5, "Portraits", {
+						portraits = Toggle(1, "Portraits", "Each member's portrait. Off, the frame loses its socket (the medallion on the Globes, the ring on the Bracket and Monster bar) and gets narrower; leader, role and level stay at its left end. Pets and targets have their own switch on their tabs.", "party", "portraits"),
+					}),
+					shows = Card(2, "Shows", {
+						healthText = Select(1, "Health text", nil, "party", "healthText",
+							{ none = "Nothing", percent = "Percent (62%)", current = "Hitpoints (15.4K)", missing = "Missing hitpoints (-9.4K)" },
+							{ "none", "percent", "current", "missing" }),
+						spacer = Note(1.5, ""),
+						portrait3d = Width({
+							type = "toggle",
+							order = 3,
+							name = "3D portraits",
+							desc = "The member's moving 3D bust in its socket or ring while they're in view (their 2D portrait otherwise). Globes always use the 2D portrait in the round medallion.",
+							get = function() return DB().party.portrait3d end,
+							set = function(_, value) DB().party.portrait3d = value Changed() end,
+							disabled = function() local party = DB().party return party.style == "globes" or party.style == "none" or party.portraits == false end,
+						}, HALF),
+						healPrediction = Toggle(4, "Incoming heals and shields", "Heals on the way and damage shields poured on top of their health, as on your globe.", "party", "healPrediction"),
+						threat = Toggle(5, "Threat halo", "A red halo on a member with aggro (orange as they near it).", "party", "threat"),
+						rangeFade = Toggle(6, "Fade out of range", nil, "party", "rangeFade"),
+						surnames = Toggle(7, "Last names", "Each member's full name, first and last. Off, first names only, which leaves more room on the Slab.", "party", "surnames"),
+						healthColor = Select(8, "Health colour", "Each player's health in their class colour, or all in your health globe's red. Pets always use the red; targets that aren't players are red, green or amber. With class colours, names on the bar turn cream so they stay readable.", "party", "healthColor",
+							{ class = "Class colour", globe = "Globe red" }, { "class", "globe" }),
+					}),
 				}),
-				shows = Card(5, "Shows", {
-					healthText = Select(1, "Health text", nil, "party", "healthText",
-						{ none = "Nothing", percent = "Percent (62%)", current = "Hitpoints (15.4K)", missing = "Missing hitpoints (-9.4K)" },
-						{ "none", "percent", "current", "missing" }),
-					spacer = Note(1.5, ""),
-					pets = Toggle(2, "Pets", "Party pets, by their owner.", "party", "pets"),
-					portrait3d = Width({
-						type = "toggle",
-						order = 3,
-						name = "3D portraits",
-						desc = "The member's moving 3D bust in its socket or ring while they're in view (their 2D portrait otherwise). Globes always use the 2D portrait in the round medallion.",
-						get = function() return DB().party.portrait3d end,
-						set = function(_, value) DB().party.portrait3d = value Changed() end,
-						disabled = function() local st = DB().party.style return st == "globes" or st == "none" end,
-					}, HALF),
-					healPrediction = Toggle(4, "Incoming heals and shields", "Heals on the way and damage shields poured on top of their health, as on your globe.", "party", "healPrediction"),
-					threat = Toggle(5, "Threat halo", "A red halo on a member with aggro (orange as they near it).", "party", "threat"),
-					rangeFade = Toggle(6, "Fade out of range", nil, "party", "rangeFade"),
-					surnames = Toggle(7, "Last names", "Each member's full name, first and last. Off, first names only, which leaves more room on the Slab.", "party", "surnames"),
-					healthColor = Select(8, "Health colour", "Each player's health in their class colour, or all in your health globe's red. Pets always use the red; targets that aren't players are red, green or amber. With class colours, names on the bar turn cream so they stay readable.", "party", "healthColor",
-						{ class = "Class colour", globe = "Globe red" }, { "class", "globe" }),
+				auras = Tab(5, "Auras", {
+					auras = Card(1, "Auras", {
+						debuffs = Toggle(1, "Debuffs", "Their debuffs in D3's debuff frame, coloured by type: blue magic, purple curse, brown disease, green poison.", "party", "debuffs"),
+						maxDebuffs = Range(2, "Most debuffs", nil, "party", "maxDebuffs", 1, 8, 1),
+						buffs = Toggle(3, "Buffs", "Buffs on each member, in D3's gold frame: yours (heals over time, shields) or everyone's.", "party", "buffs"),
+						buffsFrom = Select(3.5, "Whose buffs", "Only the ones you cast, or every buff they have. Changes wait for the end of combat.", "party", "buffsFrom",
+							{ mine = "Yours", all = "Everyone's" }, { "mine", "all" }),
+						maxBuffs = Range(4, "Most buffs", nil, "party", "maxBuffs", 1, 16, 1),
+						dispelGlow = Toggle(5, "Dispel halo", "A pulsing halo in the debuff's colour while a member has one you can remove.", "party", "dispelGlow"),
+					}),
 				}),
-				targets = Card(5.5, "Their targets", {
-					targets = Toggle(1, "Show their targets", "Who each member has targeted, in a small frame of the same look in a column to the right. Red for foes, green for friends, amber for neutrals, players in their class colour; gold when it's your target too. Left-click targets it, right-click opens its menu.", "party", "targets"),
-					targetScale = PartyTarget(Range(2, "Size", nil, "party", "targetScale", 0.5, 2, 0.05, true)),
-					targetX = PartyTarget(Range(3, "Nudge left / right", nil, "party", "targetX", -200, 300, 1)),
-					targetY = PartyTarget(Range(4, "Nudge up / down", nil, "party", "targetY", -60, 60, 1)),
+				pets = Tab(5.5, "Pets", {
+					card = Card(1, "Their pets", {
+						pets = Toggle(1, "Show their pets", "Party pets, by their owner. Left-click targets the pet, right-click opens its menu.", "party", "pets"),
+						petPortraits = Width({
+							type = "toggle", order = 2, name = "Portraits",
+							desc = "The pets' portraits. Off, their frames lose the socket or ring and get narrower. Globe pets have no portrait.",
+							get = function() return DB().party.petPortraits ~= false end,
+							set = function(_, value) DB().party.petPortraits = value Changed() end,
+							disabled = function() local party = DB().party return party.pets == false or party.style == "globes" end,
+						}, HALF),
+						petPos = PartyPet(Select(3, "Position", "Under their frame: where the style hangs them (bolted to the globe's lower left, or under the slab or frame). Right of their frame: straight after it, ahead of a target placed there too; the auras move over. Right of their auras: past the longest buff row, after the targets. Free: a block of their own, dragged anywhere while frames are unlocked, each still level with its owner.", "party", "petPos",
+							{ under = "Under their frame", before = "Right of their frame", after = "Right of their auras", free = "Free (drag it)" }, { "under", "before", "after", "free" })),
+						petScale = PartyPet(Range(4, "Size", nil, "party", "petScale", 0.5, 2, 0.05, true)),
+						petX = PartyPet(Range(5, "Nudge left / right", nil, "party", "petX", -200, 300, 1), true),
+						petY = PartyPet(Range(6, "Nudge up / down", nil, "party", "petY", -60, 60, 1), true),
+					}),
+					place = Card(2, "Free position", {
+						note = Note(1, "With Position set to Free, the pets get a mover of their own while frames are unlocked. " .. UNLOCK),
+						reset = { type = "execute", order = 2, name = "Reset position", func = function() ns.Party.ResetPetPosition() end,
+							disabled = function() local p = DB().party.petPlace return not (p and p.moved) end },
+					}, { hidden = function() return DB().party.petPos ~= "free" end }),
 				}),
-				auras = Card(6, "Auras", {
-					debuffs = Toggle(1, "Debuffs", "Their debuffs in D3's debuff frame, coloured by type: blue magic, purple curse, brown disease, green poison.", "party", "debuffs"),
-					maxDebuffs = Range(2, "Most debuffs", nil, "party", "maxDebuffs", 1, 8, 1),
-					buffs = Toggle(3, "Buffs", "Buffs on each member, in D3's gold frame: yours (heals over time, shields) or everyone's.", "party", "buffs"),
-					buffsFrom = Select(3.5, "Whose buffs", "Only the ones you cast, or every buff they have. Changes wait for the end of combat.", "party", "buffsFrom",
-						{ mine = "Yours", all = "Everyone's" }, { "mine", "all" }),
-					maxBuffs = Range(4, "Most buffs", nil, "party", "maxBuffs", 1, 16, 1),
-					dispelGlow = Toggle(5, "Dispel halo", "A pulsing halo in the debuff's colour while a member has one you can remove.", "party", "dispelGlow"),
+				targets = Tab(6, "Targets", {
+					card = Card(1, "Their targets", {
+						targets = Toggle(1, "Show their targets", "Who each member has targeted, in a small frame. Red for foes, green for friends, amber for neutrals, players in their class colour; gold when it's your target too. Left-click targets it, right-click opens its menu.", "party", "targets"),
+						targetStyle = PartyTarget(Select(2, "Look", "Their own look, apart from the party style. Same as party: the style's pet frame. Small globe, Small slab, or the ring and bar the target looks give pets.", "party", "targetStyle",
+							{ same = "Same as party", globes = "Small globe", slab = "Small slab", ring = "Ring and bar" }, { "same", "globes", "slab", "ring" })),
+						targetPos = PartyTarget(Select(3, "Position", "Right of their auras: a column past the longest buff row. Right of their frame: straight after it, and the auras move over to make room. Free: a block of their own, dragged anywhere while frames are unlocked, each still level with its member.", "party", "targetPos",
+							{ after = "Right of their auras", before = "Right of their frame", free = "Free (drag it)" }, { "after", "before", "free" })),
+						targetScale = PartyTarget(Range(4, "Size", nil, "party", "targetScale", 0.5, 2, 0.05, true)),
+						targetPortraits = PartyTarget(Toggle(4.5, "Portraits", "Their portraits. Off, the frames lose the socket or ring and get narrower. The small globe has none.", "party", "targetPortraits")),
+						targetX = PartyTarget(Range(5, "Nudge left / right", nil, "party", "targetX", -200, 300, 1), true),
+						targetY = PartyTarget(Range(6, "Nudge up / down", nil, "party", "targetY", -60, 60, 1), true),
+					}),
+					place = Card(2, "Free position", {
+						note = Note(1, "With Position set to Free, the targets get a mover of their own while frames are unlocked. " .. UNLOCK),
+						reset = { type = "execute", order = 2, name = "Reset position", func = function() ns.Party.ResetTargetPosition() end,
+							disabled = function() local p = DB().party.targetPlace return not (p and p.moved) end },
+					}, { hidden = function() return DB().party.targetPos ~= "free" end }),
 				}),
-				place = PositionCard(7, "Under your portrait by default. Stand-ins show while frames are unlocked. " .. UNLOCK .. " Changes wait for the end of combat.", function() ns.Party.ResetPosition() end, function() return not DB().party.moved end),
-			}),
+				position = Tab(7, "Position", {
+					place = PositionCard(1, "Under your portrait by default. Stand-ins show while frames are unlocked. " .. UNLOCK .. " Changes wait for the end of combat.", function() ns.Party.ResetPosition() end, function() return not DB().party.moved end),
+				}),
+			}, "tab"),
 			auras = Page(34, "Your buffs", {
 				intro = Note(1, "Blizzard's buff and debuff frames set in stone sockets, because this client lets only Blizzard read your buffs in combat. Right-click a buff to cancel it. Turning this off gives Blizzard's look back."),
 				enabled = Toggle(2, "Enabled", nil, "auras", "enabled"),

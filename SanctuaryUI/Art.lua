@@ -246,6 +246,8 @@ end
 -- power grooves and either a cast groove or a cast rail above the frame (castBottom: the rail's
 -- bottom edge). belowY / aboveY: where aura lines start under and over the frame. marks: centres
 -- of the class icon, faction emblem and raid marker, around the portrait socket.
+-- cutSpan = { x0, x1 }: the span left out when the frame is drawn without its portrait (party frames,
+-- ns.Art.TargetStyleCut): the socket, or the ring, between the frame's left edge and its bar.
 -- stretch = { x0, x1, y0, y1 }: a plain span of the frame (no rivets, slopes or tab ends) that
 -- the Width and Height options grow by mirror-folding it and shrink by cropping it (TargetStyleSized,
 -- DrawTargetStyle). ringCol: the left columns hold a round ring that keeps its size and stays
@@ -258,14 +260,14 @@ ns.Art.TARGET_STYLES = {
 		portrait = { 8, 8, 64, 64 }, badge = { 8, 62 }, bar = { 76, 10, 330, 36 }, power = { 76, 41, 330, 47 },
 		castGroove = { 76, 51, 330, 65 }, tot = { 346, 18 }, belowY = 77, aboveY = -6,
 		marks = { class = { 10, 10 }, faction = { 62, 10 }, raid = { 36, 6 } },
-		stretch = { 110, 300, 16, 30 },
+		stretch = { 110, 300, 16, 30 }, cutSpan = { 3, 70 },
 	},
 	slim = {
 		slot = "targetStyleSlim", size = { 300, 54 }, art = { -34, -34, 368, 98 },
 		portrait = { 6, 6, 48, 48 }, badge = { 7, 46 }, bar = { 56, 7, 292, 33 }, power = { 56, 38, 292, 45 },
 		castBottom = -6, tot = { 306, 12 }, belowY = 60, aboveY = -2,
 		marks = { class = { 8, 8 }, faction = { 46, 8 }, raid = { 27, 5 } },
-		stretch = { 90, 270, 12, 28 },
+		stretch = { 90, 270, 12, 28 }, cutSpan = { 3, 53 },
 	},
 	-- The party Slab's stone and metal at target size (build_hud_art.py target_slab): iron, steel,
 	-- gold and ember-worn metal by rank. The cast bar rides a rail above it, as on the Slim.
@@ -282,14 +284,14 @@ ns.Art.TARGET_STYLES = {
 		bar = { 74, 21, 310, 45 }, power = { 74, 48, 296, 53 },
 		castBottom = 10, tot = { 344, 20 }, belowY = 64, aboveY = 12,
 		marks = { class = { 12, 12 }, faction = { 56, 12 }, raid = { 34, 2 } },
-		stretch = { 100, 280, 26, 40 }, ringCol = 64, capScaleY = true,
+		stretch = { 100, 280, 26, 40 }, ringCol = 64, capScaleY = true, cutSpan = { -2, 69 },
 	},
 	tablet = {
 		slot = "targetStyleTablet", size = { 330, 66 }, art = { -34, -34, 398, 122 },
 		portrait = { 10, 8, 62, 60 }, badge = { 11, 58 }, bar = { 76, 20, 322, 46 }, power = { 76, 50, 322, 56 },
 		nameAt = { 164, 9 }, castBottom = -6, tot = { 342, 24 }, belowY = 70, aboveY = 0,
 		marks = { class = { 12, 10 }, faction = { 60, 10 }, raid = { 36, 6 } },
-		stretch = { 100, 230, 26, 40 },
+		stretch = { 100, 230, 26, 40 }, cutSpan = { 6, 65 },
 	},
 }
 
@@ -300,7 +302,7 @@ ns.Art.TARGET_TOT_STYLE = {
 	id = "tot", slot = "targetStyleParts", origin = { 560, 560 }, unranked = true,
 	size = { 112, 30 }, art = { -4, -4, 120, 38 }, bar = { 32, 11, 102, 19 },
 	portrait = { round = true, cx = 15, cy = 15 },
-	stretch = { 40, 96, 12, 18 }, ringCol = 30, capScaleY = true,
+	stretch = { 40, 96, 12, 18 }, ringCol = 30, capScaleY = true, cutSpan = { -2, 30 },
 }
 
 function ns.Art.TargetStyleTexCoord(style, rank)
@@ -389,6 +391,30 @@ function ns.Art.TargetStyleSized(name, widthScale, heightScale)
 	return s
 end
 
+-- A sized style (TargetStyleSized) without its portrait: its `cutSpan` left out, so the frame's
+-- left edge meets its bar, and everything right of the cut moved left to match. nil when the
+-- style has no cut.
+local cutStyles = {}
+function ns.Art.TargetStyleCut(sized)
+	local base = sized and (sized.base or sized)
+	local cut = base and base.cutSpan
+	if not cut then return nil end
+	local key = sized.key .. ":cut"
+	if cutStyles[key] then return cutStyles[key] end
+	local W = cut[2] - cut[1]
+	local function X(x) return x >= cut[2] and x - W or x end
+	local function Rect(r) return r and { X(r[1]), r[2], X(r[3]), r[4] } end
+	local s = {}
+	for k, v in pairs(sized) do s[k] = v end
+	s.key, s.cutAway, s.cutW = key, cut, W
+	s.size = { sized.size[1] - W, sized.size[2] }
+	s.art = { sized.art[1], sized.art[2], sized.art[3] - W, sized.art[4] }
+	s.bar, s.power, s.castGroove = Rect(sized.bar), Rect(sized.power), Rect(sized.castGroove)
+	s.portrait = nil
+	cutStyles[key] = s
+	return s
+end
+
 -- Draw a sized style's frame for a rank on `owner` (a frame filling the plate) as a grid of
 -- slices from owner.tiles. Returns false when the art isn't there.
 function ns.Art.DrawTargetStyle(owner, style, rank)
@@ -428,6 +454,21 @@ function ns.Art.DrawTargetStyle(owner, style, rank)
 		cols[#cols + 1] = { left, st[1], st[1] - left }
 		for _, c in ipairs(FoldStrokes(st[1], st[2], st[2] - st[1] + E)) do cols[#cols + 1] = c end
 		cols[#cols + 1] = { st[2], ax + aw, ax + aw - st[2], cap = true }
+		-- Without the portrait (TargetStyleCut): the cut span's columns dropped or trimmed. It
+		-- lies left of the stretch, where a column's width is its source width.
+		if style.cutAway then
+			local c0, c1 = style.cutAway[1], style.cutAway[2]
+			local kept = {}
+			for _, c in ipairs(cols) do
+				if c[2] <= c0 or c[1] >= c1 then
+					kept[#kept + 1] = c
+				else
+					if c[1] < c0 then kept[#kept + 1] = { c[1], c0, c0 - c[1], ring = c.ring } end
+					if c[2] > c1 then kept[#kept + 1] = { c1, c[2], c[2] - c1, ring = c.ring } end
+				end
+			end
+			cols = kept
+		end
 		local rows = { { ay, st[3], st[3] - ay } }
 		for _, r in ipairs(FoldStrokes(st[3], st[4], st[4] - st[3] + H)) do rows[#rows + 1] = r end
 		rows[#rows + 1] = { st[4], ay + ah, ay + ah - st[4] }
