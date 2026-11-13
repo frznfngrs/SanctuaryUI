@@ -725,6 +725,7 @@ local function Slash(msg)
 		-- fish [chapter]: the angler's journal, on a chapter by its key or title's first word.
 		local want = rest:lower()
 		if want == "log" then ns.Journal.PrintHeard() return end
+		if want == "clicks" then ns.Fishing.PrintTrace() return end
 		local key
 		for _, c in ipairs(ns.Journal.CHAPTERS) do
 			if want ~= "" and (c.key == want or c.title:lower():find(want, 1, true)) then key = c.key break end
@@ -1120,6 +1121,7 @@ loader:SetScript("OnEvent", function(_, event)
 		Safe("statue eyes", ns.StatueEyes and ns.StatueEyes.Init)
 		Safe("experience", ns.Experience and ns.Experience.Init)
 		Safe("fishing journal", ns.Journal and ns.Journal.Init)
+		Safe("fishing tools", ns.Fishing and ns.Fishing.Init)
 		Safe("layout", ns.Layout)
 		Safe("position", ns.ApplyPosition)
 		Safe("options", ns.Options and ns.Options.Init)

@@ -864,6 +864,37 @@ local function TrinketArgs()
 	}
 end
 
+-- Options > Professions > Fishing tools (Fishing.lua).
+local function FishingToolsArgs()
+	local function F() return ns.Fishing end
+	return {
+		intro = Note(1, "Quality of life for fishing. With a fishing pole on: double right-click the water to cast, and the first double-click with no lure on your pole puts on the best lure you carry. Catches are looted for you, a panel keeps the session's tally, and the console fades back while you fish."),
+		casting = Card(2, "Casting", {
+			doubleClick = Toggle(1, "Double right-click to cast", "With a fishing pole on, out of combat, and not mounted, swimming or flying. A right-click on your bobber still reels it in.", "fishing", "doubleClick"),
+			autoLure = Toggle(2, "Lure on the same click", "With no lure on the pole, the double-click puts the best lure in your bags on first; the next one casts.", "fishing", "autoLure"),
+			autoLoot = Toggle(3, "Loot catches", "Take everything from the bobber at once. Off, or with the game's own auto loot on, nothing changes.", "fishing", "autoLoot"),
+			lureWarn = Toggle(4, "Lure warning", "A message and a chime a minute before your lure runs out, while you fish.", "fishing", "lureWarn"),
+			key = Note(5, "There's also a key for it: Key Bindings > AddOns > \"Cast Fishing (or put on a lure)\". If double-clicking doesn't cast, /sanctuary fish clicks shows what the addon saw."),
+		}),
+		panel = Card(3, "Session panel", {
+			panel = Toggle(1, "Show while fishing", "Your skill, the lure's time, this session's catches, fish an hour, got-aways, skill-ups and the catches to your next point. It stays three minutes after your last cast.", "fishing", "panel"),
+			extravaganza = Toggle(2, "Extravaganza tracker", "On Sunday afternoons in Stranglethorn: your Tastyfish against 40, the race's time left, and when your oldest catch rots.", "fishing", "extravaganza"),
+			panelScale = Range(3, "Scale", nil, "fishing", "panelScale", 0.5, 2, 0.05, true),
+			preview = Width({
+				type = "toggle", order = 4, name = "Preview",
+				desc = "Show the panel with sample numbers, to place and size it. Turns off when this window closes.",
+				get = function() return F().preview end,
+				set = OwningFlag("fishingPanel", ns.Fishing, function(_, value) F().SetPreview(value) end),
+			}, THIRD),
+		}),
+		fade = Card(4, "Fishing mode", {
+			fade = Toggle(1, "Fade the console while fishing", "The console and globes fade back while you fish, and come back at once in combat or under the mouse.", "fishing", "fade"),
+			fadeAlpha = Range(2, "Faded to", nil, "fishing", "fadeAlpha", 0, 0.9, 0.05, true),
+		}),
+		place = PositionCard(5, "The panel sits left of the console by default. " .. UNLOCK, function() F().ResetPosition() end, function() return not DB().fishing.panelPos.moved end),
+	}
+end
+
 -- Options > Professions > Fishing journal (FishingJournal.lua).
 local function JournalArgs()
 	local function J() return ns.Journal end
@@ -2458,6 +2489,7 @@ local function Build()
 			gap43 = Gap(43),
 			sectionProfessions = Section(43.5, "Professions"),
 			fishing = Page(44, "Fishing journal", JournalArgs()),
+			fishingTools = Page(44.5, "Fishing tools", FishingToolsArgs()),
 			bank = Page(42, "Bank", {
 				enabled = Width(Toggle(1, "Use the SanctuaryUI bank window", "D3's stash in place of Blizzard's bank. Needs the bag window on. Turning it off needs a /reload.", "bank", "enabled"), 1),
 				layout = Card(2, "Layout", {

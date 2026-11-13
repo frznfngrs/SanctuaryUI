@@ -510,6 +510,20 @@ ns.DEFAULTS = {
 			my = 0,
 		},
 
+		-- fishing tools (Fishing.lua)
+		fishing = {
+			doubleClick = true, -- double right-click the water to cast
+			autoLure = true, -- ...and with no lure on, put the best one on first
+			autoLoot = true, -- take fishing loot (when the game's auto loot doesn't)
+			panel = true, -- the session panel while you fish
+			panelScale = 1,
+			panelPos = { moved = false, mx = 0, my = 0 },
+			extravaganza = true, -- the Tastyfish tracker on Sunday afternoons in Stranglethorn
+			lureWarn = true, -- a warning a minute before the lure runs out
+			fade = false, -- the console fades back while you fish
+			fadeAlpha = 0.25,
+		},
+
 		-- the angler's journal (FishingJournal.lua)
 		journal = {
 			scale = 1,
@@ -750,6 +764,7 @@ function ns.Refresh()
 	Run("bags", ns.Bags and ns.Bags.ApplySettings)
 	Run("bank", ns.Bank and ns.Bank.ApplySettings)
 	Run("fishing journal", ns.Journal and ns.Journal.ApplySettings)
+	Run("fishing tools", ns.Fishing and ns.Fishing.ApplySettings)
 	Run("stance", ns.Stance and ns.Stance.ApplySettings)
 	Run("totems", ns.Totem and ns.Totem.ApplySettings)
 	Run("trinkets", ns.Trinket and ns.Trinket.ApplySettings)

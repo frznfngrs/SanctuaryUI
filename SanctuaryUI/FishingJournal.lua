@@ -357,17 +357,23 @@ local function OnLoot()
 	if not IsFishingLoot or not IsFishingLoot() then return end
 	NoteSkill("catch")
 	local _, zone = J.Where()
+	local items = {}
 	for i = 1, (GetNumLootItems and GetNumLootItems() or 0) do
 		local link = GetLootSlotLink and GetLootSlotLink(i)
 		local _, name, count, _, quality = GetLootSlotInfo(i)
 		if Readable(link) and Readable(name) and type(link) == "string" then
 			local id = tonumber(link:match("item:(%d+)"))
 			if id then
-				Record(id, name, Readable(count) and count or 1, Readable(quality) and quality or 1, zone)
+				count = Readable(count) and count or 1
+				Record(id, name, count, Readable(quality) and quality or 1, zone)
+				items[#items + 1] = { id = id, count = count }
 			end
 		end
 	end
 	J.Refresh()
+	-- The fishing tools (Fishing.lua): the session's tally, then the loot itself.
+	if ns.Fishing and ns.Fishing.OnCatch then ns.Try("fishing catch", ns.Fishing.OnCatch, items) end
+	if ns.Fishing and ns.Fishing.AutoLoot then ns.Try("fishing loot", ns.Fishing.AutoLoot) end
 end
 
 -- Skill and rank milestones. The first look on a character only remembers where you are.
@@ -451,6 +457,7 @@ local function OnMessage(event, ...)
 		lastEscape = GetTime()
 		log.escapes = (log.escapes or 0) + 1
 		NoteSkill("escape")
+		if ns.Fishing and ns.Fishing.OnEscape then ns.Try("fishing escape", ns.Fishing.OnEscape) end
 		local _, zone = J.Where()
 		escapes[zone] = (escapes[zone] or 0) + 1
 		if escapes[zone] == 10 then

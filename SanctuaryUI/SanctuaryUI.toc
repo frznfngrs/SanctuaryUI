@@ -71,6 +71,7 @@ Bags.lua
 Bank.lua
 FishingData.lua
 FishingJournal.lua
+Fishing.lua
 Options.lua
 Minimap.lua
 VersionCheck.lua

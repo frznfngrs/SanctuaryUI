@@ -12,6 +12,8 @@
 
     toast    195x88 at (640, 160) bright, (640, 260) resting: D3's "new lore" notice
              (2DUILoreNotify, its book icon on the left), for the diary's pop-up
+    plate    at (640, 360): D3's dark red lore plate (2DUIQuestLore), gold corners, for the
+             fishing panel (Fishing.lua, nine-sliced)
 
   menu-flyout.png gets its fish plate from build_hud_art.py (fish_icon below).
 
@@ -320,12 +322,25 @@ def toast(atlas: Image.Image) -> None:
         atlas.alpha_composite(sheet.crop((cell * w, 0, cell * w + w, h)), TOAST_AT[key])
 
 
+PLATE_AT = (640, 360)
+
+
+def plate(atlas: Image.Image) -> tuple[int, int]:
+    """The dark lore plate from 2DUIQuestLore's first row, cut to its edges."""
+    sheet = Image.open(HUD / "2DUIQuestLore.png").convert("RGBA").crop((0, 50, 366, 136))
+    box = sheet.getchannel("A").point(lambda v: 255 if v > 40 else 0).getbbox()
+    cut = sheet.crop(box)
+    atlas.alpha_composite(cut, PLATE_AT)
+    return cut.size
+
+
 def main() -> None:
     atlas = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
     atlas.alpha_composite(header(), (0, 0))
     atlas.alpha_composite(page(), (0, PAGE_Y))
     tabs(atlas)
     toast(atlas)
+    print("plate", plate(atlas))
     atlas.save(OUT / "journal.png")
     print("wrote", OUT / "journal.png")
 

@@ -9,6 +9,7 @@
 	<Binding name="SANCTUARYUIFISHING" category="ADDONS">
 		SanctuaryUI.Journal.Toggle()
 	</Binding>
+	<Binding name="CLICK SanctuaryUIFishingCast:LeftButton" category="ADDONS"/>
 	<Binding name="SANCTUARYUIMAP" category="ADDONS" runOnUp="true">
 		SanctuaryUI.MapOverlay.Key(keystate)
 	</Binding>
