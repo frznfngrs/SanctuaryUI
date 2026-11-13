@@ -740,8 +740,13 @@ end
 
 ---------------------------------------------------------------------------
 -- Auras, through the client's aura containers (the target plate explains why): a member's
--- debuffs in D3's debuff frame tinted by dispel type, your buffs on them (HoTs, shields) in its
--- gold buff frame, and an aura slot that holds the halo while a debuff you can dispel is on them.
+-- debuffs in D3's debuff frame tinted by dispel type, your buffs on them (HoTs, shields), or
+-- everyone's (Options > Party > Whose buffs, #14), in its gold buff frame, and an aura slot that
+-- holds the halo while a debuff you can dispel is on them.
+
+local function BuffFilter()
+	return Opt().buffsFrom == "all" and "HELPFUL" or "HELPFUL|PLAYER"
+end
 
 local function HasTemplate(name)
 	if not (C_XMLUtil and C_XMLUtil.GetTemplateInfo) then return false end
@@ -950,7 +955,7 @@ local function MakeAuras(b)
 		debuffs:SetEnabled(true)
 		local buffs = CreateFrame("AuraContainer", nil, b, "CustomAuraContainerTemplate")
 		buffs:SetSize(1, 1)
-		buffs:AddAuraGroup("mine", "HELPFUL|PLAYER", {
+		buffs:AddAuraGroup("mine", BuffFilter(), {
 			maxFrameCount = Opt().maxBuffs or 3, sortMethod = method, sortDirection = direction,
 			initializeFrame = function(button) DressAura(button, "buff") end, layout = GroupLayout(AuraSize()),
 		})
@@ -1009,6 +1014,7 @@ local function ConfigureAuras(b)
 		pcall(function()
 			box:SetAuraGroupEnabled("mine", on)
 			box:SetAuraGroupMaxFrameCount("mine", on and max or 0)
+			box:SetAuraGroupFilterString("mine", BuffFilter())
 			box:SetAuraGroupLayout("mine", GroupLayout(size))
 			box.sanctuarySizes = box.sanctuarySizes or {}
 			ns.ResizeAuraButtons(box, "mine", size, function(button) button:SetSize(size, size) end, box.sanctuarySizes)

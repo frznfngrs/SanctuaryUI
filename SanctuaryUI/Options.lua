@@ -2239,7 +2239,9 @@ local function Build()
 				auras = Card(6, "Auras", {
 					debuffs = Toggle(1, "Debuffs", "Their debuffs in D3's debuff frame, coloured by type: blue magic, purple curse, brown disease, green poison.", "party", "debuffs"),
 					maxDebuffs = Range(2, "Most debuffs", nil, "party", "maxDebuffs", 1, 8, 1),
-					buffs = Toggle(3, "Your buffs on them", "Your heals over time, shields and buffs on each member, in D3's gold frame.", "party", "buffs"),
+					buffs = Toggle(3, "Buffs", "Buffs on each member, in D3's gold frame: yours (heals over time, shields) or everyone's.", "party", "buffs"),
+					buffsFrom = Select(3.5, "Whose buffs", "Only the ones you cast, or every buff they have. Changes wait for the end of combat.", "party", "buffsFrom",
+						{ mine = "Yours", all = "Everyone's" }, { "mine", "all" }),
 					maxBuffs = Range(4, "Most buffs", nil, "party", "maxBuffs", 1, 6, 1),
 					dispelGlow = Toggle(5, "Dispel halo", "A pulsing halo in the debuff's colour while a member has one you can remove.", "party", "dispelGlow"),
 				}),

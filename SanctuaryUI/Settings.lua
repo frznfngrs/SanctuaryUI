@@ -262,6 +262,7 @@ ns.DEFAULTS = {
 			debuffs = true,
 			maxDebuffs = 4,
 			buffs = true, -- your buffs on them (HoTs, shields)
+			buffsFrom = "mine", -- mine: only yours | all: everyone's buffs on them
 			surnames = true, -- first and last names (Forever characters have both)
 			maxBuffs = 3,
 			dispelGlow = true, -- halo while a member has a debuff you can dispel
