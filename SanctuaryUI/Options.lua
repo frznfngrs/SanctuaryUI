@@ -1888,6 +1888,11 @@ local function UnitPlatePage(K, M, order, title, intro, placeNote)
 end
 
 local function Build()
+	-- A party target option, greyed out while their targets are off.
+	local function PartyTarget(option)
+		option.disabled = function() return DB().party.targets == false end
+		return option
+	end
 	local options = {
 		type = "group",
 		name = "SanctuaryUI  " .. Muted("v" .. VERSION),
@@ -2262,8 +2267,14 @@ local function Build()
 					threat = Toggle(5, "Threat halo", "A red halo on a member with aggro (orange as they near it).", "party", "threat"),
 					rangeFade = Toggle(6, "Fade out of range", nil, "party", "rangeFade"),
 					surnames = Toggle(7, "Last names", "Each member's full name, first and last. Off, first names only, which leaves more room on the Slab.", "party", "surnames"),
-					healthColor = Select(8, "Health colour", "Each player's health in their class colour, or all in your health globe's red. Pets always use the red. With class colours, names on the bar turn cream so they stay readable.", "party", "healthColor",
+					healthColor = Select(8, "Health colour", "Each player's health in their class colour, or all in your health globe's red. Pets always use the red; targets that aren't players are red, green or amber. With class colours, names on the bar turn cream so they stay readable.", "party", "healthColor",
 						{ class = "Class colour", globe = "Globe red" }, { "class", "globe" }),
+				}),
+				targets = Card(5.5, "Their targets", {
+					targets = Toggle(1, "Show their targets", "Who each member has targeted, in a small frame of the same look in a column to the right. Red for foes, green for friends, amber for neutrals, players in their class colour; gold when it's your target too. Left-click targets it, right-click opens its menu.", "party", "targets"),
+					targetScale = PartyTarget(Range(2, "Size", nil, "party", "targetScale", 0.5, 2, 0.05, true)),
+					targetX = PartyTarget(Range(3, "Nudge left / right", nil, "party", "targetX", -200, 300, 1)),
+					targetY = PartyTarget(Range(4, "Nudge up / down", nil, "party", "targetY", -60, 60, 1)),
 				}),
 				auras = Card(6, "Auras", {
 					debuffs = Toggle(1, "Debuffs", "Their debuffs in D3's debuff frame, coloured by type: blue magic, purple curse, brown disease, green poison.", "party", "debuffs"),

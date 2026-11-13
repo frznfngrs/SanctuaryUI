@@ -28,6 +28,8 @@ local S = ns.PartyStyles
 --   view.stone           the slab's stone (its alpha is the opacity setting)
 --   view.debuffAt/buffAt { point, x, y } where the aura containers start, from the button
 --   view.size            { w, h } the button's size in this style
+--   view.midY            the body's middle line from the top (globes; else half the height)
+--   view.isTarget        a member's target (S.BuildTarget): the pet frame plus name and marker
 --
 -- Sizes are UI units at scale 1 (the anchor carries the scale); the art is 2x.
 
@@ -248,6 +250,7 @@ function S.BuildGlobes(button, isPet)
 	end
 	art:SetPoint("TOPLEFT", root, "TOPLEFT", padL, -padT)
 	view.size = isPet and { cell.size[1], cell.size[2] } or { padL + cell.size[1] + 112, padT + cell.size[2] }
+	view.midY = padT + cell.size[2] / 2 -- the bezel's middle, where a target frame lines up
 
 	local g = cell.globe
 	local globe = MiniGlobe(view, root, g[3], isPet and 0.3 or 0.45)
@@ -877,6 +880,32 @@ function S.SetMetal(view, gold, c)
 end
 
 function S.Build(style, button, isPet)
+	if button.isTarget then return S.BuildTarget(style, button) end
+	return S.BuildFrame(style, button, isPet)
+end
+
+-- A member's target: the style's pet frame, plus its raid marker and, on the globes (whose pet
+-- has no name), the name to the right of the globe.
+function S.BuildTarget(style, button)
+	local view = S.BuildFrame(style, button, true)
+	view.isTarget = true
+	local top = view.top
+	if not view.name then
+		view.name = Font(top, 10, true)
+		view.name:SetPoint("LEFT", view.art, "RIGHT", 2, 0)
+		view.name:SetWidth(96)
+		view.name:SetJustifyH("LEFT")
+		view.size = { view.size[1] + 98, view.size[2] }
+	end
+	view.mark = Tex(top, "OVERLAY", 2)
+	view.mark:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+	view.mark:SetSize(14, 14)
+	view.mark:SetPoint("CENTER", view.socket or view.art, "TOPLEFT", 2, -2)
+	view.mark:Hide()
+	return view
+end
+
+function S.BuildFrame(style, button, isPet)
 	if STYLED[style] then return S.BuildStyled(style, button, isPet) end
 	if style == "slab" then return S.BuildSlab(button, isPet) end
 	return S.BuildGlobes(button, isPet)

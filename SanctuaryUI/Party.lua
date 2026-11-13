@@ -70,6 +70,14 @@ local PREVIEW = {
 	{ name = "Sylvanas", class = "HUNTER", level = 42, health = 0.76, power = 0.9, powerToken = "MANA", far = true, ready = "waiting", role = "DAMAGER" },
 }
 local PREVIEW_PET = { name = "Wolf", health = 0.8 }
+-- What each stand-in is targeting: a skull-marked foe, the healer on the tank, nobody (dead), a
+-- neutral beast.
+local PREVIEW_TARGETS = {
+	{ name = "Defias Pillager", health = 0.55, reaction = "hostile", mark = 8 },
+	{ name = "Thrall", class = "SHAMAN", health = 0.92, reaction = "friend" },
+	nil,
+	{ name = "Plainstrider", health = 1, reaction = "neutral" },
+}
 
 function P.Previewing()
 	return (P.preview or not ns.DB().locked) and true or false
@@ -78,6 +86,7 @@ end
 -- The stand-in's data when this button is previewing (its unit isn't there), else nil.
 local function PV(b)
 	if not P.Previewing() or UnitExists(b.unit) then return nil end
+	if b.isTarget then return PREVIEW_TARGETS[b.index] end
 	if b.isPet then return b.index == 1 and PREVIEW_PET or nil end
 	return PREVIEW[b.index]
 end
@@ -85,7 +94,7 @@ end
 -- The unit a button reads: its own, or you (your pet) while it stands in.
 local function U(b)
 	if PV(b) then
-		if b.isPet then return UnitExists("pet") and "pet" or "player" end
+		if b.isPet and not b.isTarget then return UnitExists("pet") and "pet" or "player" end
 		return "player"
 	end
 	return b.unit
@@ -103,12 +112,13 @@ local CREAM = { 0.95, 0.9, 0.8 }
 
 -- A member's class colour ({ r, g, b }, the numbers possibly secret), or nil for a pet.
 local function ClassColor(b)
-	if b.isPet then return nil end
+	if b.isPet and not b.isTarget then return nil end
 	local pv, class = PV(b), nil
 	if pv then
 		class = pv.class
 	else
 		if not UnitExists(b.unit) then return nil end
+		if b.isTarget and not Bool(UnitIsPlayer(b.unit)) then return nil end
 		class = select(2, UnitClass(b.unit))
 	end
 	if Readable(class) then return RAID_CLASS_COLORS and RAID_CLASS_COLORS[class] end
@@ -121,11 +131,32 @@ end
 
 -- A member's health fill: their class colour (Options > Party > Health colour), or your health
 -- globe's red for pets, on "globe", or when the class can't be read.
+-- A target that isn't a player (or with class colours off): coloured as the target frame does,
+-- red for foes, green for friends, amber for neutrals, grey once another group has tapped it.
+local TARGET_COLORS = {
+	friend = { 0.13, 0.45, 0.16 },
+	neutral = { 0.85, 0.62, 0.18 },
+	tapped = { 0.45, 0.45, 0.45 },
+}
+
+local function Reaction(b)
+	local pv = PV(b)
+	if pv then return pv.reaction end
+	local unit = b.unit
+	if Bool(UnitIsTapDenied and UnitIsTapDenied(unit)) then return "tapped" end
+	if Bool(UnitIsFriend("player", unit)) then return "friend" end
+	local reaction = UnitReaction("player", unit)
+	if Readable(reaction) and reaction == 4 then return "neutral" end
+	return "hostile"
+end
+
 local function MemberHealthColor(b)
 	if Opt().healthColor ~= "globe" then
 		local c = ClassColor(b)
 		if c and Readable(c.r) and Readable(c.g) and Readable(c.b) then return c.r, c.g, c.b end
 	end
+	local tc = b.isTarget and TARGET_COLORS[Reaction(b)]
+	if tc then return tc[1], tc[2], tc[3] end
 	return HealthColor()
 end
 
@@ -303,8 +334,11 @@ end
 -- dead | ghost | offline, or nil.
 local function State(b, unit, pv)
 	if pv then return pv.state end
-	local connected = UnitIsConnected(unit)
-	if Readable(connected) and not connected then return "offline" end
+	-- Only players can be offline (a member's target may be a creature).
+	if not b.isTarget or Bool(UnitIsPlayer(unit)) then
+		local connected = UnitIsConnected(unit)
+		if Readable(connected) and not connected then return "offline" end
+	end
 	local ghost = UnitIsGhost(unit)
 	if Readable(ghost) and ghost then return "ghost" end
 	local dead = UnitIsDead(unit)
@@ -509,11 +543,28 @@ local function UpdateReady(b)
 	end
 end
 
+-- The raid marker on a member or a member's target.
+local function UpdateMark(v, unit, pv)
+	local index = pv and pv.mark
+	if not pv and GetRaidTargetIndex then index = GetRaidTargetIndex(unit) end
+	if Readable(index) and SetRaidTargetIconTexture then
+		SetRaidTargetIconTexture(v.mark, index)
+		v.mark:Show()
+	else
+		v.mark:Hide()
+	end
+end
+
 local function UpdateIcons(b)
 	local v = b.v
-	if not v or not v.leader then return end
+	if not v then return end
 	local unit, pv = U(b), PV(b)
 	if not pv and not UnitExists(unit) then return end
+	if v.isTarget then
+		UpdateMark(v, unit, pv)
+		return
+	end
+	if not v.leader then return end
 	local leader
 	if pv then leader = pv.leader else leader = Bool(UnitIsGroupLeader and UnitIsGroupLeader(unit)) end
 	v.leader:SetShown(leader and true or false)
@@ -532,14 +583,7 @@ local function UpdateIcons(b)
 		v.role:Hide()
 	end
 
-	local index = pv and pv.mark
-	if not pv and GetRaidTargetIndex then index = GetRaidTargetIndex(unit) end
-	if Readable(index) and SetRaidTargetIconTexture then
-		SetRaidTargetIconTexture(v.mark, index)
-		v.mark:Show()
-	else
-		v.mark:Hide()
-	end
+	UpdateMark(v, unit, pv)
 	UpdateReady(b)
 end
 
@@ -694,7 +738,7 @@ end
 
 local function UpdateRange(b)
 	if not b:IsShown() then return end
-	if Opt().rangeFade == false then
+	if Opt().rangeFade == false or b.isTarget then -- no range check for units outside the group
 		b:SetAlpha(1)
 		return
 	end
@@ -737,6 +781,23 @@ function P.UpdateAll()
 	for _, b in ipairs(P.all or {}) do
 		if b:IsShown() then P.UpdateButton(b) end
 	end
+end
+
+-- A member's target, polled: everything when it becomes someone else (full, or a new GUID),
+-- else just what changes on the same unit (health, your target's gold, its marker).
+function P.UpdateMemberTarget(tb, full)
+	if not tb.v then return end
+	local guid = not PV(tb) and UnitGUID(tb.unit) or nil
+	if Secret(guid) then guid = nil end
+	if full or guid ~= tb.memberGUID then
+		tb.memberGUID = guid
+		if tb.v.pool then tb.v.pool:Forget() end -- a new unit: no glide from the last one's level
+		P.UpdateButton(tb)
+		return
+	end
+	UpdateHealth(tb)
+	UpdateTarget(tb)
+	UpdateIcons(tb)
 end
 
 ---------------------------------------------------------------------------
@@ -1069,9 +1130,9 @@ local function ShowTooltip(self)
 	GameTooltip:Show()
 end
 
-local function MakeButton(parent, unit, name, index, isPet)
+local function MakeButton(parent, unit, name, index, isPet, isTarget)
 	local b = CreateFrame("Button", name, parent, "SecureUnitButtonTemplate")
-	b.unit, b.index, b.isPet = unit, index, isPet
+	b.unit, b.index, b.isPet, b.isTarget = unit, index, isPet, isTarget
 	b.views = {}
 	b:SetAttribute("unit", unit)
 	b:SetAttribute("*type1", "target")
@@ -1147,6 +1208,12 @@ function P.Layout()
 	local previewing = P.Previewing()
 	local gap = (GAP[style] or GAP.slab) + (tonumber(opt.spacing) or 0)
 	local y, width = 0, 0
+	-- Members' targets: a column right of everything a member shows (name, auras), the same x for
+	-- all, centred on each member's body. Their scale is their own (Size), so offsets divide by it.
+	local showTargets = opt.targets ~= false
+	local targetScale = math.max(0.5, math.min(2, tonumber(opt.targetScale) or 1))
+	local auraCount = math.max(opt.debuffs ~= false and math.min(8, opt.maxDebuffs or 4) or 0,
+		opt.buffs ~= false and math.min(MAX_BUFFS, opt.maxBuffs or 3) or 0)
 	for i, b in ipairs(P.members) do
 		local v = b.v
 		b:ClearAllPoints()
@@ -1166,8 +1233,26 @@ function P.Layout()
 			pet:SetPoint("TOPLEFT", b, "BOTTOMLEFT", sp.indent, -sp.gap)
 			below = sp.gap + pet.v.size[2]
 		end
+		local tb = P.targets[i]
+		tb:ClearAllPoints()
+		tb:SetScale(targetScale)
+		local column = math.max(v.size[1], (v.debuffAt and v.debuffAt[2] or v.size[1]) + auraCount * (AuraSize() + AURA_GAP)) + 8
+		local tx = column + (tonumber(opt.targetX) or 0)
+		local ty = -(v.midY or v.size[2] / 2) + (tonumber(opt.targetY) or 0)
+		tb:SetPoint("LEFT", b, "TOPLEFT", tx / targetScale, ty / targetScale)
+		if not showTargets then
+			UnregisterUnitWatch(tb)
+			tb:Hide()
+		elseif previewing and not UnitExists(tb.unit) then
+			UnregisterUnitWatch(tb)
+			tb:SetShown(PV(tb) and true or false)
+		else
+			RegisterUnitWatch(tb)
+		end
+
 		y = y + v.size[2] + (opt.pets and below or 0) + gap
 		width = math.max(width, v.size[1] + 120)
+		if showTargets then width = math.max(width, tx + tb.v.size[1] * targetScale) end
 
 		if previewing then
 			UnregisterUnitWatch(b)
@@ -1239,7 +1324,7 @@ local UNIT_EVENTS = {
 local GROUP_EVENTS = {
 	"GROUP_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD", "PLAYER_TARGET_CHANGED", "PARTY_LEADER_CHANGED",
 	"RAID_TARGET_UPDATE", "READY_CHECK", "READY_CHECK_CONFIRM", "READY_CHECK_FINISHED",
-	"PLAYER_ROLES_ASSIGNED", "PLAYER_REGEN_ENABLED", "SPELLS_CHANGED", "UNIT_PET",
+	"PLAYER_ROLES_ASSIGNED", "PLAYER_REGEN_ENABLED", "SPELLS_CHANGED", "UNIT_PET", "UNIT_TARGET",
 }
 
 local function OnUnitEvent(kind, b)
@@ -1273,7 +1358,11 @@ local function OnEvent(_, event, unit)
 		if b then OnUnitEvent(kind, b) end
 		return
 	end
-	if event == "PLAYER_TARGET_CHANGED" then
+	if event == "UNIT_TARGET" then
+		local owner = P.byUnit[unit]
+		local tb = owner and owner.target
+		if tb and tb:IsShown() then P.UpdateMemberTarget(tb, true) end
+	elseif event == "PLAYER_TARGET_CHANGED" then
 		for _, b in ipairs(P.all) do
 			if b:IsShown() then UpdateTarget(b) end
 		end
@@ -1341,6 +1430,10 @@ local function OnUpdate(_, elapsed)
 	if P.rangeClock >= RANGE_EVERY then
 		P.rangeClock = 0
 		for _, b in ipairs(P.all) do UpdateRange(b) end
+		-- A member's target sends no events of its own: read on the same clock.
+		for _, tb in ipairs(P.targets) do
+			if tb:IsShown() then P.UpdateMemberTarget(tb) end
+		end
 	end
 	local style = P.Style()
 	if style and style ~= "globes" then -- the grooves' liquid
@@ -1376,14 +1469,16 @@ function P.Init()
 	anchor:SetFrameStrata("LOW")
 	anchor:SetSize(200, 300)
 	P.anchor = anchor
-	P.members, P.pets, P.all, P.byUnit = {}, {}, {}, {}
+	P.members, P.pets, P.targets, P.all, P.byUnit = {}, {}, {}, {}, {}
 	for i = 1, MAX do
 		local b = MakeButton(anchor, "party" .. i, "SanctuaryUIParty" .. i, i, false)
 		local pet = MakeButton(anchor, "partypet" .. i, "SanctuaryUIPartyPet" .. i, i, true)
-		b.pet = pet
-		P.members[i], P.pets[i] = b, pet
+		local target = MakeButton(anchor, "party" .. i .. "target", "SanctuaryUIPartyTarget" .. i, i, true, true)
+		b.pet, b.target = pet, target
+		P.members[i], P.pets[i], P.targets[i] = b, pet, target
 		P.all[#P.all + 1] = b
 		P.all[#P.all + 1] = pet
+		P.all[#P.all + 1] = target
 		P.byUnit[b.unit], P.byUnit[pet.unit] = b, pet
 		MakeAuras(b)
 	end
