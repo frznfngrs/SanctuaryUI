@@ -104,6 +104,7 @@ local offset = 0 -- rows scrolled past
 local segment = "current" -- "current" | "overall" | a past fight's session ID
 local detail -- the player whose abilities are listed, or nil for the list of players
 local verdict -- the line under the list after a fight
+local verdictSID -- the fight it was written for; a newer fight hides it
 local unlockTicker
 
 ---------------------------------------------------------------------------
@@ -156,6 +157,13 @@ end
 local function Sessions()
 	local ok, list = pcall(API().GetAvailableCombatSessions)
 	return ok and type(list) == "table" and list or {}
+end
+
+-- The newest fight's session ID, or nil when the list can't be read.
+local function LatestSID()
+	local list = Sessions()
+	local last = list[#list]
+	return last and not Secret(last.sessionID) and last.sessionID or nil
 end
 
 local function Duration(seg)
@@ -666,7 +674,10 @@ function ns.Meter.Draw()
 	end
 
 	-- The verdict sits under the last rail; the panel (Glass and shadow) ends under both.
+	-- A fight you never entered combat for (others fighting near you) starts a new
+	-- session without clearing the old line, so it only shows over its own fight.
 	local showVerdict = verdict and Opt().verdict and not detail and segment == "current" and not inCombat and #entries > 0
+		and LatestSID() == verdictSID
 	holder.verdict:SetShown(showVerdict and true or false)
 	if showVerdict then
 		holder.verdict:SetWidth(math.max(360, Opt().width) - 16)
@@ -732,6 +743,7 @@ local function WaitForPlain()
 			ticker:Cancel()
 			unlockTicker = nil
 			if plain then
+				verdictSID = LatestSID()
 				pcall(Judge)
 				-- Save the fight, then let the records, streaks and rival have their say.
 				if ns.MeterHistory then
