@@ -49,6 +49,7 @@ Meter.lua
 MeterHistory.lua
 MeterGlory.lua
 MeterAnalysis.lua
+RunReport.lua
 MeterProbe.lua
 MapProbe.lua
 TotemProbe.lua

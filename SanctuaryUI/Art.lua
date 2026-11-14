@@ -45,6 +45,8 @@ ns.Art.slots = {
 	journal = { file = "journal.png", lazy = true },
 	-- The Cookbook's own header and tabs (Cookbook.lua); its page and pop-up are the journal's.
 	cookbook = { file = "cookbook.png", lazy = true },
+	-- The damage meter's Run Report (RunReport.lua): its header (crossed swords) and page tabs.
+	runReport = { file = "run-report.png", lazy = true },
 	mapMaskTorn = { file = "map-mask-torn.png", lazy = true },
 	mapMaskFade = { file = "map-mask-fade.png", lazy = true },
 	mapMaskRound = { file = "map-mask-round.png", lazy = true },

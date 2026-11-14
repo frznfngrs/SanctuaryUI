@@ -705,7 +705,7 @@ local function Slash(msg)
 			ns.Options.Open()
 		end
 	elseif cmd == "help" then
-		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n> (bars), globes <n>|match, bar 2-9 on|off, bind, pie [1-6] (pie menus), trinkets, swing (preview the swing timer), fish [chapter|log|outfit|outfit remember|words] (the angler's journal; log: what the game said while you fished; outfit: fishing gear on or off; anything else searches it), cook [chapter|words] (the Cookbook; anything else searches it), minimap, ring (preview the ally ring; totems: each totem's reach against your distance), map (overlay map; probe|peek for what the client allows; totems to probe group casts), test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, meter [analysis|glory|awards|test|reset|probe] (damage meter), proc (preview the proc highlight), aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), power [spell|off] (trace the resource globe against your casts), debug on|off, log, report [on|off], request (suggest a feature), updates [on|off] (new version notices over the realm channel)")
+		ns.Print("/sanctuary opens options. Commands: lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n> (bars), globes <n>|match, bar 2-9 on|off, bind, pie [1-6] (pie menus), trinkets, swing (preview the swing timer), fish [chapter|log|outfit|outfit remember|words] (the angler's journal; log: what the game said while you fished; outfit: fishing gear on or off; anything else searches it), cook [chapter|words] (the Cookbook; anything else searches it), minimap, ring (preview the ally ring; totems: each totem's reach against your distance), map (overlay map; probe|peek for what the client allows; totems to probe group casts), test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, meter [analysis|run [test|banner]|glory|awards|test|reset|probe] (damage meter; run: the Run Report), proc (preview the proc highlight), aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), power [spell|off] (trace the resource globe against your casts), debug on|off, log, report [on|off], request (suggest a feature), updates [on|off] (new version notices over the realm channel)")
 	elseif cmd == "grid" then
 		-- grid: toggle; grid on|off; grid <spacing>. The grid only shows while frames are
 		-- unlocked, so showing it unlocks them.
@@ -1045,6 +1045,14 @@ local function Slash(msg)
 			if not ok then ns.Print("meter probe failed: " .. tostring(err)) end
 		elseif sub == "analysis" or sub == "analyze" or sub == "details" then
 			ns.MeterAnalysis.Open()
+		elseif (sub == "run" or sub == "report" or sub:match("^run ") or sub:match("^report ")) and not ns.RunReport then
+			ns.Print("the run report loads after a full restart of the game (a new file).")
+		elseif sub == "run" or sub == "report" then
+			ns.RunReport.Open()
+		elseif sub == "run test" or sub == "run preview" or sub == "report test" then
+			ns.RunReport.Preview()
+		elseif sub == "run banner" then
+			ns.RunReport.PreviewBanner()
 		elseif sub == "glory" or sub == "surprises" then
 			ns.MeterGlory.Test()
 		elseif sub == "awards" then

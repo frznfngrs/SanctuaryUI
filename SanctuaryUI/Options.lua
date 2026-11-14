@@ -1460,7 +1460,7 @@ local function MeterArgs()
 			}),
 			after = Card(3, "After a fight", {
 				gloryBanners = Toggle(7, "Lines after a fight", "Top damage in a group fight, a streak of fights on top (3, 5, then every 5), and a new personal best: your damage per second on the same boss, or in a solo or group fight of 30 seconds or more.", "meter", "gloryBanners"),
-				gloryAwards = Toggle(9, "Run awards", "On leaving a dungeon or raid, who led each tally over the run, printed in your chat only. /sanctuary meter awards shows them early.", "meter", "gloryAwards"),
+				gloryAwards = Toggle(9, "Run awards in chat", "On leaving a dungeon or raid, who led each tally over the run, printed in your chat only. The Run Report shows them too. /sanctuary meter awards shows them early.", "meter", "gloryAwards"),
 			}),
 			lines = Card(4, "The lines", {
 				gloryScale = Range(11, "Text size", "The lines that appear beside the meter.", "meter", "gloryScale", 0.6, 1.8, 0.05, true),
@@ -1517,6 +1517,44 @@ local function MeterArgs()
 				},
 				forget = { type = "execute", order = 4, name = "Forget saved fights", desc = "Deletes this character's saved fights, personal bests, streak and rival tally.", confirm = true, func = function() ns.MeterHistory.Clear() end },
 			}),
+			runs = Card(2.5, "Run report", (function()
+			-- RunReport.lua is a new file: until the game is restarted it isn't loaded.
+			local function Run(name)
+				return function()
+					if ns.RunReport and ns.RunReport[name] then
+						ns.RunReport[name]()
+					else
+						ns.Print("the run report loads after a full restart of the game (a new file).")
+					end
+				end
+			end
+			return {
+				note = Note(1, "One dungeon or raid visit, page by page: the bosses and every attempt, each pull on a timeline, any player's abilities, every death with the blow that killed, and your past runs. Built from saved fights, so Save fights must be on. Also opened by the crossed swords on the meter's title, or /sanctuary meter run."),
+				open = Width({ type = "execute", order = 2, name = "Open the last run", func = Run("Open") }, THIRD),
+				preview = Width({ type = "execute", order = 2.5, name = "Preview", desc = "The report with a made-up Deadmines run and four before it, to see every page without a dungeon.", func = Run("Preview") }, THIRD),
+				bannerTest = Width({ type = "execute", order = 2.7, name = "Show the banner", desc = "The line that waits beside the meter when a run ends, with made-up numbers.", func = Run("PreviewBanner") }, THIRD),
+				runBanner = Toggle(3, "Banner when a run ends", "On leaving a dungeon or raid, \"Run complete\" with a Report button waits beside the meter until you click it or start the next pull. Nothing opens by itself.", "meter", "runBanner"),
+				runScale = (function()
+					local option = Range(4, "Window scale", "The whole window, text included.", "meter", "runScale", 0.5, 1.6, 0.05, true)
+					local set = option.set
+					option.set = function(...)
+						set(...)
+						if ns.RunReport then ns.RunReport.Relayout() end
+					end
+					return option
+				end)(),
+				runsKeep = {
+					type = "range", order = 5, name = "Runs kept", min = 5, max = 50, step = 1, width = "relative", relWidth = THIRD,
+					desc = "How many runs each character keeps for the report and its Past runs page. Kept apart from saved fights, so a long raid stays whole.",
+					get = function() return DB().meter.runsKeep end,
+					set = function(_, value)
+						DB().meter.runsKeep = value
+						ns.MeterHistory.TrimRuns()
+					end,
+				},
+				place = Width({ type = "execute", order = 6, name = "Reset position", desc = "Drag the report by its header to move it. This puts it back in the middle.", func = Run("ResetPosition") }, THIRD),
+			}
+			end)()),
 			analysis = Card(3, "Analysis window", {
 				note = Note(1, "Every fight the game still remembers, everyone in it side by side, and each player's abilities. Out of combat only. Also opened by shift-clicking the meter's title, or from its menus."),
 				open = { type = "execute", order = 2, name = "Open analysis", func = function() ns.MeterAnalysis.Open() end },

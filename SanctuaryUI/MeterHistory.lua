@@ -11,6 +11,17 @@ ns.MeterHistory = ns.MeterHistory or {}
 -- run (the instance visit), boss + kill when an encounter ended in it, size (players in it),
 -- p = players { n name, c class, me, d damage, dps, h healing, t taken, i interrupts, x dispels,
 -- a avoidable damage, b absorbs, k deaths }, largest damage first, and mine = your top abilities { id, v }.
+--
+-- Runs (a visit to one dungeon or raid, for RunReport.lua) are kept apart in m.runs, so trimming
+-- fights never takes one apart. One run: id, name (the instance), kind, diff, t0/t1 (door to
+-- door), done, old (built from saved fights before runs were kept: no abilities or death times),
+-- pulls = { t, dur, name, boss, kill, size, sid, epoch, gd (group damage), my (your dps), rank,
+-- top/topc (who led), k (deaths), dp = name -> dps, and for bosses p (the players, as a fight's)
+-- with best (your record after it) and nb (a new record) },
+-- players = name -> { n, c, me, the fight tallies added up, sec (seconds fought), pulls,
+-- sp = tally -> spellID -> { v, n (pulls it was used in), o (overkill), dl (killing blows),
+-- av (avoidable), from (who it came from, for damage taken) } }, order (names, first seen first),
+-- deaths = { pull, n, c, at (seconds into the pull), recap, by (killing spell), o, from }.
 
 local H = ns.MeterHistory
 local KEEP_DEFAULT, KEEP_MAX = 50, 250 -- fights kept per character (the "Fights kept" option)
@@ -19,6 +30,15 @@ local RECORD_SECONDS = 30 -- a personal best needs a fight at least this long, u
 local STREAK_SECONDS = 15
 local MY_ABILITIES = 12
 H.MY_ABILITIES = MY_ABILITIES
+local RUNS_DEFAULT, RUNS_MAX = 20, 50 -- runs kept per character (the "Runs kept" option)
+local TALLY = { "d", "h", "t", "i", "x", "a", "b", "k" }
+
+-- Everything the run report shows of each player, read for fights in a dungeon or raid: the
+-- tally, its short key, and how many abilities to keep (killing blows are always kept).
+local DEEP = {
+	{ "DamageDone", "d", 16 }, { "HealingDone", "h", 16 }, { "DamageTaken", "t", 14 },
+	{ "AvoidableDamageTaken", "a", 12 }, { "Absorbs", "b", 8 }, { "Interrupts", "i", 8 }, { "Dispels", "x", 8 },
+}
 
 local KINDS = {
 	{ "DamageDone", "d" }, { "HealingDone", "h" }, { "DamageTaken", "t" }, { "Interrupts", "i" },
@@ -32,7 +52,7 @@ local function Store()
 	if not char then return nil end
 	char.meter = char.meter or {}
 	local m = char.meter
-	m.fights, m.bests = m.fights or {}, m.bests or {}
+	m.fights, m.bests, m.runs = m.fights or {}, m.bests or {}, m.runs or {}
 	m.streak, m.epoch, m.run = m.streak or 0, m.epoch or 0, m.run or 0
 	m.rivalWins, m.rivalLosses = m.rivalWins or 0, m.rivalLosses or 0
 	return m
@@ -73,13 +93,54 @@ local function Snapshot()
 		end
 	end
 	local deaths = L.Fetch("current", Enum.DamageMeterType.Deaths)
+	local died = {}
 	for _, s in ipairs(deaths and deaths.combatSources or {}) do
 		if Secret(s.name) or Secret(s.sourceGUID) then return nil end
 		local p = byKey[Key(s) or false]
-		if p then p.k = (p.k or 0) + 1 end
+		if p then
+			p.k = (p.k or 0) + 1
+			died[#died + 1] = {
+				p = p,
+				at = not Secret(s.deathTimeSeconds) and s.deathTimeSeconds or nil,
+				recap = not Secret(s.deathRecapID) and s.deathRecapID ~= 0 and s.deathRecapID or nil,
+			}
+		end
 	end
 	table.sort(list, function(a, b) return (a.d or 0) > (b.d or 0) end)
-	return list
+	table.sort(died, function(a, b) return (a.at or 0) < (b.at or 0) end)
+	return list, died
+end
+
+-- One player's abilities for every tally the run report shows, read right after a fight in a
+-- dungeon or raid: short key -> { { id, v, o, dl, av, from } }, largest first. Nil while
+-- anything is still secret.
+local function Deep(guid)
+	local L = ns.Meter.Lib
+	if not guid then return nil end
+	local out = {}
+	for _, kind in ipairs(DEEP) do
+		local data = L.FetchSource("current", Enum.DamageMeterType[kind[1]], guid, nil)
+		local list = {}
+		for _, spell in ipairs(data and data.combatSpells or {}) do
+			if Secret(spell.totalAmount) or Secret(spell.spellID) then return nil end
+			local e = { id = spell.spellID, v = spell.totalAmount }
+			local over = spell.overkillAmount
+			if over ~= nil and not Secret(over) and over > 0 then e.o = over end
+			if spell.isDeadly ~= nil and not Secret(spell.isDeadly) and spell.isDeadly then e.dl = true end
+			if spell.isAvoidable ~= nil and not Secret(spell.isAvoidable) and spell.isAvoidable then e.av = true end
+			local d = spell.combatSpellDetails
+			local other = type(d) == "table" and d.unitName or nil
+			if (kind[2] == "t" or kind[2] == "a") and other ~= nil and not Secret(other) and other ~= "" then e.from = other end
+			list[#list + 1] = e
+		end
+		table.sort(list, function(a, b) return a.v > b.v end)
+		local kept = {}
+		for i, e in ipairs(list) do
+			if i <= kind[3] or e.dl then kept[#kept + 1] = e end
+		end
+		if #kept > 0 then out[kind[2]] = kept end
+	end
+	return out
 end
 
 local function MyAbilities(guid)
@@ -130,7 +191,7 @@ function H.Record()
 	local L = ns.Meter and ns.Meter.Lib
 	if not m or not L or not L.Available() then return nil end
 	if ns.DB().meter.history == false then return nil end
-	local players = Snapshot()
+	local players, died = Snapshot()
 	if not players then return nil end
 	local me, rank = Find(players, function(p) return p.me end)
 	if not me or ((me.d or 0) == 0 and (me.h or 0) == 0) then return nil end
@@ -163,6 +224,15 @@ function H.Record()
 	end
 	encounter = nil
 	fight.mine = MyAbilities(me.guid)
+	-- In a dungeon or raid, everyone's abilities too, for the run report.
+	local deep
+	if fight.run then
+		deep = {}
+		for _, p in ipairs(players) do
+			local ok, spells = pcall(Deep, p.guid)
+			if ok and spells then deep[p.n] = spells end
+		end
+	end
 	for _, p in ipairs(players) do p.guid = nil end
 	m.fights[#m.fights + 1] = fight
 	H.Trim()
@@ -211,7 +281,182 @@ function H.Record()
 		if won then m.rivalWins = m.rivalWins + 1 else m.rivalLosses = m.rivalLosses + 1 end
 		outcome.rival = { name = rival.n, class = rival.c, won = won, wins = m.rivalWins, losses = m.rivalLosses }
 	end
+	if fight.run then
+		local ok, err = pcall(H.AddToRun, m, fight, rank, outcome, deep, died)
+		if not ok then ns.Log("meter run: %s", tostring(err)) end
+	end
 	return fight, outcome
+end
+
+---------------------------------------------------------------------------
+-- Runs
+
+function H.Runs()
+	local m = Store()
+	return m and m.runs or {}
+end
+
+function H.RunById(id)
+	local m = Store()
+	if not m or id == nil then return nil end
+	for i = #m.runs, 1, -1 do
+		if m.runs[i].id == id then return m.runs[i] end
+	end
+end
+
+-- The run going on now, else the last one.
+function H.LatestRun()
+	local m = Store()
+	return m and m.runs[#m.runs] or nil
+end
+
+function H.TrimRuns()
+	local m = Store()
+	if not m then return end
+	local keep = math.max(1, math.min(RUNS_MAX, tonumber(ns.DB().meter.runsKeep) or RUNS_DEFAULT))
+	while #m.runs > keep do table.remove(m.runs, 1) end
+end
+
+local function NewRun(m, fight)
+	local name, kind, diff
+	if GetInstanceInfo then
+		local ok, n, k, _, d = pcall(GetInstanceInfo)
+		if ok then name, kind, diff = n, k, d end
+	end
+	if name == nil or Secret(name) or name == "" then name = fight.zone end
+	if kind ~= nil and Secret(kind) then kind = nil end
+	if diff ~= nil and (Secret(diff) or diff == "") then diff = nil end
+	local r = {
+		id = fight.run, name = name or "Dungeon", kind = kind, diff = diff,
+		t0 = (m.runStart and m.runStartId == fight.run) and m.runStart or (fight.t - (fight.dur or 0)),
+		t1 = fight.t, pulls = {}, players = {}, order = {}, deaths = {},
+	}
+	m.runs[#m.runs + 1] = r
+	H.TrimRuns()
+	return r
+end
+
+local function Totals(r, p)
+	local a = r.players[p.n]
+	if not a then
+		a = { n = p.n, c = p.c, sec = 0, pulls = 0, sp = {} }
+		r.players[p.n] = a
+		r.order[#r.order + 1] = p.n
+	end
+	if p.me then a.me = true end
+	return a
+end
+
+-- Add a fight just saved to its run: the pull, everyone's totals and abilities, the deaths.
+function H.AddToRun(m, fight, rank, outcome, deep, died)
+	local r = H.RunById(fight.run) or NewRun(m, fight)
+	local players = fight.p
+	local group = 0
+	for _, p in ipairs(players) do group = group + (p.d or 0) end
+	local pull = {
+		t = fight.t, dur = fight.dur, name = fight.name, boss = fight.boss, kill = fight.kill, size = fight.size,
+		sid = fight.sid, epoch = fight.epoch, gd = group, my = outcome and outcome.dps, rank = rank,
+		top = players[1] and players[1].n, topc = players[1] and players[1].c, k = 0, dp = {},
+	}
+	for _, p in ipairs(players) do
+		pull.dp[p.n] = p.dps or (fight.dur > 0 and (p.d or 0) / fight.dur) or 0
+		pull.k = pull.k + (p.k or 0)
+		local a = Totals(r, p)
+		for _, k in ipairs(TALLY) do a[k] = (a[k] or 0) + (p[k] or 0) end
+		a.sec, a.pulls = a.sec + (fight.dur or 0), a.pulls + 1
+		for short, list in pairs(deep and deep[p.n] or {}) do
+			r.deep = true
+			local into = a.sp[short] or {}
+			a.sp[short] = into
+			for _, e in ipairs(list) do
+				local t = into[e.id]
+				if not t then
+					t = { v = 0, n = 0 }
+					into[e.id] = t
+				end
+				t.v, t.n = t.v + e.v, t.n + 1
+				if e.o then t.o = (t.o or 0) + e.o end
+				if e.dl then t.dl = (t.dl or 0) + 1 end
+				if e.av then t.av = true end
+				if e.from then t.from = e.from end
+			end
+		end
+	end
+	if fight.boss then
+		pull.p = {}
+		for i, p in ipairs(players) do
+			local copy = {}
+			for k, v in pairs(p) do copy[k] = v end
+			pull.p[i] = copy
+		end
+		pull.best = (H.BestFor(fight))
+		pull.nb = outcome and outcome.best ~= nil or nil
+	end
+	r.pulls[#r.pulls + 1] = pull
+	r.t1 = fight.t
+
+	-- Deaths, each with the blow that killed: the game marks the killing abilities in a player's
+	-- damage taken (one per death, in no promised order), so a player's deaths take them in turn.
+	local taken = {}
+	for _, d in ipairs(died or {}) do
+		local n = d.p.n
+		local spells = deep and deep[n] and deep[n].t
+		local by, over, from
+		if spells then
+			local want, seen = (taken[n] or 0), 0
+			for _, e in ipairs(spells) do
+				if e.dl then
+					if seen == want then
+						by, over, from = e.id, e.o, e.from
+						break
+					end
+					seen = seen + 1
+				end
+			end
+			taken[n] = want + 1
+		end
+		r.deaths[#r.deaths + 1] = { pull = #r.pulls, n = n, c = d.p.c, at = d.at, recap = d.recap, by = by, o = over, from = from }
+	end
+	if ns.RunReport and ns.RunReport.Changed then ns.RunReport.Changed(r) end
+end
+
+-- Runs from fights saved before runs were kept: totals and pulls, no abilities or death times.
+local function Backfill(m)
+	if m.runsBuilt then return end
+	m.runsBuilt = true
+	if #m.runs > 0 then return end
+	local byId = {}
+	for _, f in ipairs(m.fights) do
+		if f.run and f.p then
+			local r = byId[f.run]
+			if not r then
+				r = { id = f.run, name = f.zone or "Dungeon", t0 = f.t - (f.dur or 0), pulls = {}, players = {}, order = {},
+					deaths = {}, done = true, old = true }
+				byId[f.run] = r
+				m.runs[#m.runs + 1] = r
+			end
+			local rank, group = 1, 0
+			for i, p in ipairs(f.p) do
+				group = group + (p.d or 0)
+				if p.me then rank = i end
+			end
+			local pull = { t = f.t, dur = f.dur, name = f.name, boss = f.boss, kill = f.kill, size = f.size, sid = f.sid,
+				epoch = f.epoch, gd = group, my = H.MyDps(f), rank = rank, top = f.p[1] and f.p[1].n, topc = f.p[1] and f.p[1].c,
+				k = 0, dp = {} }
+			for _, p in ipairs(f.p) do
+				pull.dp[p.n] = p.dps or ((f.dur or 0) > 0 and (p.d or 0) / f.dur) or 0
+				pull.k = pull.k + (p.k or 0)
+				local a = Totals(r, p)
+				for _, k in ipairs(TALLY) do a[k] = (a[k] or 0) + (p[k] or 0) end
+				a.sec, a.pulls = a.sec + (f.dur or 0), a.pulls + 1
+			end
+			if f.boss then pull.p = f.p end
+			r.pulls[#r.pulls + 1] = pull
+			r.t1 = f.t
+		end
+	end
+	if m.inRun and byId[m.run] then byId[m.run].done = nil end
+	H.TrimRuns()
 end
 
 ---------------------------------------------------------------------------
@@ -331,7 +576,18 @@ function H.Awards(run)
 	if not m then return nil end
 	run = run or m.run
 	local totals, order, fights, topped = {}, {}, 0, 0
-	for _, f in ipairs(m.fights) do
+	local record = type(run) == "table" and run or H.RunById(run)
+	if record then
+		-- The run's own record: whole however many fights have been trimmed since.
+		for _, pull in ipairs(record.pulls) do
+			if (pull.size or 0) > 1 then
+				fights = fights + 1
+				if pull.rank == 1 then topped = topped + 1 end
+			end
+		end
+		for _, n in ipairs(record.order) do order[#order + 1] = record.players[n] end
+	end
+	for _, f in ipairs(record and {} or m.fights) do
 		if f.run == run and f.size > 1 then
 			fights = fights + 1
 			if f.p[1] and f.p[1].me then topped = topped + 1 end
@@ -349,6 +605,11 @@ function H.Awards(run)
 		end
 	end
 	if fights < 3 or #order < 2 then return nil end
+	return H.AwardsFrom(order), fights, topped
+end
+
+-- Who led each tally among a list of players' totals.
+function H.AwardsFrom(order)
 	local function Most(k)
 		local top
 		for _, t in ipairs(order) do
@@ -364,13 +625,14 @@ function H.Awards(run)
 		local top = Most(a[1])
 		if top then awards[#awards + 1] = { title = a[2], name = top.n, class = top.c, me = top.me, value = top[a[1]], count = a[1] == "i" or a[1] == "x" or a[1] == "k" } end
 	end
-	return awards, fights, topped
+	return awards
 end
 
 function H.Clear()
 	local m = Store()
 	if not m then return end
 	m.fights, m.bests, m.streak, m.rivalWins, m.rivalLosses = {}, {}, 0, 0, 0
+	m.runs = {}
 end
 
 function H.ResetRival()
@@ -379,7 +641,8 @@ function H.ResetRival()
 end
 
 function H.Init()
-	Store()
+	local store = Store()
+	if store then pcall(Backfill, store) end
 	local events = CreateFrame("Frame")
 	for _, event in ipairs({ "ENCOUNTER_START", "ENCOUNTER_END", "DAMAGE_METER_RESET", "PLAYER_ENTERING_WORLD" }) do
 		pcall(events.RegisterEvent, events, event)
@@ -418,12 +681,17 @@ function H.Init()
 			-- true: a run saved before runs kept their instance (or the client wouldn't say).
 			local same = was ~= nil and inside and (was == true or id == true or was == id)
 			if was ~= nil and not same and (inside or not UnitIsDeadOrGhost("player")) then
+				local ended = H.RunById(m.run)
+				if ended then ended.done, ended.t1 = true, time() end
 				if ns.MeterGlory and ns.MeterGlory.RunEnded then pcall(ns.MeterGlory.RunEnded, m.run) end
 				was = nil
 				m.inRun = nil
 			end
 			if inside then
-				if was == nil then m.run = m.run + 1 end
+				if was == nil then
+					m.run = m.run + 1
+					m.runStart, m.runStartId = time(), m.run -- door to door starts at the door
+				end
 				m.inRun = id
 			end
 		end

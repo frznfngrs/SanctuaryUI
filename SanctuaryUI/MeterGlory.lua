@@ -11,7 +11,8 @@ ns.MeterGlory = ns.MeterGlory or {}
 --     a banner for finishing on top, for a streak of fights on top, and for a personal best;
 --     your rail turns molten while a streak of three or more stands;
 --     the rival named in the options gets a running tally under the list.
---   Leaving a dungeon or raid: awards for the run, in chat.
+--   Leaving a dungeon or raid: a "Run complete" line with a button for the Run Report
+--     (RunReport.lua), and the awards in chat if asked for.
 
 local G = ns.MeterGlory
 local SETTLE = 6 -- seconds into a fight before the lead counts
@@ -274,13 +275,18 @@ function G.Awards(run, quiet)
 		local value = a.count and tostring(a.value) or L.Short(a.value)
 		ns.Print(("  %s: %s%s|r (%s)"):format(a.title, a.me and "|cffe8c77a" or "|cffffffff", Name(a.name, a.class), value))
 	end
-	if On("gloryBanners") then
+	if On("gloryBanners") and Opt().runBanner == false then
 		G.Banner("Run complete", ("You topped %d of %d fights. The awards are in chat."):format(topped, fights), SOUND.top)
 	end
 end
 
 function G.RunEnded(run)
-	if Opt().glory and Opt().gloryAwards ~= false then G.Awards(run, true) end
+	local opt = Opt()
+	if opt.enabled and opt.runBanner ~= false and ns.RunReport and ns.RunReport.RunEnded then
+		local ok, err = pcall(ns.RunReport.RunEnded, run)
+		if not ok then ns.Log("run banner: %s", tostring(err)) end
+	end
+	if opt.glory and opt.gloryAwards then G.Awards(run, true) end
 end
 
 -- /sanctuary meter glory: every surprise once, with made-up names, to see and hear them.

@@ -21,6 +21,10 @@
     in the medallion) and tabs, in the same places; `build_journal_art.py cookbook` makes
     only this one.
 
+  run-report.png 1024x1024 (the damage meter's Run Report, RunReport.lua): its own header (two
+    crossed swords in ember glass, the meter's mark) and its pages' tabs, in the same places;
+    `build_journal_art.py runreport` makes only this one.
+
 Run: PYTHONPATH=<deps> python tools/build_journal_art.py   (numpy, scipy, pillow)
 """
 from __future__ import annotations
@@ -498,10 +502,118 @@ def cookbook() -> None:
     print("wrote", OUT / "cookbook.png")
 
 
+# ---------------------------------------------------------------------------
+# The Run Report (SanctuaryUI/RunReport.lua): run-report.png holds its own header (two crossed
+# swords in ember glass) and its pages' tabs, laid out like journal.png's.
+
+# Summary (journal), pulls (tome), bosses (goblet), players (rising hero), dangers (eye), past
+# runs (chest).
+RUN_TABS = [9, 27, 10, 24, 8, 19]
+
+
+def sword_shapes(s: float, angle: float):
+    """Polygons for one sword, point up, drawn about the glass centre and turned by angle
+    (radians): blade, fuller, crossguard, grip, pommel. s: pixels per glass unit."""
+    def P(x, y):
+        # The blades cross a third of the way down, not at the guards.
+        y = (y + 13) * 0.86
+        x = x * 0.86
+        c, n = math.cos(angle), math.sin(angle)
+        return ((x * c - y * n) * s, (x * n + y * c) * s)
+
+    blade = [P(0, -40), P(4.0, -33), P(4.0, 10), P(-4.0, 10), P(-4.0, -33)]
+    fuller = [P(0, -30), P(0.9, -28), P(0.9, 7), P(-0.9, 7), P(-0.9, -28)]
+    guard = [P(-11, 10), P(11, 10), P(13, 13), P(11, 16), P(-11, 16), P(-13, 13)]
+    grip = [P(-2.4, 16), P(2.4, 16), P(2.4, 27), P(-2.4, 27)]
+    pommel = [P(3.6 * math.cos(a), 30.5 + 3.6 * math.sin(a)) for a in np.linspace(0, 2 * math.pi, 18)]
+    return blade, fuller, guard, grip, pommel
+
+
+def run_header() -> Image.Image:
+    """D3's inventory header with two crossed swords leaded into ember-red glass."""
+    head = Image.open(OUT / "bag-frame.png").convert("RGBA").crop((0, 0, 600, 155))
+    ss = 6
+    R = int(GLASS_R + 2)
+    size = 2 * R
+    S = size * ss
+    yy, xx = np.mgrid[0:S, 0:S].astype(np.float32) / ss - R
+    r = np.hypot(xx, yy)
+    # Ember glass: dark crimson at the rim, a fire's orange at the heart, mottled like D3's.
+    mott = noise((S, S), 2.5 * ss, 31) * 0.5 + noise((S, S), 0.8 * ss, 32) * 0.25
+    heat = np.clip(1 - r / (R * 0.95), 0, 1)[..., None] ** 1.8
+    base = np.array([70, 10, 6]) * (1 - heat) + np.array([196, 66, 18]) * heat
+    glass = base * (1 + mott[..., None] * 0.35)
+    canvas = Image.fromarray(glass.clip(0, 255).astype(np.uint8), "RGB").convert("RGBA")
+    d = ImageDraw.Draw(canvas)
+    lead = (22, 16, 12, 255)
+    for a in np.linspace(0, 2 * math.pi, 9)[:-1] + 0.39:  # spokes, as the original's glass
+        d.line([((R + 20 * math.cos(a)) * ss, (R + 20 * math.sin(a)) * ss),
+                ((R + 44 * math.cos(a)) * ss, (R + 44 * math.sin(a)) * ss)], fill=lead, width=int(1.4 * ss))
+    sw = S
+    layer = Image.new("RGBA", (sw, sw), (0, 0, 0, 0))
+    fy, fx = np.mgrid[0:sw, 0:sw].astype(np.float32)
+    fn = noise((sw, sw), 1.6 * ss, 33)
+    shine = np.clip(1 - np.hypot((fx - sw * 0.40) / (sw * 0.55), (fy - sw * 0.35) / (sw * 0.55)), 0, 1)[..., None]
+
+    def fill(polys, color):
+        m = Image.new("L", (sw, sw), 0)
+        md = ImageDraw.Draw(m)
+        for poly in polys:
+            md.polygon([(x + R * ss, y + R * ss) for x, y in poly], fill=255)
+        mask = np.asarray(m, np.float32) / 255
+        col = color * (1 + fn[..., None] * 0.10)
+        layer.alpha_composite(rgba(col, mask))
+
+    steel = np.concatenate([150 + 90 * shine, 162 + 84 * shine, 178 + 70 * shine], -1)
+    gold = np.concatenate([196 + 50 * shine, 140 + 60 * shine, 40 + 40 * shine], -1)
+    leather = np.concatenate([96 + 40 * shine, 56 + 26 * shine, 30 + 14 * shine], -1)
+    swords = [sword_shapes(ss * 0.98, a) for a in (-0.72, 0.72)]
+    for blade, fuller, guard, grip, pommel in swords:
+        fill([blade], steel)
+        fill([fuller], steel * 0.72)
+        fill([grip], leather)
+        fill([guard, pommel], gold)
+        ld = ImageDraw.Draw(layer)
+        for poly in (blade, guard, grip, pommel):
+            pts = [(x + R * ss, y + R * ss) for x, y in poly]
+            ld.line(pts + [pts[0]], fill=lead, width=int(1.4 * ss), joint="curve")
+    canvas.alpha_composite(layer)
+    small = canvas.resize((size, size), Image.LANCZOS)
+    hx, hy = MEDAL
+    hp = np.asarray(head).astype(np.float32)
+    sp = np.asarray(small).astype(np.float32)
+    x0, y0 = int(round(hx - R)), int(round(hy - R))
+    for y in range(size):
+        for x in range(size):
+            X, Y = x0 + x, y0 + y
+            dr = math.hypot(X + 0.5 - hx, Y + 0.5 - hy)
+            if dr > GLASS_R + 0.6:
+                continue
+            if ((X + 0.5 - CHIN[0]) / CHIN[2]) ** 2 + ((Y + 0.5 - CHIN[1]) / CHIN[3]) ** 2 < 1:
+                continue  # the gargoyle's chin hangs over the glass
+            k = min(1.0, GLASS_R + 0.6 - dr)  # soft rim
+            hp[Y, X, :3] = hp[Y, X, :3] * (1 - k) + sp[y, x, :3] * k
+    return Image.fromarray(hp.clip(0, 255).astype(np.uint8), "RGBA")
+
+
+def run_report() -> None:
+    atlas = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
+    atlas.alpha_composite(run_header(), (0, 0))
+    global TABS
+    journal_tabs, TABS = TABS, RUN_TABS
+    tabs(atlas)
+    TABS = journal_tabs
+    atlas.save(OUT / "run-report.png")
+    print("wrote", OUT / "run-report.png")
+
+
 def main() -> None:
     import sys
     if "cookbook" in sys.argv[1:]:  # only the Cookbook's atlas
         cookbook()
+        return
+    if "runreport" in sys.argv[1:]:  # only the Run Report's atlas
+        run_report()
         return
     atlas = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
     atlas.alpha_composite(header(), (0, 0))
@@ -512,6 +624,7 @@ def main() -> None:
     atlas.save(OUT / "journal.png")
     print("wrote", OUT / "journal.png")
     cookbook()
+    run_report()
 
 
 if __name__ == "__main__":

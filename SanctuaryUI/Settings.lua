@@ -485,6 +485,11 @@ ns.DEFAULTS = {
 			analysis = { w = 2200, h = 1080, left = 360, mid = 1010 },
 			history = true, -- save each fight per character (MeterHistory.lua)
 			historyKeep = 50, -- how many, at most 250; the oldest go first
+			-- the Run Report (RunReport.lua): one dungeon or raid visit, page by page
+			runBanner = true, -- "Run complete" with a Report button beside the meter when a run ends
+			runScale = 1, -- the window, on top of its own base size
+			runsKeep = 20, -- runs kept per character, at most 50
+			runPos = { moved = false },
 			-- the competitive side (MeterGlory.lua), all on your own screen
 			glory = true,
 			gloryLead = true, -- taking and losing the lead mid-fight
@@ -494,7 +499,7 @@ ns.DEFAULTS = {
 			gloryStatues = true, -- the console statues' eyes while you lead
 			gloryStreakRail = true, -- your rail turns molten on a streak of three
 			gloryGroupOnly = true, -- lead changes only while in a group
-			gloryAwards = true, -- awards in chat on leaving a dungeon or raid
+			gloryAwards = false, -- awards in chat on leaving a dungeon or raid (the Run Report has them)
 			gloryScale = 1, -- the banner
 			rival = "", -- a player's name to keep a tally against
 			rows = 5,

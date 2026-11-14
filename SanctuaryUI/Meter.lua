@@ -1094,10 +1094,38 @@ local function Build()
 		end
 	end)
 	holder.open = open
-	-- The meter's page in the options, left of the analysis button.
+	-- The Run Report's button, left of the analysis: the medallion's crossed swords.
+	local runButton = CreateFrame("Button", nil, over)
+	runButton:SetSize(34, 34)
+	runButton:SetPoint("RIGHT", open, "LEFT", -6, 0)
+	runButton.icon = runButton:CreateTexture(nil, "ARTWORK")
+	runButton.icon:SetAllPoints()
+	if ns.Art.Require("runReport") and ns.Art.Apply(runButton.icon, "runReport") then
+		-- The glass inside the medallion's ring (centre 299, 83 on the header).
+		runButton.icon:SetTexCoord(263 / 1024, 335 / 1024, 47 / 1024, 119 / 1024)
+	else
+		runButton.icon:SetTexture("Interface\\Icons\\Ability_DualWield")
+		runButton.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	end
+	runButton:SetScript("OnEnter", function(self)
+		self.icon:SetVertexColor(1.25, 1.2, 1.1)
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip:SetText("Run report")
+		GameTooltip:AddLine("The last dungeon or raid run, page by page: bosses, pulls, players, deaths and past runs.", 1, 1, 1, true)
+		GameTooltip:Show()
+	end)
+	runButton:SetScript("OnLeave", function(self)
+		self.icon:SetVertexColor(1, 1, 1)
+		GameTooltip_Hide()
+	end)
+	runButton:SetScript("OnClick", function()
+		if ns.RunReport and ns.RunReport.Toggle then ns.RunReport.Toggle() end
+	end)
+	holder.runButton = runButton
+	-- The meter's page in the options, left of the run button.
 	local gear = CreateFrame("Button", nil, over)
 	gear:SetSize(30, 30)
-	gear:SetPoint("RIGHT", open, "LEFT", -6, 0)
+	gear:SetPoint("RIGHT", runButton, "LEFT", -6, 0)
 	gear.icon = gear:CreateTexture(nil, "ARTWORK")
 	gear.icon:SetAllPoints()
 	gear.icon:SetTexture("Interface\\WorldMap\\Gear_64Grey")
