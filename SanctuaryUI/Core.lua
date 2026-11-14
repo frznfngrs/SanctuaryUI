@@ -679,6 +679,7 @@ function ns.Check()
 		if ns.StatueEyes then ns.Print(ns.StatueEyes.Status()) end
 		if ns.Party and ns.Party.DispelStatus then ns.Print(ns.Party.DispelStatus()) end
 	end
+	if ns.Blizzard and ns.Blizzard.DispatchStatus then ns.Print(ns.Blizzard.DispatchStatus()) end
 	local key = GetBindingKey("ACTIONBUTTON1")
 	ns.Print("ACTIONBUTTON1 is bound to " .. (key or "nothing"))
 	if ns.ActionBar and ns.ActionBar.primary then

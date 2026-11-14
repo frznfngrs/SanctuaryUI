@@ -174,12 +174,105 @@ local function WatchHelpTips()
 	end)
 end
 
+-- Blizzard's shared action bar dispatchers (#20-#22). Silencing the hidden bars (SILENCED) was
+-- not enough: a druid tester still got hundreds of blocked calls per form shift in combat,
+-- Blizzard's gamepad bars among them, which SanctuaryUI never touches. Those come through
+-- three frames every bar shares: ActionBarController (paging, stance, possess and override
+-- bars on every form or page change), ActionBarButtonEventsFrame and ActionBarActionEventsFrame
+-- (one event loop over every action button in the game). Once one step of such a loop is
+-- tainted, every later button in it is blocked too. ElvUI's build for this client shuts all
+-- three down; here the controller goes (it only drives bars SanctuaryUI hides), and the button
+-- loops lose the buttons of hidden bars and the unused gamepad bars, so Blizzard bars the player
+-- still uses keep updating. The extra action button and the gamepad class button stay, as in
+-- ElvUI (the latter errors without its PLAYER_ENTERING_WORLD).
+local DISPATCHERS = { "ActionBarButtonEventsFrame", "ActionBarActionEventsFrame" }
+local dispatchPruned = false
+
+local function GamepadActive()
+	local types = Enum and Enum.InputDeviceInterfaceType
+	local style = C_InputInterfaceStyle and C_InputInterfaceStyle.GetCurrentStyle
+	if not types or not style then return false end
+	local ok, current = pcall(style)
+	return ok and current ~= nil and current == types.Gamepad
+end
+
+local function FrameName(frame)
+	if type(frame) ~= "table" or type(frame.GetName) ~= "function" then return nil end
+	local ok, name = pcall(frame.GetName, frame)
+	return ok and type(name) == "string" and name or nil
+end
+
+local function Unwanted(frame)
+	if type(frame) ~= "table" then return false end
+	local name = FrameName(frame)
+	if name and (name:match("^ExtraActionButton%d") or name == "GamepadMainActionBarFramePageUnitLeftClassAction") then
+		return false
+	end
+	if HiddenByUs(frame) then return true end
+	return name ~= nil and name:match("^Gamepad") ~= nil and not GamepadActive()
+end
+
+-- Entries are frames in a list or keyed by the frame; either way, the unwanted ones go.
+local function PruneDispatcher(owner, only)
+	local frames = owner and rawget(owner, "frames")
+	if type(frames) ~= "table" then return 0 end
+	local count = 0
+	for key, value in pairs(frames) do
+		local frame = type(value) == "table" and value or (type(key) == "table" and key or nil)
+		if frame and (only == nil or frame == only) and Unwanted(frame) then
+			frames[key] = nil
+			count = count + 1
+		end
+	end
+	return count
+end
+
+function ns.Blizzard.PruneDispatchers()
+	local total = 0
+	for _, name in ipairs(DISPATCHERS) do
+		local owner = _G[name]
+		if owner then
+			total = total + PruneDispatcher(owner)
+			if not rawget(owner, "sanctuaryHooked") and type(owner.RegisterFrame) == "function" then
+				owner.sanctuaryHooked = true
+				hooksecurefunc(owner, "RegisterFrame", function(self, frame)
+					PruneDispatcher(self, frame)
+				end)
+			end
+		end
+	end
+	if total > 0 then dispatchPruned = true end
+	ns.Blizzard.prunedCount = (ns.Blizzard.prunedCount or 0) + total
+	return total
+end
+
+-- For /sanctuary check.
+function ns.Blizzard.DispatchStatus()
+	return ("Blizzard bar events: controller %s, %d button(s) taken out of the shared loops%s"):format(
+		ns.Blizzard.controllerQuiet and "quiet" or "running", ns.Blizzard.prunedCount or 0,
+		GamepadActive() and ", gamepad active" or "")
+end
+
+-- The controller only pages and shows the main, stance, possess and override bars, which are
+-- hidden for good. Kept: SETTINGS_LOADED (the page controller needs it to start) and
+-- UPDATE_EXTRA_ACTIONBAR (the extra action button), as in ElvUI. Left alone with a gamepad,
+-- whose crossbar it drives.
+local function QuietController()
+	local controller = _G.ActionBarController
+	if ns.Blizzard.controllerQuiet or not controller or GamepadActive() then return end
+	ns.Blizzard.controllerQuiet = true
+	pcall(controller.UnregisterAllEvents, controller)
+	pcall(controller.RegisterEvent, controller, "SETTINGS_LOADED")
+	pcall(controller.RegisterEvent, controller, "UPDATE_EXTRA_ACTIONBAR")
+end
+
 function ns.Blizzard.Hide()
 	if InCombatLockdown() then return end
 	if not ns.Hider then
 		ns.Hider = CreateFrame("Frame", "SanctuaryUIHider", UIParent)
 		ns.Hider:Hide()
 	end
+	QuietController()
 	for i = 1, #FRAME_NAMES do
 		local name = FRAME_NAMES[i]
 		local frame = _G[name]
@@ -220,6 +313,7 @@ function ns.Blizzard.Hide()
 	end
 	WatchHelpTips()
 	ns.Blizzard.CloseOrphanTips()
+	ns.Blizzard.PruneDispatchers()
 end
 
 local function Restore(frame, parent)
@@ -306,6 +400,7 @@ function ns.Blizzard.Replaced()
 	if InCombatLockdown() then return end
 	local db = ns.DB()
 	local pages = RowPages(db)
+	local hidMulti, gaveBack = false, {}
 	for name, page in pairs(MULTI_BARS) do
 		local frame = _G[name]
 		if frame then
@@ -315,13 +410,19 @@ function ns.Blizzard.Replaced()
 				pcall(frame.SetParent, frame, ns.Hider)
 				pcall(Suppress, frame)
 				if not multiSilenced[name] then
+					-- All its events, as ElvUI does: only the combat and grid ones (0.19.2)
+					-- still left it showing and hiding buttons in combat (#20).
 					multiSilenced[name] = true
-					for _, event in ipairs(MultiEvents(frame)) do pcall(frame.UnregisterEvent, frame, event) end
+					Silence(frame)
+					hidMulti = true
 				end
 			elseif frame:GetParent() == ns.Hider then
 				if multiSilenced[name] then
 					multiSilenced[name] = nil
 					for _, event in ipairs(MultiEvents(frame)) do pcall(frame.RegisterEvent, frame, event) end
+					-- Its buttons left the shared event loops while hidden (PruneDispatchers),
+					-- and putting them back from here would taint those loops: a reload does it.
+					if dispatchPruned then gaveBack[#gaveBack + 1] = name end
 				end
 				-- Given back as Blizzard left it: shown only if its own state says so (the
 				-- Show override isn't called from here, see RawHide). A bar with combat
@@ -349,5 +450,11 @@ function ns.Blizzard.Replaced()
 				Restore(frame, UIParent)
 			end
 		end
+	end
+	if hidMulti then ns.Blizzard.PruneDispatchers() end
+	if #gaveBack > 0 then
+		table.sort(gaveBack)
+		ns.Print(("Blizzard's %s %s back. /reload to have its buttons update again."):format(
+			table.concat(gaveBack, ", "), #gaveBack == 1 and "bar is" or "bars are"))
 	end
 end
