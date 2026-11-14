@@ -865,6 +865,30 @@ local function TrinketArgs()
 end
 
 -- Options > Professions > Fishing tools (Fishing.lua).
+-- A key field for a fishing binding. A bare left or right click can't be caught here (the field
+-- uses those to start and stop listening), and a mouse button taken off the binding goes back
+-- to moving and turning the camera rather than to nothing.
+local function FishKeyField(order, name, binding, desc)
+	local field = KeyField(order, name, binding)
+	local set = field.set
+	field.desc = desc
+	field.set = function(info, key)
+		local before = { GetBindingKey(binding) }
+		set(info, key)
+		if InCombatLockdown() then return end
+		local fixed = false
+		for _, old in ipairs(before) do
+			local action = ns.Fishing.MOUSE_ACTIONS[old]
+			if action and (GetBindingAction(old) or "") == "" then
+				SetBinding(old, action)
+				fixed = true
+			end
+		end
+		if fixed then SaveBindings_() end
+	end
+	return field
+end
+
 local function FishingToolsArgs()
 	local function F() return ns.Fishing end
 	return {
@@ -874,15 +898,22 @@ local function FishingToolsArgs()
 			autoLure = Toggle(2, "Lure on the same click", "With no lure on the pole, the double-click puts the best lure in your bags on first; the next one casts.", "fishing", "autoLure"),
 			autoLoot = Toggle(3, "Loot catches", "Take everything from the bobber at once. Off, or with the game's own auto loot on, nothing changes.", "fishing", "autoLoot"),
 			lureWarn = Toggle(4, "Lure warning", "A message and a chime a minute before your lure runs out, while you fish.", "fishing", "lureWarn"),
-			key = Note(5, "One key does it all: bind Key Bindings > AddOns > \"Fish (outfit, lure, cast, hook)\". Each press does the next thing: your fishing outfit on, a lure on, a cast, and while the line is out, a hook. If double-clicking doesn't cast, /sanctuary fish clicks shows what the addon saw."),
-			oneKey = Toggle(6, "The key hooks the bobber too", "While your line is out, the Fishing key works as the game's Interact with Target, which picks the bobber when it's the nearest thing you can interact with. Needs the set-up on the right.", "fishing", "oneKey"),
+			key = Note(5, "One key does it all. Each press does the next thing: your fishing outfit on, a lure on, a cast, and while the line is out, a hook. To change the key, click the box and press a new one; Escape clears it. It's also in Key Bindings > AddOns. If double-clicking doesn't cast, /sanctuary fish clicks shows what the addon saw."),
+			fishKey = Width(FishKeyField(5.1, "Fishing key", "CLICK SanctuaryUIFishingCast:LeftButton", "Fish (outfit, lure, cast, hook). Click, then press a key, a modified click or a side mouse button. Escape clears it."), HALF),
+			outfitKey = Width(FishKeyField(5.2, "Outfit on / off key", "SANCTUARYUIFISHOUTFIT", "Puts your fishing outfit on, or takes it off. Click, then press a key. Escape clears it."), HALF),
+			oneKey = Toggle(6, "The key hooks the bobber too", "While your line is out, the Fishing key works as the game's Interact with Target, which picks the bobber when it's the nearest thing you can interact with. Needs the interact set-up below.", "fishing", "oneKey"),
 			interact = Width({
 				type = "execute", order = 7,
-				name = function() return F().InteractReady() and "Interact key: set up" or "Set up the interact key" end,
+				name = "Set up the interact key",
 				desc = "Turns on the game's soft targeting for its Interact key and lets it reach 30 yards, so it finds your bobber. It changes Blizzard settings, so it asks first and reloads.",
-				disabled = function() return F().InteractReady() end,
+				hidden = function() return F().InteractReady() end,
 				func = function() F().SetUpInteract() end,
 			}, HALF),
+			interactDone = (function()
+				local note = Note(7.1, "The interact set-up is done: the Fishing key can hook your bobber.")
+				note.hidden = function() return not F().InteractReady() end
+				return note
+			end)(),
 		}),
 		outfit = Card(2.5, "Fishing outfit", {
 			about = Note(1, function() return F().OutfitText() end),

@@ -351,6 +351,8 @@ end
 -- The left and right mouse buttons belong to the camera: the Fishing key bound to one of them
 -- (bare, no modifier) is given back to its game action, and never takes the hook.
 local MOUSE_ACTIONS = { BUTTON1 = "CAMERAORSELECTORMOVE", BUTTON2 = "TURNORACTION" }
+F.MOUSE_ACTIONS = MOUSE_ACTIONS
+F.CAST_BINDING = CAST_BINDING
 local guardLater = false
 
 local function GuardMouse()
