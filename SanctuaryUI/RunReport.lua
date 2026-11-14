@@ -207,28 +207,60 @@ local function PullName(p)
 end
 
 -- A player's abilities for one tally over the run, largest first: { id, v, n, o, dl, av, from, nm }.
+-- A saved ability: kept by name since 0.24.1 (the key is the name, t.id the rank that did most),
+-- by spell ID before that.
+local function Entry(k, t)
+	local id = t.id or (type(k) == "number" and k or nil)
+	return { id = id, v = t.v or 0, n = t.n, o = t.o, dl = t.dl, av = t.av, from = t.from,
+		nm = t.nm or (type(k) == "string" and k or nil) }
+end
+
+-- Fold a rank into the entry for its ability: Lightning Bolt (Rank 3) and (Rank 4) are one line.
+-- Pulls take the larger count (two ranks in one pull would otherwise count it twice).
+local function Fold(into, e)
+	if e.v > into.v then into.id, into.from = e.id, e.from or into.from end
+	into.v = into.v + e.v
+	into.n = math.max(into.n or 0, e.n or 0)
+	if e.o then into.o = (into.o or 0) + e.o end
+	if e.dl then into.dl = (into.dl or 0) + e.dl end
+	into.av = into.av or e.av
+end
+
+-- A player's abilities for one tally over the run, one line per ability (ranks together),
+-- largest first: { id, v, n, o, dl, av, from, nm }.
 local function Spells(a, key)
-	local list = {}
-	for id, t in pairs(a and a.sp and a.sp[key] or {}) do
-		list[#list + 1] = { id = id, v = t.v, n = t.n, o = t.o, dl = t.dl, av = t.av, from = t.from, nm = t.nm }
+	local byName, list = {}, {}
+	for k, t in pairs(a and a.sp and a.sp[key] or {}) do
+		local e = Entry(k, t)
+		local name = SpellName(e.id, e)
+		local into = byName[name]
+		if into then
+			Fold(into, e)
+		else
+			byName[name] = e
+			list[#list + 1] = e
+		end
 	end
 	table.sort(list, function(x, y) return x.v > y.v end)
 	return list
 end
 
--- One tally's abilities summed over everyone: id -> { v, by = name -> v }.
+-- One tally's abilities summed over everyone, one line per ability: { id, v, nm, by = name -> v }.
 local function AllSpells(r, key)
 	local all, list = {}, {}
 	for _, n in ipairs(r.order) do
-		for id, t in pairs(r.players[n].sp and r.players[n].sp[key] or {}) do
-			local e = all[id]
+		for k, t in pairs(r.players[n].sp and r.players[n].sp[key] or {}) do
+			local x = Entry(k, t)
+			local name = SpellName(x.id, x)
+			local e = all[name]
 			if not e then
-				e = { id = id, v = 0, by = {}, nm = t.nm }
-				all[id] = e
+				e = { id = x.id, v = 0, by = {}, nm = x.nm, top = 0 }
+				all[name] = e
 				list[#list + 1] = e
 			end
-			e.v = e.v + t.v
-			e.by[n] = (e.by[n] or 0) + t.v
+			if x.v > e.top then e.id, e.top = x.id, x.v end
+			e.v = e.v + x.v
+			e.by[n] = (e.by[n] or 0) + x.v
 		end
 	end
 	table.sort(list, function(x, y) return x.v > y.v end)
@@ -1320,8 +1352,14 @@ local function DrawPlayers(pg, r)
 			end
 		end
 	else
+		local spells = Spells(who, tally.key)
 		whole = who[tally.key] or 0
-		for _, s in ipairs(Spells(who, tally.key)) do
+		if r.old then
+			-- Begun before the report: abilities only from the later pulls, so shares are of those.
+			whole = 0
+			for _, x in ipairs(spells) do whole = whole + x.v end
+		end
+		for _, s in ipairs(spells) do
 			local name = SpellName(s.id, s)
 			if s.from and (tally.key == "t" or tally.key == "a") then name = name .. "  |cffa8a296" .. s.from .. "|r" end
 			if s.dl then name = name .. ("  |cffff5040killing blow%s|r"):format(s.dl > 1 and (" x" .. s.dl) or "") end

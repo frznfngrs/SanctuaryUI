@@ -133,6 +133,24 @@ local function Deep(guid)
 			if (kind[2] == "t" or kind[2] == "a") and other ~= nil and not Secret(other) and other ~= "" then e.from = other end
 			list[#list + 1] = e
 		end
+		-- Ranks of one ability (each its own spell ID) become one line, kept by name.
+		local byName, merged = {}, {}
+		for _, e in ipairs(list) do
+			local ok, name = pcall(ns.Meter.Lib.GetSpellName, e.id)
+			e.key = ok and name ~= nil and not Secret(name) and name ~= "" and name or e.id
+			local into = byName[e.key]
+			if into then
+				if e.v > into.v then into.id, into.from = e.id, e.from or into.from end
+				into.v = into.v + e.v
+				if e.o then into.o = (into.o or 0) + e.o end
+				into.dl = into.dl or e.dl
+				into.av = into.av or e.av
+			else
+				byName[e.key] = e
+				merged[#merged + 1] = e
+			end
+		end
+		list = merged
 		table.sort(list, function(a, b) return a.v > b.v end)
 		local kept = {}
 		for i, e in ipairs(list) do
@@ -369,11 +387,14 @@ function H.AddToRun(m, fight, rank, outcome, deep, died)
 			local into = a.sp[short] or {}
 			a.sp[short] = into
 			for _, e in ipairs(list) do
-				local t = into[e.id]
+				-- Kept by name (ranks together); id is the rank that did the most in one pull.
+				local k = e.key or e.id
+				local t = into[k]
 				if not t then
 					t = { v = 0, n = 0 }
-					into[e.id] = t
+					into[k] = t
 				end
+				if e.v > (t.best or 0) then t.id, t.best = e.id, e.v end
 				t.v, t.n = t.v + e.v, t.n + 1
 				if e.o then t.o = (t.o or 0) + e.o end
 				if e.dl then t.dl = (t.dl or 0) + 1 end
