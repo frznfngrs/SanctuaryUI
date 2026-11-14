@@ -155,9 +155,31 @@ local function Enemies(fight)
 end
 
 -- One source's abilities for a tally, largest first: id, name, icon, total, per second.
+-- A saved fight's abilities for one player and tally (dungeon and raid fights keep them).
+local function SavedAbilities(fight, who, kind)
+	local short = SAVED_KEYS[kind]
+	local spells = short and fight.deep and fight.deep[who.key] and fight.deep[who.key][short]
+	if not spells then return nil end
+	local list = {}
+	local dur = fight.dur and fight.dur > 0 and fight.dur or nil
+	for _, e in ipairs(spells) do
+		local name = L.GetSpellName(e.id) or (type(e.key) == "string" and e.key) or ("Spell " .. tostring(e.id))
+		if e.from and kind ~= "DamageDone" and kind ~= "HealingDone" then name = name .. "  |cffa8a296" .. e.from .. "|r" end
+		if e.dl then name = name .. "  |cffff5040killing blow|r" end
+		if e.av and kind ~= "AvoidableDamageTaken" then name = name .. "  |cffffb040avoidable|r" end
+		if e.o and e.o > 0 then name = name .. "  |cff9a9488overkill " .. L.Short(e.o) .. "|r" end
+		list[#list + 1] = { id = e.id, name = name, icon = L.GetSpellTexture(e.id) or 134400, total = e.v,
+			rate = dur and kind ~= "Interrupts" and kind ~= "Dispels" and e.v / dur or nil }
+	end
+	table.sort(list, function(a, b) return a.total > b.total end)
+	return list, who[kind]
+end
+
 local function Abilities(fight, who, kind)
 	if Saved(fight) then
-		-- Saved fights keep one thing per ability: your own damage.
+		local deep, total = SavedAbilities(fight, who, kind)
+		if deep then return deep, total end
+		-- Older saved fights, and fights outside dungeons and raids: your own damage only.
 		if not (who.mine and kind == "DamageDone" and fight.mine) then return nil end
 		local list = {}
 		for i, a in ipairs(fight.mine) do
@@ -195,8 +217,19 @@ end
 local function DeathRows(fight, who)
 	local list = {}
 	if Saved(fight) then
-		if (who.Deaths or 0) > 0 then
-			list[1] = { name = ("Died %d time%s. Saved fights keep the count only."):format(who.Deaths, who.Deaths == 1 and "" or "s"), icon = 237274, plain = true }
+		for _, d in ipairs(fight.died or {}) do
+			if d.n == who.key then
+				list[#list + 1] = { name = "Died at " .. L.Clock(d.at) .. (d.recap and "  |cffe8c77aclick for the recap|r" or ""),
+					icon = 237274, recap = d.recap, plain = true }
+			end
+		end
+		if #list > 0 then
+			-- The blows that killed, from what they took.
+			for _, a in ipairs(SavedAbilities(fight, who, "DamageTaken") or {}) do
+				if a.name:find("killing blow", 1, true) then list[#list + 1] = a end
+			end
+		elseif (who.Deaths or 0) > 0 then
+			list[1] = { name = ("Died %d time%s. This fight was saved before death times were kept."):format(who.Deaths, who.Deaths == 1 and "" or "s"), icon = 237274, plain = true }
 		end
 		return list
 	end
@@ -594,7 +627,9 @@ local function DrawDetail(who)
 	frame.who:SetText(who and who.name or "")
 	frame.who:SetTextColor(r, g, b)
 	frame.none:SetShown(who ~= nil and #list == 0)
-	frame.none:SetText((Saved(seg) and kind ~= "Deaths") and "Saved fights keep abilities for your own damage only." or "Nothing recorded.")
+	frame.none:SetText((Saved(seg) and kind ~= "Deaths" and not seg.deep)
+		and "Not kept for this fight: saved fights keep everyone's abilities in dungeons and raids (from 0.24.2), and only your own damage elsewhere."
+		or "Nothing recorded.")
 	for _, t in ipairs(frame.tabs) do
 		t:SetShown(mode == "players")
 		t:SetChosen(t.key == tab)
@@ -816,6 +851,7 @@ Layout = function()
 	Place(frame.tabs[1], "TOPLEFT", RIGHT.x + 4, -124)
 	Place(frame.enemyNote, "TOPLEFT", RIGHT.x + 4, -126)
 	Place(frame.none, "TOPLEFT", RIGHT.x + 12, -(RIGHT.top + 10))
+	frame.none:SetWidth(RIGHT.w - 24)
 	Place(frame.foot, "BOTTOMLEFT", MID.x + 4, 16, "BOTTOMLEFT")
 end
 
@@ -826,6 +862,7 @@ local function Build()
 	L = ns.Meter.Lib
 	frame = CreateFrame("Frame", "SanctuaryUIMeterAnalysis", UIParent)
 	frame:SetFrameStrata("HIGH")
+	frame:SetToplevel(true) -- clicked, it comes in front of the Run Report (and the report in front of it)
 	frame:SetSize(W * HALF, H * HALF)
 	frame:SetPoint("CENTER", UIParent, "CENTER", 0, 40)
 	frame:SetMovable(true)
@@ -1047,6 +1084,8 @@ local function Build()
 	frame.enemyNote:SetAlpha(0.75)
 	frame.right = Region(RIGHT, "detail")
 	frame.none = Label(canvas, 21)
+	frame.none:SetWordWrap(true)
+	frame.none:SetJustifyV("TOP")
 	frame.none:SetPoint("TOPLEFT", RIGHT.x + 12, -(RIGHT.top + 10))
 	frame.none:SetText("Nothing recorded.")
 	frame.none:SetAlpha(0.7)
@@ -1089,6 +1128,7 @@ function A.Open(fight)
 	frame:SetScale(ns.Art.D3Scale(BASE_SCALE * (ns.DB().meter.analysisScale or 1)))
 	Layout()
 	frame:Show()
+	frame:Raise() -- opened from the Run Report: in front of it
 	A.Refresh()
 end
 

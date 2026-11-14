@@ -350,6 +350,37 @@ ns.DEFAULTS = {
 		},
 
 		-- weapon swing timers (SwingTimer.lua): a bar per weapon, filling to the next auto attack
+		-- threat rails, warnings and loose enemies (Threat.lua)
+		threat = {
+			enabled = true,
+			show = "groupCombat", -- always | combat | group | groupCombat (in combat while in a group)
+			style = "glass", -- the damage meter's styles: glass | shadow | plaque
+			panelAlpha = 0.88,
+			scale = 1,
+			width = 460, -- rail length, in the art's pixels
+			railHeight = 40,
+			textScale = 1,
+			rows = 5,
+			font = "wow",
+			titleFont = "d3",
+			ranks = true, -- numbered studs, when the client lets the list be ranked
+			pets = true, -- pets on the rails (and as holders of loose enemies)
+			tank = "auto", -- auto (group role, Defensive Stance, bear forms, Righteous Fury) | tank | dps
+			loose = true, -- as the tank: enemies that someone else holds, from nameplates
+			looseRows = 3,
+			warn = true,
+			warnInstance = true, -- only in dungeons and raids
+			warnHigh = true, -- not the tank: you passed the tank's threat
+			warnAggro = true, -- not the tank: you pulled aggro
+			warnLost = true, -- the tank: your target turned away from you
+			warnLoose = false, -- the tank: a new loose enemy
+			warnSound = false,
+			warnScale = 1,
+			warnPos = { moved = false, mx = 0, my = 0 },
+			moved = false,
+			mx = 0,
+			my = 0,
+		},
 		swing = {
 			enabled = true,
 			mainHand = true,
@@ -809,6 +840,7 @@ function ns.Refresh()
 	Run("trinkets", ns.Trinket and ns.Trinket.ApplySettings)
 	Run("swing timer", ns.Swing and ns.Swing.ApplySettings)
 	Run("damage meter", ns.Meter and ns.Meter.ApplySettings)
+	Run("threat", ns.Threat and ns.Threat.ApplySettings)
 	Run("minimap", ns.Map and ns.Map.ApplySettings)
 	Run("overlay map", ns.MapOverlay and ns.MapOverlay.ApplySettings)
 	Run("ally ring", ns.AllyRing and ns.AllyRing.ApplySettings)

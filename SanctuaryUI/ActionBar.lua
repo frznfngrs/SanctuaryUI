@@ -1484,6 +1484,9 @@ function ns.ActionBar.UpdateMovers(hide)
 	if ns.Meter and ns.Meter.UpdateMovers then
 		ns.Meter.UpdateMovers(unlocked)
 	end
+	if ns.Threat and ns.Threat.UpdateMovers then
+		ns.Threat.UpdateMovers(unlocked)
+	end
 	if ns.Map and ns.Map.UpdateMovers then
 		ns.Map.UpdateMovers(unlocked)
 	end

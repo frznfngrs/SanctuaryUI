@@ -1058,6 +1058,75 @@ local function CookbookArgs()
 	}
 end
 
+local function ThreatArgs()
+	local function warnOff() return not DB().threat.warn end
+	return {
+		intro = Note(1, "Who is closest to pulling your enemy, on the damage meter's rails: your target's threat list, or your target's target while you have a friend targeted (target the tank to watch their enemy). A gold rail holds aggro; a molten rail is above the tank and about to pull; 100% pulls it. In combat the game may hide the percentages from addons: the rails still fill and show them, but they are ordered by who holds aggro instead of by threat, and the place numbers go. /sanctuary threat probe writes down what this client hides."),
+		enabled = Toggle(2, "Enabled", nil, "threat", "enabled"),
+		preview = Width({
+			type = "toggle", order = 3, name = "Preview",
+			desc = "Show a made-up pull on the rails, with two loose enemies, to judge and place it without a group. Also shown while frames are unlocked. Turns off when this window closes.",
+			get = function() return ns.Threat.preview end,
+			set = OwningFlag("threat", ns.Threat, function(_, value) ns.Threat.SetPreview(value) end),
+		}, HALF),
+		lookTab = Tab(4, "Look", {
+			style = Card(1, "Style", {
+				style = Select(1, "Style", "The damage meter's three: red glass header, glass with a dark panel behind, or D3's red plaque.", "threat", "style", ns.Meter.STYLES, ns.Meter.STYLE_ORDER),
+				panelAlpha = Range(2, "Panel darkness", "For the Glass and shadow style.", "threat", "panelAlpha", 0.2, 1, 0.02, true),
+				ranks = Toggle(3, "Place numbers", "A numbered stud left of each rail, while the game lets the list be put in order.", "threat", "ranks"),
+			}),
+			size = Card(2, "Size", {
+				scale = Range(1, "Scale", nil, "threat", "scale", 0.5, 2.5, 0.05, true),
+				width = Range(2, "Rail length", nil, "threat", "width", 300, 900, 10),
+				railHeight = Range(3, "Rail height", "The text grows and shrinks with it.", "threat", "railHeight", 26, 80, 2),
+				rows = Range(4, "Rails", "How many players are listed. When the list runs past you, the last rail is yours.", "threat", "rows", 2, 10, 1),
+				textScale = Range(5, "Text size", nil, "threat", "textScale", 0.6, 1.6, 0.05, true),
+			}),
+			text = Card(3, "Text", {
+				font = Select(1, "Text font", "Names and percentages. Body font follows Options > Fonts.", "threat", "font", TEXT_FONTS, TEXT_FONT_ORDER),
+				titleFont = Select(2, "Title font", "The title strip and the warnings.", "threat", "titleFont", TEXT_FONTS, TEXT_FONT_ORDER),
+			}),
+			place = PositionCard(4, "On the right edge of the screen, above the damage meter, by default. " .. UNLOCK, function() ns.Threat.ResetPosition() end, function() return not DB().threat.moved end),
+		}),
+		showsTab = Tab(5, "Shows", {
+			shows = Card(1, "Shows", {
+				show = Select(1, "Visible", nil, "threat", "show", {
+					always = "Always",
+					combat = "Only in combat",
+					group = "Only in a group",
+					groupCombat = "In combat, in a group",
+				}, { "groupCombat", "combat", "group", "always" }),
+				tank = Select(2, "You are", "Automatic: the tank when your group role says so, or in Defensive Stance, Bear Form or Dire Bear Form, or with Righteous Fury on. A tank gets the loose enemies and the Lost aggro warning; everyone else gets Threat high and You have aggro.", "threat", "tank", {
+					auto = "Automatic",
+					tank = "Always the tank",
+					dps = "Never the tank",
+				}, { "auto", "tank", "dps" }),
+				pets = Toggle(3, "Pets", "Pets on the rails, and as holders of loose enemies.", "threat", "pets"),
+			}),
+			loose = Card(2, "Loose enemies", {
+				note = Note(1, "For the tank: enemies fighting your group that someone other than a tank holds, under the rails with who they are on. Read from nameplates, so enemy nameplates must be on (V) and only enemies with a plate on screen count."),
+				loose = Toggle(2, "List loose enemies", nil, "threat", "loose"),
+				looseRows = Range(3, "Lines", nil, "threat", "looseRows", 1, 6, 1),
+			}),
+		}),
+		warnTab = Tab(6, "Warnings", {
+			warn = Card(1, "Warnings", {
+				note = Note(1, "Big letters above the console, only in a group and only in combat."),
+				warn = Toggle(2, "Enabled", nil, "threat", "warn"),
+				warnInstance = Toggle(2.5, "Only in dungeons and raids", "Out in the world a group often quests apart, and every pull of your own would warn you.", "threat", "warnInstance"),
+				test = Width({ type = "execute", order = 3, name = "Show them all", func = function() ns.Threat.TestWarnings() end, disabled = warnOff }, HALF),
+				warnHigh = Toggle(4, "Threat high", "Not the tank: you passed the tank's threat on an enemy and will pull it soon.", "threat", "warnHigh"),
+				warnAggro = Toggle(5, "You have aggro", "Not the tank: an enemy turned to you.", "threat", "warnAggro"),
+				warnLost = Toggle(6, "Lost aggro", "The tank: your target turned to someone else.", "threat", "warnLost"),
+				warnLoose = Toggle(7, "Loose enemy", "The tank: one more enemy loose on the group.", "threat", "warnLoose"),
+				warnSound = Toggle(8, "Sound", "The raid warning sound with each one.", "threat", "warnSound"),
+				warnScale = Range(9, "Size", nil, "threat", "warnScale", 0.5, 2.5, 0.05, true),
+			}),
+			place = PositionCard(2, "Above the middle of the screen by default. " .. UNLOCK, function() ns.Threat.ResetWarnPosition() end, function() return not DB().threat.warnPos.moved end),
+		}),
+	}
+end
+
 local function SwingArgs()
 	return {
 		intro = Note(1, "A bar for each weapon that fills as your next auto attack winds up, and stays full while the swing is ready. While your target is out of a weapon's reach, its bar dims once the swing in hand is done. Haste mid-swing stretches or shortens what's left. Blizzard has a swing timer of its own (Options > Combat); turn one of them off so you don't see two."),
@@ -2599,6 +2668,7 @@ local function Build()
 			gap35 = Gap(35),
 			sectionCombat = Section(36, "Combat"),
 			meter = Page(37, "Damage meter", MeterArgs(), "tab"),
+			threat = Page(37.5, "Threat", ThreatArgs(), "tab"),
 			swing = Page(38, "Swing timer", SwingArgs()),
 			trinkets = Page(38.5, "Trinkets", TrinketArgs()),
 			gapMap = Gap(39),

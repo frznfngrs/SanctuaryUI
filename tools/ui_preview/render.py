@@ -42,7 +42,7 @@ def load(path):
 
 
 load(HERE + "/wow.lua")
-for f in ("Settings", "Art", "Meter", "MeterHistory", "MeterGlory", "RunReport"):
+for f in ("Settings", "Art", "Meter", "MeterHistory", "MeterGlory", "MeterAnalysis", "RunReport"):
     load(f"{SRC}/{f}.lua")
 lua.execute('''
 local ns = SanctuaryUI
@@ -357,6 +357,22 @@ assert(not SanctuaryUIRunBanner:IsShown(), "gone when locked")
     print("final boss flow ok")
 
 
+def saved_fight_analysis(out):
+    """A saved dungeon fight in the analysis window: anyone's abilities and deaths, in front of
+    the Run Report."""
+    lua.execute(r'''
+local ns = SanctuaryUI
+local H = ns.MeterHistory
+local f = H.Fights()[#H.Fights()]
+assert(f.deep and f.deep.Mirelle and f.deep.Mirelle.d, "the saved fight keeps everyone's abilities")
+ns.MeterHistory.Older = function() return { f } end
+ns.RunReport.Open()
+ns.MeterAnalysis.Open(f)
+for _, w in ipairs(ALL) do if w.key == "Mirelle" and w.scripts.OnClick and w.cells then w.scripts.OnClick(w) end end
+''')
+    draw(out + "/analysis-saved.png", "SanctuaryUIMeterAnalysis", K=1.0)
+
+
 if __name__ == "__main__":
     # The banner, as the preview shows it.
     lua.execute("SanctuaryUI.RunReport.PreviewBanner()")
@@ -369,6 +385,7 @@ if __name__ == "__main__":
         draw(f"{OUT}/{pg}.png", "SanctuaryUIRunReport")
     lua.execute("SanctuaryUIRunReport:Hide()")
     final_boss_flow()
+    saved_fight_analysis(OUT)
     errs, printed = errors()
     print("errors:", len(errs), errs[:5])
     print("sounds:", list(lua.eval("SOUNDS").values()))

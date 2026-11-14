@@ -51,6 +51,7 @@ MeterGlory.lua
 MeterAnalysis.lua
 RunReport.lua
 MeterProbe.lua
+Threat.lua
 MapProbe.lua
 TotemProbe.lua
 MapPins.lua

@@ -1037,6 +1037,22 @@ local function Slash(msg)
 		local ok, err = pcall(ns.ActionBar.CountdownReport)
 		ns.forceLog = nil
 		if not ok then ns.Print("report failed: " .. tostring(err)) end
+	elseif cmd == "threat" then
+		local sub = rest:lower()
+		if not ns.Threat or not ns.Threat.Draw then
+			ns.Print("threat loads after a full restart of the game (a new file).")
+		elseif sub == "probe" then
+			local ok, err = pcall(ns.Threat.Probe)
+			if not ok then ns.Print("threat probe failed: " .. tostring(err)) end
+		elseif sub == "test" or sub == "preview" then
+			KeepPreview("threat")
+			ns.Threat.SetPreview(not ns.Threat.preview)
+			ns.Print(ns.Threat.preview and "threat preview on (/sanctuary threat test again to turn off)" or "threat preview off")
+		elseif sub == "warn" or sub == "warnings" then
+			ns.Threat.TestWarnings()
+		elseif ns.Options and ns.Options.Open then
+			ns.Options.Open("threat")
+		end
 	elseif cmd == "meter" then
 		local sub = rest:lower()
 		if sub == "probe" then
@@ -1156,6 +1172,7 @@ loader:SetScript("OnEvent", function(_, event)
 		Safe("damage meter", ns.Meter and ns.Meter.Init)
 		Safe("meter history", ns.MeterHistory and ns.MeterHistory.Init)
 		Safe("meter glory", ns.MeterGlory and ns.MeterGlory.Init)
+		Safe("threat", ns.Threat and ns.Threat.Init)
 		Safe("pie menus", ns.Pie and ns.Pie.Init)
 		Safe("map", ns.Map and ns.Map.Init)
 		Safe("ally ring", ns.AllyRing and ns.AllyRing.Init)

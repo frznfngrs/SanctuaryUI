@@ -11,6 +11,9 @@ ns.MeterHistory = ns.MeterHistory or {}
 -- run (the instance visit), boss + kill when an encounter ended in it, size (players in it),
 -- p = players { n name, c class, me, d damage, dps, h healing, t taken, i interrupts, x dispels,
 -- a avoidable damage, b absorbs, k deaths }, largest damage first, and mine = your top abilities { id, v }.
+-- Fights in a dungeon or raid also keep deep = name -> tally -> abilities { id, v, o, dl, av, from }
+-- (everyone's in groups of up to 10, yours alone in bigger raids, to keep the file small) and
+-- died = { n, at, recap }: the analysis window shows any player's abilities and deaths from them.
 --
 -- Runs (a visit to one dungeon or raid, for RunReport.lua) are kept apart in m.runs, so trimming
 -- fights never takes one apart. One run: id, name (the instance), kind, diff, t0/t1 (door to
@@ -31,6 +34,7 @@ local STREAK_SECONDS = 15
 local MY_ABILITIES = 12
 H.MY_ABILITIES = MY_ABILITIES
 local RUNS_DEFAULT, RUNS_MAX = 20, 50 -- runs kept per character (the "Runs kept" option)
+local DEEP_GROUP = 10 -- a saved fight keeps everyone's abilities up to this many players, yours alone past it
 local TALLY = { "d", "h", "t", "i", "x", "a", "b", "k" }
 
 -- Everything the run report shows of each player, read for fights in a dungeon or raid: the
@@ -254,6 +258,17 @@ function H.Record()
 		end
 	end
 	for _, p in ipairs(players) do p.guid = nil end
+	if deep and next(deep) then
+		if fight.size <= DEEP_GROUP then
+			fight.deep = deep
+		elseif deep[me.n] then
+			fight.deep = { [me.n] = deep[me.n] }
+		end
+	end
+	if died and #died > 0 then
+		fight.died = {}
+		for i, d in ipairs(died) do fight.died[i] = { n = d.p.n, at = d.at, recap = d.recap } end
+	end
 	m.fights[#m.fights + 1] = fight
 	H.Trim()
 
