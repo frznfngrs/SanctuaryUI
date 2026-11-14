@@ -33,9 +33,11 @@ local F = ns.Freeze
 --   * in combat, the loss-of-control list (roots, stuns: Frost Nova, Freezing Trap). If the
 --     client lets the spell be read it is matched the same way. If it is secret, nothing says
 --     which spell took control, and the globe freezes only with "Any loss of control" on
---   * a debuff seen before combat started keeps its end time
--- Slows that only chill (Frostbolt, Cone of Cold) and land mid-fight are therefore not seen
--- until combat ends. F.Status() and the log say which path answered.
+--   * a debuff seen before combat started is followed through the fight (Follow below): it
+--     ends when Blizzard's debuff frame loses an icon at its end time, and if none goes then,
+--     it was renewed (a mob chain-casting Frostbolt) and the ice holds until an icon goes
+-- Slows that only chill (Frostbolt, Cone of Cold) and first land mid-fight are therefore not
+-- seen until combat ends. F.Status() and the log say which path answered.
 
 local GROW = 0.85 -- seconds for the crust to close
 local LOCK_FLASH = 0.55 -- the cracks' flash as it locks
@@ -46,6 +48,7 @@ local BOOK = { cols = 5, cell = 409, sheet = 2048, frames = 25 }
 local GLINT_RATE = 0.55 -- rad/s: one light every four seconds or so
 local GLINT_GAIN = 0.75
 local PREVIEW = 6
+local RENEW_WINDOW = 0.5 -- seconds: an icon going this close to a frost debuff's end is it ending
 
 -- Frost spells that land on players. IDs are exact in any language; names are for everything
 -- else (creature spells, ranks missed here), and only work where the name can be read.
@@ -60,8 +63,9 @@ for _, id in ipairs({
 	3355, 14308, 14309, 13810, -- Freezing Trap, Frost Trap
 	8034, 8037, 10458, 16352, 16353, -- Frostbrand Attack
 }) do FROST_IDS[id] = true end
--- Whole words or word starts only: "ice" must not match "Justice".
-local FROST_WORDS = { "%f[%a]frost", "%f[%a]freez", "%f[%a]frozen", "%f[%a]chill", "%f[%a]ice%f[%A]", "%f[%a]icy%f[%A]", "%f[%a]glacial", "%f[%a]hypotherm", "%f[%a]winter" }
+-- Whole words or word starts only: "ice" must not match "Justice". Not "hypothermia": that is
+-- Ice Block's lockout, and would keep the globe iced after the block breaks.
+local FROST_WORDS = { "%f[%a]frost", "%f[%a]freez", "%f[%a]frozen", "%f[%a]chill", "%f[%a]ice%f[%A]", "%f[%a]icy%f[%A]", "%f[%a]glacial", "%f[%a]winter" }
 
 local function Secret(x)
 	return issecretvalue and issecretvalue(x) or false
@@ -337,16 +341,18 @@ local sources = {} -- name -> { untilTime = number or nil }
 local function Resolve()
 	local now = GetTime()
 	local debuffs = ns.DB().freeze
-	local on, why = F.preview and true or false, "preview"
+	local on, why = F.preview and true or false, F.preview and "preview" or F.endWhy or "nothing left"
 	for name, src in pairs(sources) do
 		if src.untilTime and src.untilTime <= now then
 			sources[name] = nil
+			if not on then why = tostring(src.why or name) .. " ran out" end
 		elseif src.skill or debuffs then
 			-- The debuff setting gates what is learned about debuffs, not a skill set to Frozen.
 			on, why = true, src.why or name
 		end
 	end
 	F.Set(on, why)
+	if not on then F.endWhy = nil end
 end
 
 -- Frozen as a globe aura look: a skill set to it in Options > Globe auras > Skills (Ice Block,
@@ -376,10 +382,11 @@ local function SkillSources()
 end
 
 -- Your debuffs, where the client lets them be read (out of combat). true/false, or nil when
--- they can't be read at all.
+-- they can't be read at all; then the latest end time, a name, and the frost debuff's full
+-- length (what a renewal would give it again).
 local function ScanAuras()
 	if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return nil end
-	local found, untilTime, label
+	local found, untilTime, label, length
 	for i = 1, 40 do
 		local ok, data = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HARMFUL")
 		if not ok then return nil end
@@ -389,16 +396,71 @@ local function ScanAuras()
 		if IsFrost(id, name) then
 			found = true
 			label = not Secret(name) and name or tostring(id)
-			local ends = data.expirationTime
+			local ends, duration = data.expirationTime, data.duration
 			if ends ~= nil and not Secret(ends) and ends > 0 then
-				untilTime = math.max(untilTime or 0, ends)
+				if not untilTime or ends > untilTime then
+					untilTime = ends
+					length = duration ~= nil and not Secret(duration) and duration > 0 and duration or nil
+				end
 			else
-				untilTime = nil
+				untilTime, length = nil, nil
 				break
 			end
 		end
 	end
-	return found or false, untilTime, label
+	return found or false, untilTime, label, length
+end
+
+-- In combat the debuffs above can't be read, but Blizzard's debuff frame still shows them, and
+-- how many icons it has can be counted. So the frost debuff last read (held) is followed by its
+-- icons: one going within RENEW_WINDOW of its end time is it running out. If none goes, it
+-- was renewed (Frostbolt again), and the ice holds: its new end is guessed from the latest
+-- aura change since the last application, and the first icon to go after that ends it. With
+-- no debuff icons at all it is certainly gone (dispelled). The count is only trusted once it
+-- has shown at least one icon while the frost was on, else the end time alone decides.
+local held -- { ends, length, base (when it was last applied), label, trust, extended, extendedAt }
+local icons, lostAt, auraEventAt = 0, -math.huge, nil
+
+local function Hold(untilTime, length, label)
+	if not untilTime then
+		held = nil
+		return
+	end
+	icons, lostAt = ns.DebuffIcons(), -math.huge
+	held = { ends = untilTime, length = length, base = length and (untilTime - length) or GetTime(), label = label,
+		trust = icons > 0 }
+end
+
+local function Drop(why)
+	if ns.Log then ns.Log("freeze: %s ended in combat (%s)", tostring(held and held.label), why) end
+	held = nil
+	sources.aura = nil
+	F.endWhy = why
+end
+
+local function Follow(now)
+	if not (held and sources.aura and F.auraPath == "hidden") then return end
+	local count = ns.DebuffIcons()
+	if count < icons then lostAt = now end
+	icons = count
+	if count > 0 then held.trust = true end
+	if not held.trust then
+		if now >= held.ends then Drop("ran out") end
+		return
+	end
+	if count == 0 then return Drop("no debuffs left") end
+	if held.extended and lostAt > held.extendedAt then return Drop("an icon went after a renewal") end
+	if now < held.ends - RENEW_WINDOW then return end
+	if lostAt >= held.ends - RENEW_WINDOW then return Drop("ran out") end
+	if now < held.ends + RENEW_WINDOW then return end
+	-- Nothing went when it should have, so it was renewed, after its last application and no
+	-- later than the latest aura change.
+	local at = auraEventAt
+	if not (held.length and at and at > held.base + 0.05) then return Drop("ran out") end
+	held.base, held.ends = at, math.max(at + held.length, now + RENEW_WINDOW)
+	held.extended, held.extendedAt = true, now
+	F.renewed = (F.renewed or 0) + 1
+	if ns.Log then ns.Log("freeze: %s was renewed in combat, holding (about %.1fs)", tostring(held.label), held.ends - now) end
 end
 
 -- Roots and stuns on you. Returns frost (a readable frost spell), unknown (something has
@@ -452,16 +514,23 @@ end
 
 local function Learn(event)
 	local now = GetTime()
-	local found, untilTime, label = ScanAuras()
+	local found, untilTime, label, length = ScanAuras()
 	if found ~= nil then
 		F.auraPath = "readable"
+		if not found and sources.aura then F.endWhy = tostring(sources.aura.why) .. " gone" end
 		sources.aura = found and { untilTime = untilTime, why = label } or nil
+		auraEventAt = nil
+		if found then Hold(untilTime, length, label) else held = nil end
 	else
-		-- Hidden (combat): what was seen before keeps its end time; without one it can't be
-		-- trusted to still be there.
+		-- Hidden (combat): what was seen before is followed (Follow); without an end time it
+		-- can't be trusted to still be there.
 		F.auraPath = "hidden"
-		local held = sources.aura
-		if held and not held.untilTime then sources.aura = nil end
+		if event == "UNIT_AURA" then auraEventAt = now end
+		if held and sources.aura then
+			sources.aura.untilTime = nil
+		else
+			held, sources.aura = nil, nil
+		end
 	end
 	local frost, unknown, left = ScanControl()
 	if frost then
@@ -518,15 +587,21 @@ function F.ApplySettings()
 	if ns.DB().freeze then
 		Learn("settings")
 	else
-		sources.aura, sources.control = nil, nil
+		sources.aura, sources.control, held = nil, nil, nil
 		Resolve()
 	end
 end
 
 -- One line for /sanctuary check.
 function F.Status()
+	local path = F.auraPath or "unread"
+	if held and path == "hidden" then
+		path = path .. (held.trust and (", following %s by its icon%s"):format(tostring(held.label), held.extended and ", renewed" or "")
+			or ", waiting for the debuff frame")
+	end
+	if F.renewed then path = path .. (", %d renewal%s seen"):format(F.renewed, F.renewed == 1 and "" or "s") end
 	return ("freeze: %s, %s, debuffs %s, loss of control %s%s"):format(ns.DB().freeze and "on" or "off",
-		F.failed and "failed" or F.built and (F.phase or "idle") or "not built", F.auraPath or "unread",
+		F.failed and "failed" or F.built and (F.phase or "idle") or "not built", path,
 		(F.controlPath or "none seen") .. (F.controlLast and (" [" .. F.controlLast .. "]") or ""), F.lastError and (" (" .. F.lastError .. ")") or "")
 end
 
@@ -550,7 +625,10 @@ function F.Init()
 		since = since + dt
 		if since < 0.1 then return end
 		since = 0
-		if next(sources) then Resolve() end
+		if next(sources) then
+			Follow(GetTime())
+			Resolve()
+		end
 	end)
 	if ns.Watch and ns.Watch.OnChange then
 		ns.Watch.OnChange(function(key)

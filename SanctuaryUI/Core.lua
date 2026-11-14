@@ -284,16 +284,24 @@ function ns.DescribedLength(spellID)
 	return last
 end
 
--- Icons Blizzard's buff frame is showing. It runs untainted and sees buffs in combat, so its
--- count going up or down is the one sign of a buff coming or going that addons still get.
-function ns.BuffIcons()
-	local frame = _G.BuffFrame
+-- Icons Blizzard's buff (or debuff) frame is showing. It runs untainted and sees your auras in
+-- combat, so its count going up or down is the one sign of an aura coming or going that addons
+-- still get.
+local function CountIcons(frame)
 	if not frame or type(frame.auraFrames) ~= "table" then return 0 end
 	local count = 0
 	for _, button in ipairs(frame.auraFrames) do
 		if not button.isAuraAnchor and button:IsShown() then count = count + 1 end
 	end
 	return count
+end
+
+function ns.BuffIcons()
+	return CountIcons(_G.BuffFrame)
+end
+
+function ns.DebuffIcons()
+	return CountIcons(_G.DebuffFrame)
 end
 
 function ns.Print(msg)
