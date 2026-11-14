@@ -1266,6 +1266,8 @@ function ns.Meter.UpdateMovers(unlocked)
 	ns.Meter.mover:SetShown(show)
 	ns.Meter.UpdateShown()
 	ns.Meter.Draw()
+	-- The Run Report's banner has its own mover.
+	if ns.RunReport and ns.RunReport.UpdateMovers then pcall(ns.RunReport.UpdateMovers, show) end
 end
 
 function ns.Meter.ResetPosition()
@@ -1283,6 +1285,7 @@ function ns.Meter.SetPreview(on)
 end
 
 function ns.Meter.ApplySettings()
+	if ns.RunReport and ns.RunReport.PlaceBanner then pcall(ns.RunReport.PlaceBanner) end
 	if not holder then return end
 	ns.Meter.Layout()
 end

@@ -280,7 +280,12 @@ function G.Awards(run, quiet)
 	end
 end
 
-function G.RunEnded(run)
+-- The run is over: its final boss died (RunComplete), or you left (RunEnded). Whichever comes
+-- first shows the banner and the chat awards; the other finds them done.
+local function Over(run)
+	local r = ns.MeterHistory.RunById(run)
+	if r and r.announced then return end
+	if r then r.announced = true end
 	local opt = Opt()
 	if opt.enabled and opt.runBanner ~= false and ns.RunReport and ns.RunReport.RunEnded then
 		local ok, err = pcall(ns.RunReport.RunEnded, run)
@@ -288,6 +293,9 @@ function G.RunEnded(run)
 	end
 	if opt.glory and opt.gloryAwards then G.Awards(run, true) end
 end
+
+function G.RunComplete(run) Over(run) end
+function G.RunEnded(run) Over(run) end
 
 -- /sanctuary meter glory: every surprise once, with made-up names, to see and hear them.
 function G.Test()

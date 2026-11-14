@@ -1533,7 +1533,17 @@ local function MeterArgs()
 				open = Width({ type = "execute", order = 2, name = "Open the last run", func = Run("Open") }, THIRD),
 				preview = Width({ type = "execute", order = 2.5, name = "Preview", desc = "The report with a made-up Deadmines run and four before it, to see every page without a dungeon.", func = Run("Preview") }, THIRD),
 				bannerTest = Width({ type = "execute", order = 2.7, name = "Show the banner", desc = "The line that waits beside the meter when a run ends, with made-up numbers.", func = Run("PreviewBanner") }, THIRD),
-				runBanner = Toggle(3, "Banner when a run ends", "On leaving a dungeon or raid, \"Run complete\" with a Report button waits beside the meter until you click it or start the next pull. Nothing opens by itself.", "meter", "runBanner"),
+				runBanner = Toggle(3, "Banner when a run ends", "When the dungeon's final boss dies (or, failing that, when you leave), \"Run complete\" with a Report button comes up at the top of the screen and waits until you click it or start the next pull. Nothing opens by itself. Unlock frames to move it.", "meter", "runBanner"),
+				runSound = Toggle(3.2, "Chime with it", "One sound as the banner comes up, even with the meter's other sounds off.", "meter", "runSound"),
+				runBannerScale = (function()
+					local option = Range(3.4, "Banner size", nil, "meter", "runBannerScale", 0.5, 2, 0.05, true)
+					local set = option.set
+					option.set = function(...)
+						set(...)
+						if ns.RunReport and ns.RunReport.PlaceBanner then ns.RunReport.PlaceBanner() end
+					end
+					return option
+				end)(),
 				runScale = (function()
 					local option = Range(4, "Window scale", "The whole window, text included.", "meter", "runScale", 0.5, 1.6, 0.05, true)
 					local set = option.set
@@ -1553,6 +1563,7 @@ local function MeterArgs()
 					end,
 				},
 				place = Width({ type = "execute", order = 6, name = "Reset position", desc = "Drag the report by its header to move it. This puts it back in the middle.", func = Run("ResetPosition") }, THIRD),
+				bannerPlace = Width({ type = "execute", order = 6.5, name = "Reset banner position", desc = "Unlock frames to drag the banner. This puts it back at the top of the screen.", func = Run("ResetBannerPosition") }, THIRD),
 			}
 			end)()),
 			analysis = Card(3, "Analysis window", {

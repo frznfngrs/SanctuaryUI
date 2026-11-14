@@ -27,7 +27,11 @@ local L -- ns.Meter.Lib, set when the window is first built
 
 local W, H = 1500, 980
 local HALF = 0.5
-local BASE_SCALE = 1.3
+-- 100% on the Window scale slider: 1275 x 833 pixels at 1080p (art pixels x HALF x this, one
+-- art pixel being one pixel at 1080p; see ns.Art.D3Scale). Bigger screens get it in proportion.
+local BASE_SCALE = 1.7
+local MOST_OF_SCREEN = 0.92 -- however the slider is set, the window keeps inside this much of the screen
+local BANNER_SCALE = 1.3 -- the run-complete banner, before its own size slider
 local HEAD_H = 156
 local FOOT_H = 180
 local FOOT_Y = H - FOOT_H
@@ -117,7 +121,7 @@ end
 
 -- The run still going on: its clock runs to now.
 local function Live(r)
-	if sample or r.done then return false end
+	if sample or r.done or r.complete then return false end
 	local m = ns.MeterHistory.Store()
 	return m and m.inRun ~= nil and m.run == r.id
 end
@@ -1846,6 +1850,39 @@ local function Piece(parent, slot, x0, y0, x1, y1, layer, sub)
 	return t
 end
 
+-- D3's window header across width: its ends, the stained glass between (every other pane
+-- mirrored), the medallion in the middle. Returns the medallion.
+function R.LayHeader(head, width, slot)
+	local hl = Piece(head, slot, 0, 0, 50, 155)
+	hl:SetPoint("TOPLEFT")
+	hl:SetSize(50, HEAD_H)
+	local hr = Piece(head, slot, 550, 0, 600, 155)
+	hr:SetPoint("TOPRIGHT")
+	hr:SetSize(50, HEAD_H)
+	local x, i = 50, 0
+	while x < width - 50 do
+		local w = math.min(180, width - 50 - x)
+		local t = Piece(head, slot, 50, 0, 50 + w, 155, "ARTWORK", -1)
+		if i % 2 == 1 then t:SetTexCoord(230 / ATLAS, (230 - w) / ATLAS, 0, 155 / ATLAS) end
+		t:SetPoint("TOPLEFT", x, 0)
+		t:SetSize(w, HEAD_H)
+		x, i = x + 180, i + 1
+	end
+	local medal = Piece(head, slot, 232, 0, 368, 155, "ARTWORK", 1)
+	medal:SetPoint("TOP", 0, 0)
+	medal:SetSize(136, HEAD_H)
+	return medal
+end
+
+-- Step a title's size down until it fits its room.
+local function FitTitle(fs, size, room, least)
+	fs:SetFont(L.TitleFont(), size, "")
+	while size > (least or 20) and (fs:GetStringWidth() or 0) > room do
+		size = size - 2
+		fs:SetFont(L.TitleFont(), size, "")
+	end
+end
+
 local function TabCoord(index, state)
 	local i = index * 3 + state
 	local x, y = (i % 16) * 64, 800 + math.floor(i / 16) * 96
@@ -1932,24 +1969,7 @@ local function Build()
 		frame:SetUserPlaced(false)
 		SavePosition()
 	end)
-	local hl = Piece(head, headSlot, 0, 0, 50, 155)
-	hl:SetPoint("TOPLEFT")
-	hl:SetSize(50, HEAD_H)
-	local hr = Piece(head, headSlot, 550, 0, 600, 155)
-	hr:SetPoint("TOPRIGHT")
-	hr:SetSize(50, HEAD_H)
-	local x, i = 50, 0
-	while x < W - 50 do
-		local w = math.min(180, W - 50 - x)
-		local t = Piece(head, headSlot, 50, 0, 50 + w, 155, "ARTWORK", -1)
-		if i % 2 == 1 then t:SetTexCoord(230 / ATLAS, (230 - w) / ATLAS, 0, 155 / ATLAS) end
-		t:SetPoint("TOPLEFT", x, 0)
-		t:SetSize(w, HEAD_H)
-		x, i = x + 180, i + 1
-	end
-	local medal = Piece(head, headSlot, 232, 0, 368, 155, "ARTWORK", 1)
-	medal:SetPoint("TOP", 0, 0)
-	medal:SetSize(136, HEAD_H)
+	R.LayHeader(head, W, headSlot)
 	frame.title = At(Title(head, 34), head, W / 2 - 110, 82, "RIGHT")
 	frame.title:SetWidth(W / 2 - 200)
 	frame.pageTitle = At(Title(head, 30, L.CREAM), head, W / 2 + 110, 82, "LEFT")
@@ -2054,13 +2074,8 @@ function R.Refresh()
 	end
 	-- A long name ("Excavation Site: Wetlands") steps the title down until it fits beside the medallion.
 	frame.title:SetText((r.name or "Run"):upper())
-	local room, size = W / 2 - 200, 34
-	frame.title:SetFont(L.TitleFont(), size, "")
-	while size > 20 and (frame.title:GetStringWidth() or 0) > room do
-		size = size - 2
-		frame.title:SetFont(L.TitleFont(), size, "")
-	end
-	local label = page == "summary" and (r.done and "Run complete" or "Run so far")
+	FitTitle(frame.title, 34, W / 2 - 200)
+	local label = page == "summary" and ((r.done or r.complete) and "Run complete" or "Run so far")
 	for _, def in ipairs(PAGES) do
 		if def.key == page and not label then label = def.label end
 	end
@@ -2072,7 +2087,14 @@ end
 
 local function Position()
 	local opt = Opt()
-	frame:SetScale(ns.Art.D3Scale(BASE_SCALE * (opt.runScale or 1)))
+	local scale = ns.Art.D3Scale(BASE_SCALE * (opt.runScale or 1))
+	-- Never past the screen: the window and its tabs, against the screen in UIParent's units.
+	local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()
+	local fw, fh = (W + 70) * HALF, H * HALF
+	if sw and sh and sw > 0 and sh > 0 then
+		scale = math.min(scale, sw * MOST_OF_SCREEN / fw, sh * MOST_OF_SCREEN / fh)
+	end
+	frame:SetScale(scale)
 	frame:ClearAllPoints()
 	local pos = opt.runPos
 	if type(pos) == "table" and pos.moved then
@@ -2134,89 +2156,199 @@ function R.ResetPosition()
 end
 
 ---------------------------------------------------------------------------
--- The banner beside the meter when a run ends
+-- The banner when a run ends: D3's "Rift complete" moment. The report's own header (the run's
+-- name, the crossed swords, RUN COMPLETE) over a strip of its stone with the run in a line and
+-- Report / Dismiss, at the top of the screen. It flashes gold and chimes as it comes, then the
+-- medallion pulses until it is clicked or the next pull starts. Movable (unlock frames) and
+-- sized by its own slider; Options > Damage meter > Fights.
+
+local BANNER_W, BANNER_STONE = 1000, 132
+local bannerHolder
+
+local function BannerOpt()
+	local opt = Opt()
+	if type(opt.runBannerPos) ~= "table" then opt.runBannerPos = { moved = false, mx = 0, my = 0 } end
+	return opt
+end
+
+local function BannerButton(parent, word, x, onClick)
+	local b = CreateFrame("Button", nil, parent)
+	b:SetSize(200, 56)
+	b:SetPoint("TOP", parent, "TOP", x, -(HEAD_H + 66))
+	Plate(b)
+	b.text = L.Text(b, L.BodyFont(), 26, L.GOLD, "CENTER")
+	b.text:SetPoint("CENTER", 0, 1)
+	b.text:SetText(word)
+	local glow = b:CreateTexture(nil, "HIGHLIGHT")
+	glow:SetAllPoints()
+	glow:SetColorTexture(1, 0.6, 0.3, 0.18)
+	glow:SetBlendMode("ADD")
+	b:SetScript("OnClick", onClick)
+	return b
+end
 
 local function BuildBanner()
 	L = L or ns.Meter.Lib
-	banner = CreateFrame("Frame", "SanctuaryUIRunBanner", UIParent)
-	banner:SetFrameStrata("MEDIUM")
-	banner:SetSize(320, 74)
+	ns.Art.Require("journal")
+	-- The holder stays shown (and carries the mover); the banner inside it comes and goes.
+	bannerHolder = CreateFrame("Frame", "SanctuaryUIRunBannerHolder", UIParent)
+	bannerHolder:SetFrameStrata("HIGH")
+	bannerHolder:SetSize(BANNER_W * HALF, (HEAD_H + BANNER_STONE) * HALF)
+	banner = CreateFrame("Frame", "SanctuaryUIRunBanner", bannerHolder)
+	banner:SetAllPoints()
 	banner:Hide()
-	banner.title = L.Text(banner, L.TitleFont(), 17, L.GOLD, "CENTER")
-	banner.title:SetShadowOffset(1, -1)
-	banner.title:SetPoint("TOP", 0, -2)
-	banner.title:SetText("Run complete")
-	local rule = banner:CreateTexture(nil, "ARTWORK")
-	rule:SetSize(220, 6)
-	rule:SetPoint("TOP", banner.title, "BOTTOM", 0, -1)
-	if not ns.Art.Apply(rule, "hotline") then rule:SetColorTexture(L.GOLD[1], L.GOLD[2], L.GOLD[3], 0.6) end
-	banner.sub = L.Text(banner, L.BodyFont(), 11, L.CREAM, "CENTER")
-	banner.sub:SetShadowOffset(1, -1)
-	banner.sub:SetPoint("TOP", rule, "BOTTOM", 0, -1)
-	local function Button(word, x, onClick)
-		local b = CreateFrame("Button", nil, banner)
-		b:SetSize(90, 24)
-		b:SetPoint("TOP", banner.sub, "BOTTOM", x, -5)
-		Plate(b)
-		b.text = L.Text(b, L.BodyFont(), 12, L.GOLD, "CENTER")
-		b.text:SetShadowOffset(1, -1)
-		b.text:SetPoint("CENTER", 0, 0)
-		b.text:SetText(word)
-		local glow = b:CreateTexture(nil, "HIGHLIGHT")
-		glow:SetAllPoints()
-		glow:SetColorTexture(1, 0.6, 0.3, 0.18)
-		glow:SetBlendMode("ADD")
-		b:SetScript("OnClick", onClick)
-		return b
-	end
-	banner.open = Button("Report", -50, function()
+	local c = CreateFrame("Frame", nil, banner)
+	c:SetScale(HALF)
+	c:SetPoint("TOPLEFT")
+	c:SetSize(BANNER_W, HEAD_H + BANNER_STONE)
+	banner.canvas = c
+
+	-- The stone, under the header: the report's foot, ends kept and middle stretched.
+	local k = BANNER_STONE / 206
+	local fl = Piece(c, "bagFrame", 6, 452, 126, 658, "BACKGROUND")
+	fl:SetPoint("BOTTOMLEFT")
+	fl:SetSize(120 * k, BANNER_STONE)
+	local fr = Piece(c, "bagFrame", 474, 452, 594, 658, "BACKGROUND")
+	fr:SetPoint("BOTTOMRIGHT")
+	fr:SetSize(120 * k, BANNER_STONE)
+	local fm = Piece(c, "bagFrame", 126, 452, 474, 658, "BACKGROUND")
+	fm:SetPoint("TOPLEFT", fl, "TOPRIGHT")
+	fm:SetPoint("BOTTOMRIGHT", fr, "BOTTOMLEFT")
+	local head = CreateFrame("Frame", nil, c)
+	head:SetPoint("TOPLEFT")
+	head:SetSize(BANNER_W, HEAD_H)
+	local medal = R.LayHeader(head, BANNER_W, (HeaderArt()))
+	banner.name = At(Title(head, 32), head, BANNER_W / 2 - 100, 82, "RIGHT")
+	banner.name:SetWidth(BANNER_W / 2 - 160)
+	local done = At(Title(head, 30, L.CREAM), head, BANNER_W / 2 + 100, 82, "LEFT")
+	done:SetWidth(BANNER_W / 2 - 160)
+	done:SetText("RUN COMPLETE")
+	banner.sub = At(Label(c, 25, L.CREAM, "CENTER"), c, BANNER_W / 2, HEAD_H + 34, "CENTER")
+	banner.sub:SetWidth(BANNER_W - 120)
+
+	-- Gold light: a flash over the whole banner as it comes, then a slow pulse on the medallion.
+	local flash = head:CreateTexture(nil, "OVERLAY")
+	flash:SetAllPoints(c)
+	flash:SetColorTexture(1, 0.8, 0.4, 1)
+	flash:SetBlendMode("ADD")
+	flash:SetAlpha(0)
+	banner.flashAnim = flash:CreateAnimationGroup()
+	local f1 = banner.flashAnim:CreateAnimation("Alpha")
+	f1:SetFromAlpha(0.7)
+	f1:SetToAlpha(0)
+	f1:SetDuration(1.1)
+	-- Behind the medallion (which covers its middle), so the light rings it.
+	local glow = head:CreateTexture(nil, "ARTWORK", nil, 0)
+	glow:SetPoint("CENTER", medal, "CENTER", 0, -2)
+	glow:SetSize(250, 250)
+	if ns.Art.Apply(glow, "auraCorona") then glow:SetVertexColor(1, 0.7, 0.3, 1) else glow:SetColorTexture(1, 0.75, 0.35, 0.3) end
+	glow:SetBlendMode("ADD")
+	glow:SetAlpha(0)
+	banner.pulse = glow:CreateAnimationGroup()
+	banner.pulse:SetLooping("BOUNCE")
+	local p1 = banner.pulse:CreateAnimation("Alpha")
+	p1:SetFromAlpha(0.15)
+	p1:SetToAlpha(0.85)
+	p1:SetDuration(1.2)
+	banner.inAnim = banner:CreateAnimationGroup()
+	local a1 = banner.inAnim:CreateAnimation("Alpha")
+	a1:SetFromAlpha(0)
+	a1:SetToAlpha(1)
+	a1:SetDuration(0.35)
+
+	banner.open = BannerButton(c, "Report", -115, function()
 		banner:Hide()
 		if banner.sample then R.Preview() else R.Open(banner.run) end
 	end)
-	banner.dismiss = Button("Dismiss", 50, function() banner:Hide() end)
+	banner.dismiss = BannerButton(c, "Dismiss", 115, function() banner:Hide() end)
+	-- The header's X (the window art's own) puts it away too.
+	local close = CreateFrame("Button", nil, head)
+	close:SetSize(38, 38)
+	close:SetPoint("TOPRIGHT", -10, -6)
+	local hot = close:CreateTexture(nil, "HIGHLIGHT")
+	hot:SetAllPoints()
+	hot:SetColorTexture(1, 0.6, 0.3, 0.25)
+	hot:SetBlendMode("ADD")
+	close:SetScript("OnClick", function() banner:Hide() end)
+	banner:SetScript("OnHide", function(self) self.pulse:Stop() end)
 	-- The next pull puts it away.
 	banner:RegisterEvent("PLAYER_REGEN_DISABLED")
-	banner:SetScript("OnEvent", function(self) self:Hide() end)
+	banner:SetScript("OnEvent", function(self) if not self.held then self:Hide() end end)
+
+	if ns.MakeMover then
+		bannerHolder.mover = ns.MakeMover(bannerHolder, "Run complete", function() return BannerOpt().runBannerPos end,
+			"Reset its position in /sanctuary > Damage meter > Fights.")
+	end
 end
 
-local function PlaceBanner()
-	banner:ClearAllPoints()
-	local holder = ns.Meter.Holder and ns.Meter.Holder()
-	if holder and holder:IsShown() then
-		banner:SetScale(holder:GetScale() * (Opt().gloryScale or 1))
-		local place = Opt().gloryPlace
-		if place ~= "above" and place ~= "below" then
-			local top, screen = holder:GetTop(), UIParent:GetTop()
-			local room = top and screen and (screen / holder:GetScale() - top) or 100
-			place = room < 90 and "below" or "above"
-		end
-		if place == "below" then
-			banner:SetPoint("TOP", holder, "BOTTOM", 14, -4)
-		else
-			banner:SetPoint("BOTTOM", holder, "TOP", 14, 2)
-		end
+-- Where the banner sits and how big: the top of the screen unless moved.
+function R.PlaceBanner()
+	if not bannerHolder then return end
+	local opt = BannerOpt()
+	bannerHolder:SetScale(ns.Art.D3Scale(BANNER_SCALE * (opt.runBannerScale or 1)))
+	bannerHolder:ClearAllPoints()
+	local pos = opt.runBannerPos
+	if pos.moved and ns.MovedPoint then
+		bannerHolder:SetPoint("CENTER", UIParent, "BOTTOMLEFT", ns.MovedPoint(bannerHolder, pos))
 	else
-		banner:SetScale(ns.Art.D3Scale(Opt().gloryScale or 1))
-		banner:SetPoint("TOP", UIParent, "TOP", 0, -170)
+		bannerHolder:SetPoint("TOP", UIParent, "TOP", 0, -90)
+	end
+end
+
+function R.ResetBannerPosition()
+	BannerOpt().runBannerPos = { moved = false, mx = 0, my = 0 }
+	R.PlaceBanner()
+end
+
+local function ShowBanner(r, isSample, quiet)
+	L = L or ns.Meter.Lib
+	if not banner then BuildBanner() end
+	banner.run, banner.sample = r, isSample
+	banner.name:SetText((r.name or "Run"):upper())
+	FitTitle(banner.name, 32, BANNER_W / 2 - 160)
+	local topped, fights = Topped(r)
+	local kills, wipes = Kills(r), Wipes(r)
+	local parts = { Clock(Length(r)) }
+	parts[#parts + 1] = (kills == 1 and "1 boss" or (kills .. " bosses")) .. (wipes == 0 and ", no wipes" or (wipes == 1 and ", 1 wipe" or (", " .. wipes .. " wipes")))
+	if fights > 0 then parts[#parts + 1] = ("you topped %d of %d fights"):format(topped, fights) end
+	local deaths = 0
+	for _, n in ipairs(r.order) do deaths = deaths + (r.players[n].k or 0) end
+	parts[#parts + 1] = deaths == 0 and "nobody died" or (deaths == 1 and "1 death" or (deaths .. " deaths"))
+	banner.sub:SetText(table.concat(parts, "   ·   "))
+	R.PlaceBanner()
+	banner:Show()
+	banner.inAnim:Stop()
+	banner.inAnim:Play()
+	banner.flashAnim:Stop()
+	banner.flashAnim:Play()
+	banner.pulse:Play()
+	if not quiet and Opt().runSound ~= false and PlaySound then
+		local kit = SOUNDKIT and (SOUNDKIT.UI_SCENARIO_ENDING or SOUNDKIT.UI_EPICLOOT_TOAST)
+		if not (kit and pcall(PlaySound, kit, "SFX")) then pcall(PlaySound, 888, "SFX") end
 	end
 end
 
 function R.Banner(r, isSample)
 	if not r or #r.pulls == 0 then return end
-	L = L or ns.Meter.Lib
-	if not banner then BuildBanner() end
-	banner.run, banner.sample = r, isSample
-	local topped, fights = Topped(r)
-	local wipes = Wipes(r)
-	local parts = { ("%s, %s"):format(r.name or "Run", Clock(Length(r))) }
-	parts[#parts + 1] = wipes == 0 and "no wipes" or (wipes == 1 and "1 wipe" or (wipes .. " wipes"))
-	if fights > 0 then parts[#parts + 1] = ("you topped %d of %d"):format(topped, fights) end
-	banner.sub:SetText(table.concat(parts, "  ·  "))
-	banner.title:SetFont(L.TitleFont(), 17, "")
-	banner.sub:SetFont(L.BodyFont(), 11, "")
-	PlaceBanner()
-	banner:Show()
-	if Opt().glorySounds and PlaySound then pcall(PlaySound, 619, "SFX") end
+	ShowBanner(r, isSample)
+end
+
+-- Frames unlocked (/sanctuary unlock): the banner shows, held, so it can be moved.
+function R.UpdateMovers(unlocked)
+	if not unlocked and not bannerHolder then return end
+	if not bannerHolder then BuildBanner() end
+	R.PlaceBanner()
+	if bannerHolder.mover then bannerHolder.mover:SetShown(unlocked and true or false) end
+	if unlocked then
+		if not banner:IsShown() then
+			local s = R.SampleRuns()
+			ShowBanner(s.runs[#s.runs], true, true)
+		end
+		banner.held = true
+	else
+		banner.held = nil
+		if banner.sample then banner:Hide() end
+	end
 end
 
 -- MeterHistory: a run just ended (you left the instance, or entered another).
@@ -2406,5 +2538,5 @@ end
 function R.PreviewBanner()
 	L = L or ns.Meter.Lib
 	local s = R.SampleRuns()
-	R.Banner(s.runs[#s.runs], true)
+	ShowBanner(s.runs[#s.runs], true)
 end

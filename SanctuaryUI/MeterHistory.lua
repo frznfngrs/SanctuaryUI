@@ -62,6 +62,8 @@ H.Store = Store
 -- An encounter that ended during the fight being recorded, and how long after its end
 -- (seconds) the fight may still be saved under it.
 local encounter
+-- The final boss died and its fight is still to be saved (see "The final boss" below).
+local pendingFinal
 local ENCOUNTER_WINDOW = 30
 
 local function Key(s)
@@ -438,6 +440,7 @@ function H.AddToRun(m, fight, rank, outcome, deep, died)
 		end
 		r.deaths[#r.deaths + 1] = { pull = #r.pulls, n = n, c = d.p.c, at = d.at, recap = d.recap, by = by, o = over, from = from }
 	end
+	if pendingFinal and pendingFinal.run == r.id and fight.boss then H.CompleteRun() end
 	if ns.RunReport and ns.RunReport.Changed then ns.RunReport.Changed(r) end
 end
 
@@ -661,11 +664,103 @@ function H.ResetRival()
 	if m then m.rivalWins, m.rivalLosses = 0, 0 end
 end
 
+---------------------------------------------------------------------------
+-- The final boss: the run is complete when it dies, without waiting to leave.
+--
+-- Two ways to know it. DungeonJournal (ForeverDungeonJournal, if installed) keeps every
+-- dungeon's boss list and calls FDJ.RunLogSummary the moment the last required boss is dead,
+-- so that call is the surest sign. Otherwise the game's Encounter Journal: the boss killed is
+-- the last encounter it lists for this dungeon. Either way the run is marked complete once that
+-- boss's fight has been saved (or a few seconds later if it never is), and the "Run complete"
+-- banner comes up (MeterGlory.RunComplete).
+
+local FINAL_WAIT = 8 -- seconds to wait for the final boss's fight to be saved
+local journalFinal = {} -- map ID -> { id = dungeonEncounterID, name } or false
+
+-- The last encounter the Encounter Journal lists for where you are, or nil.
+local function JournalFinal()
+	if not (EJ_GetInstanceForMap and EJ_GetEncounterInfoByIndex and C_Map and C_Map.GetBestMapForUnit) then return nil end
+	local okM, map = pcall(C_Map.GetBestMapForUnit, "player")
+	if not okM or map == nil or Secret(map) then return nil end
+	if journalFinal[map] == nil then
+		local last = false
+		local okI, journal = pcall(EJ_GetInstanceForMap, map)
+		if okI and journal and not Secret(journal) and journal ~= 0 then
+			for i = 1, 40 do
+				local ok, name, _, _, _, _, _, encounterID = pcall(EJ_GetEncounterInfoByIndex, i, journal)
+				if not ok or name == nil or Secret(name) then break end
+				last = { name = name, id = not Secret(encounterID) and encounterID or nil }
+			end
+		end
+		journalFinal[map] = last
+		-- Which dungeons the game's journal knows: if it knows them all, DungeonJournal's signal
+		-- is never needed (the journal's fires first, at the kill).
+		if last then
+			ns.Log("run: the game's journal lists this dungeon (map %s); its final boss is %s (%s)", tostring(map), last.name, tostring(last.id))
+		else
+			ns.Log("run: the game's journal has no boss list for map %s (journal instance %s)", tostring(map), tostring(okI and journal))
+		end
+	end
+	return journalFinal[map] or nil
+end
+H.JournalFinal = JournalFinal
+
+function H.CompleteRun()
+	local p = pendingFinal
+	if not p then return end
+	pendingFinal = nil
+	local r = H.RunById(p.run)
+	if not r or r.complete then return end
+	r.complete, r.t1 = true, math.max(r.t1 or 0, p.t)
+	ns.Log("run: complete (%s)", p.why)
+	if ns.MeterGlory and ns.MeterGlory.RunComplete then
+		local ok, err = pcall(ns.MeterGlory.RunComplete, r.id)
+		if not ok then ns.Log("run complete: %s", tostring(err)) end
+	end
+	if ns.RunReport and ns.RunReport.Changed then ns.RunReport.Changed(r) end
+end
+
+-- The final boss just died (why: what said so; name: the boss, when known).
+function H.FinalBossDown(why, name)
+	local m = Store()
+	if not m or not m.inRun then return end
+	local r = H.RunById(m.run)
+	if (r and r.complete) or (pendingFinal and pendingFinal.run == m.run) then return end
+	ns.Log("run: final boss down: %s", tostring(why))
+	pendingFinal = { run = m.run, name = name, why = why, t = time() }
+	C_Timer.After(FINAL_WAIT, H.CompleteRun)
+end
+
+-- A boss killed (ENCOUNTER_END success, or BOSS_KILL): is it the journal's last?
+local function BossKilled(encounterID, name)
+	local final = JournalFinal()
+	if not final then return end
+	if (encounterID and final.id and encounterID == final.id) or (name and name == final.name) then
+		H.FinalBossDown("the journal's last boss, " .. tostring(name), name)
+	end
+end
+
+-- DungeonJournal's "run complete": FDJ.RunLogSummary is called once, two seconds after the
+-- kill that leaves no required boss standing.
+local hookedJournal = false
+local function HookDungeonJournal()
+	local fdj = _G.ForeverDungeonJournal_NS
+	if hookedJournal or type(fdj) ~= "table" or type(fdj.RunLogSummary) ~= "function" or not hooksecurefunc then return end
+	hookedJournal = true
+	hooksecurefunc(fdj, "RunLogSummary", function(run)
+		if type(run) ~= "table" or not run.completed then return end
+		local now = (GetServerTime and GetServerTime()) or time()
+		if type(run.finalKill) == "number" and math.abs(now - run.finalKill) > 120 then return end
+		H.FinalBossDown("DungeonJournal: every boss is down")
+	end)
+end
+
 function H.Init()
 	local store = Store()
 	if store then pcall(Backfill, store) end
+	HookDungeonJournal()
 	local events = CreateFrame("Frame")
-	for _, event in ipairs({ "ENCOUNTER_START", "ENCOUNTER_END", "DAMAGE_METER_RESET", "PLAYER_ENTERING_WORLD" }) do
+	for _, event in ipairs({ "ENCOUNTER_START", "ENCOUNTER_END", "BOSS_KILL", "DAMAGE_METER_RESET", "PLAYER_ENTERING_WORLD", "ADDON_LOADED" }) do
 		pcall(events.RegisterEvent, events, event)
 	end
 	events:SetScript("OnEvent", function(_, event, ...)
@@ -674,13 +769,24 @@ function H.Init()
 		if event == "ENCOUNTER_START" then
 			encounter = nil
 		elseif event == "ENCOUNTER_END" then
-			local _, name, _, _, success = ...
+			local encounterID, name, _, _, success = ...
 			if name ~= nil and not Secret(name) then
 				-- kill is false on a wipe (so it never sets a best), nil when the client hides it.
 				local kill
 				if success ~= nil and not Secret(success) then kill = success == 1 or success == true end
 				encounter = { name = name, kill = kill, at = GetTime() }
+				if kill and m.inRun then
+					local ok, err = pcall(BossKilled, not Secret(encounterID) and encounterID or nil, name)
+					if not ok then ns.Log("run final boss: %s", tostring(err)) end
+				end
 			end
+		elseif event == "BOSS_KILL" then
+			local encounterID, name = ...
+			if m.inRun and name ~= nil and not Secret(name) then
+				pcall(BossKilled, not Secret(encounterID) and encounterID or nil, name)
+			end
+		elseif event == "ADDON_LOADED" then
+			HookDungeonJournal()
 		elseif event == "DAMAGE_METER_RESET" then
 			m.epoch = m.epoch + 1
 		elseif event == "PLAYER_ENTERING_WORLD" then
@@ -703,12 +809,18 @@ function H.Init()
 			local same = was ~= nil and inside and (was == true or id == true or was == id)
 			if was ~= nil and not same and (inside or not UnitIsDeadOrGhost("player")) then
 				local ended = H.RunById(m.run)
-				if ended then ended.done, ended.t1 = true, time() end
+				if ended then
+					ended.done = true
+					-- A completed run's clock stopped at the final boss.
+					if not ended.complete then ended.t1 = time() end
+				end
+				pendingFinal = nil
 				if ns.MeterGlory and ns.MeterGlory.RunEnded then pcall(ns.MeterGlory.RunEnded, m.run) end
 				was = nil
 				m.inRun = nil
 			end
 			if inside then
+				pcall(JournalFinal)
 				if was == nil then
 					m.run = m.run + 1
 					m.runStart, m.runStartId = time(), m.run -- door to door starts at the door
