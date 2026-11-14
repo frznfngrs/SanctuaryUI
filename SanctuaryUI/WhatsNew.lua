@@ -33,9 +33,13 @@ local LATEST = "0.25.0"
 
 local GOLD = { 0.91, 0.78, 0.48 }
 local CREAM = { 0.89, 0.84, 0.75 }
-local WIDTH = 560
-local PAD = 24
-local HEADER = 52
+local WIDTH = 500
+local PAD = 32
+local HEADER = 50
+-- Text sizes: the header's title and version, each note's heading and text, the buttons.
+local TITLE, VERSION, HEADING, BODY, BUTTON, OK = 18, 11, 13, 10, 9, 12
+local LINE_GAP = 4 -- between a note's lines
+local ITEM_GAP = 30 -- between notes; a faint rule sits in its middle
 
 local frame
 local items = {}
@@ -141,14 +145,14 @@ local function Build()
 	glassEdge:SetColorTexture(0.04, 0.03, 0.024, 1)
 	frame.glass = {}
 	frame.head = head
-	frame.title = Text(head, TitleFont(), 22, GOLD)
+	frame.title = Text(head, TitleFont(), TITLE, GOLD)
 	frame.title:SetPoint("LEFT", head, "LEFT", 18, -1)
 	frame.title:SetText("What's new")
-	frame.version = Text(head, BodyFont(), 15, CREAM, "RIGHT")
+	frame.version = Text(head, BodyFont(), VERSION, CREAM, "RIGHT")
 	frame.version:SetPoint("RIGHT", head, "RIGHT", -18, -1)
 
-	frame.ok = Plate(frame, 170, 40, "Got it", 16)
-	frame.ok:SetPoint("BOTTOM", frame, "BOTTOM", 0, 16)
+	frame.ok = Plate(frame, 140, 34, "Got it", OK)
+	frame.ok:SetPoint("BOTTOM", frame, "BOTTOM", 0, 20)
 	frame.ok:SetScript("OnClick", function() frame:Hide() end)
 
 	frame:SetScript("OnHide", function()
@@ -161,11 +165,14 @@ local function Item(i)
 	local it = items[i]
 	if it then return it end
 	it = {}
-	it.heading = Text(frame, TitleFont(), 17, GOLD)
-	it.text = Text(frame, BodyFont(), 14, CREAM)
+	it.heading = Text(frame, TitleFont(), HEADING, GOLD)
+	it.text = Text(frame, BodyFont(), BODY, CREAM)
 	it.text:SetWordWrap(true)
-	it.text:SetSpacing(2)
-	it.button = Plate(frame, 104, 28, "", 12)
+	it.text:SetSpacing(LINE_GAP)
+	it.button = Plate(frame, 84, 22, "", BUTTON)
+	it.rule = frame:CreateTexture(nil, "ARTWORK")
+	it.rule:SetHeight(1)
+	it.rule:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.18)
 	items[i] = it
 	return it
 end
@@ -174,38 +181,49 @@ end
 local function Fill(version)
 	local notes = NOTES[version] or {}
 	frame.version:SetText("SanctuaryUI " .. version)
-	local y = HEADER + 18
+	local y = HEADER + 24
 	for i, note in ipairs(notes) do
 		local it = Item(i)
-		it.heading:SetFont(TitleFont(), 17, "")
-		it.text:SetFont(BodyFont(), 14, "")
+		it.heading:SetFont(TitleFont(), HEADING, "")
+		it.text:SetFont(BodyFont(), BODY, "")
+		it.button.label:SetFont(TitleFont(), BUTTON, "")
+		it.rule:ClearAllPoints()
+		if i > 1 then
+			it.rule:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -(y - ITEM_GAP / 2))
+			it.rule:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD, -(y - ITEM_GAP / 2))
+			it.rule:Show()
+		else
+			it.rule:Hide()
+		end
 		it.heading:ClearAllPoints()
 		it.heading:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -y)
 		it.heading:SetText(note[1])
 		it.heading:Show()
 		it.button:ClearAllPoints()
 		if note[3] then
+			-- On the heading's line, its middle level with the heading's.
 			it.button.label:SetText(note[3])
-			it.button:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD, -(y - 5))
+			it.button:SetPoint("RIGHT", frame, "TOPRIGHT", -PAD, -(y + HEADING * 0.55))
 			it.button:SetScript("OnClick", function() pcall(note[4]) end)
 			it.button:Show()
 		else
 			it.button:Hide()
 		end
-		y = y + 26
+		y = y + HEADING + 12
 		it.text:ClearAllPoints()
 		it.text:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -y)
 		it.text:SetWidth(WIDTH - 2 * PAD)
 		it.text:SetText(note[2])
 		it.text:Show()
-		y = y + math.ceil(it.text:GetStringHeight()) + 20
+		y = y + math.ceil(it.text:GetStringHeight()) + ITEM_GAP
 	end
 	for i = #notes + 1, #items do
 		items[i].heading:Hide()
 		items[i].text:Hide()
 		items[i].button:Hide()
+		items[i].rule:Hide()
 	end
-	frame:SetSize(WIDTH, y + 64)
+	frame:SetSize(WIDTH, y + 54)
 	for _, t in ipairs(frame.glass) do t:Hide() end
 	local L = ns.Meter and ns.Meter.Lib
 	if L and L.LayGlass then L.LayGlass(frame.head, frame.glass, WIDTH - 14) end
@@ -244,10 +262,15 @@ function N.ApplySettings()
 	if frame and frame:IsShown() then Place() end
 end
 
--- After logging in on a version with notes not yet shown: a few seconds in, out of combat.
+-- After logging in with the latest notes not yet shown (a fix release without notes of its own
+-- still shows them to someone updating past them): a few seconds in, out of combat.
 local function Due()
 	local global = Global()
-	return Opt().enabled and NOTES[MINE] ~= nil and global ~= nil and global.newsSeen ~= MINE
+	if not Opt().enabled or not NOTES[LATEST] or not global then return false end
+	local seen = global.newsSeen
+	if seen == nil then return true end
+	if ns.VersionNewer then return ns.VersionNewer(LATEST, seen) end
+	return seen ~= LATEST
 end
 
 function N.Init()
@@ -259,7 +282,7 @@ function N.Init()
 			waiter:RegisterEvent("PLAYER_REGEN_ENABLED")
 			return
 		end
-		N.Show(MINE)
+		N.Show(LATEST)
 	end
 	waiter:SetScript("OnEvent", function(self)
 		self:UnregisterEvent("PLAYER_REGEN_ENABLED")
