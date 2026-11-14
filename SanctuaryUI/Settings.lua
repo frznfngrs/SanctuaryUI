@@ -350,6 +350,8 @@ ns.DEFAULTS = {
 		},
 
 		-- weapon swing timers (SwingTimer.lua): a bar per weapon, filling to the next auto attack
+		-- What's new after an update (WhatsNew.lua); the version last shown is in global.newsSeen
+		news = { enabled = true, scale = 1 },
 		-- threat rails, warnings and loose enemies (Threat.lua)
 		threat = {
 			enabled = true,
@@ -841,6 +843,7 @@ function ns.Refresh()
 	Run("swing timer", ns.Swing and ns.Swing.ApplySettings)
 	Run("damage meter", ns.Meter and ns.Meter.ApplySettings)
 	Run("threat", ns.Threat and ns.Threat.ApplySettings)
+	Run("what's new", ns.WhatsNew and ns.WhatsNew.ApplySettings)
 	Run("minimap", ns.Map and ns.Map.ApplySettings)
 	Run("overlay map", ns.MapOverlay and ns.MapOverlay.ApplySettings)
 	Run("ally ring", ns.AllyRing and ns.AllyRing.ApplySettings)

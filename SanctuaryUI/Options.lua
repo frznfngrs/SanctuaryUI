@@ -2244,6 +2244,11 @@ local function Build()
 						set = function(_, value) ns.Minimap.SetShown(value) end,
 					}, HALF),
 				}),
+				news = Card(3, "What's new", {
+					enabled = Toggle(1, "Show after an update", "Once per update, a few seconds after you log in: what the new version brought. /sanctuary news shows it again.", "news", "enabled"),
+					show = Width({ type = "execute", order = 2, name = "Show what's new", func = function() ns.WhatsNew.Show() end }, HALF),
+					scale = Range(3, "Size", nil, "news", "scale", 0.6, 1.6, 0.05, true),
+				}),
 				version = Note(4, "SanctuaryUI version " .. VERSION),
 			}),
 
