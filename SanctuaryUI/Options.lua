@@ -959,7 +959,7 @@ local function JournalArgs()
 			},
 		}),
 		popup = Card(3.5, "Pop-up", {
-			note = Note(0, "Each new diary line slides in on D3's \"new lore\" notice, glowing as it arrives. Hover to hold it, click to open the diary, right-click to dismiss. Unlock frames to move it."),
+			note = Note(0, "Each new diary line slides in on D3's \"new lore\" notice, glowing as it arrives. Hover to hold it, click to open the diary, right-click to dismiss. Unlock frames to move it. The Cookbook's diary uses the same pop-up, with these settings."),
 			toast = Toggle(1, "Show the pop-up", nil, "journal", "toast"),
 			toastSound = Toggle(2, "Page-turn sound", nil, "journal", "toastSound"),
 			toastScale = Range(3, "Scale", nil, "journal", "toastScale", 0.5, 2, 0.05, true),
@@ -978,12 +978,52 @@ local function JournalArgs()
 		}),
 		look = Card(4, "Look", {
 			scale = Range(1, "Scale", nil, "journal", "scale", 0.5, 1.6, 0.01, true),
-			textScale = Range(2, "Text size", "The page's text, on top of the window's scale.", "journal", "textScale", 0.8, 1.4, 0.05, true),
+			textScale = Range(2, "Text size", "The page's text, on top of the window's scale. The Cookbook follows it, and the two fonts below.", "journal", "textScale", 0.8, 1.4, 0.05, true),
 			diaryFont = Select(3, "Diary hand", "The diary's lines and chapter openers. Diablo Script by default.", "journal", "diaryFont", TEXT_FONTS, TEXT_FONT_ORDER),
 			pageFont = Select(4, "Page font", "The guide's text and tables. Diablo Serif by default.", "journal", "pageFont", TEXT_FONTS, TEXT_FONT_ORDER),
 			flyout = Width(Toggle(5, "Fish in the console menu's flyout", "A fish plate among the Spellbook & Panels flyout's buttons. Takes effect after a /reload.", "journal", "flyout"), 0.666),
 		}),
 		place = PositionCard(5, "Left of centre by default. Drag the window by its stone or header to move it.", function() J().ResetPosition() end, function() return not DB().journal.moved end),
+	}
+end
+
+-- Options > Professions > Cookbook (Cookbook.lua).
+local function CookbookArgs()
+	local function C() return ns.Cookbook end
+	return {
+		intro = Note(1, "A cooking guide for WoW Forever, the Angler's journal's sister: what your bags can become right now, every recipe with what goes in and where it's learned, what each fish is for, what to eat, where the meat lives, the camp and the Iron Oven. It reads your Cooking skill, your bags and the recipes you know, and keeps a kitchen diary. Open it with /sanctuary cook, its key (Key Bindings > AddOns) or the cauldron in the console menu's flyout."),
+		open = {
+			type = "execute", order = 2, name = "Open the Cookbook",
+			func = function()
+				if not C() then return end -- a new file: not loaded until the game restarts
+				LibStub("AceConfigDialog-3.0"):Close(APP)
+				C().Open("larder")
+			end,
+		},
+		diary = Card(3, "Diary", {
+			diary = Toggle(1, "Write diary entries", "The first time you cook a dish, new recipes, milestones: a line in the diary each time.", "cookbook", "diary"),
+			chat = Toggle(2, "Print them in chat", "Each new diary line also shows in your chat window.", "cookbook", "chat"),
+			toast = Toggle(3, "Show the pop-up", "Each new line slides in on the diary pop-up, the same one the Angler's journal uses.", "cookbook", "toast"),
+			preview = {
+				type = "execute", order = 4, width = "relative", relWidth = HALF,
+				name = "Show a sample",
+				func = function() if C() then C().PreviewToast() end end,
+			},
+			clear = {
+				type = "execute", order = 5, width = "relative", relWidth = HALF,
+				name = "Clear this character's diary",
+				desc = "Forgets this character's dishes, tally and entries. The guide stays.",
+				confirm = true,
+				confirmText = "Feed this character's kitchen diary to the fire?",
+				func = function() if C() then C().Clear() end end,
+			},
+		}),
+		look = Card(4, "Look", {
+			scale = Range(1, "Scale", nil, "cookbook", "scale", 0.5, 1.6, 0.01, true),
+			flyout = Width(Toggle(2, "Cauldron in the console menu's flyout", "A cauldron plate among the Spellbook & Panels flyout's buttons. Takes effect after a /reload.", "cookbook", "flyout"), 0.666),
+			shared = Note(3, "The two books share their page: text size, the diary hand, the page font, and the pop-up's size, sound, time and place are set once, under Fishing journal."),
+		}),
+		place = PositionCard(5, "Right of centre by default, so both books can lie open. Drag the window by its stone or header to move it.", function() if C() then C().ResetPosition() end end, function() return not DB().cookbook.moved end),
 	}
 end
 
@@ -2514,6 +2554,7 @@ local function Build()
 			sectionProfessions = Section(43.5, "Professions"),
 			fishing = Page(44, "Fishing journal", JournalArgs()),
 			fishingTools = Page(44.5, "Fishing tools", FishingToolsArgs()),
+			cookbook = Page(44.7, "Cookbook", CookbookArgs()),
 			bank = Page(42, "Bank", {
 				enabled = Width(Toggle(1, "Use the SanctuaryUI bank window", "D3's stash in place of Blizzard's bank. Needs the bag window on. Turning it off needs a /reload.", "bank", "enabled"), 1),
 				layout = Card(2, "Layout", {

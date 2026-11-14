@@ -43,6 +43,8 @@ ns.Art.slots = {
 	mapParchment = { file = "map-parchment.png", lazy = true },
 	-- The angler's journal (FishingJournal.lua; tools/build_journal_art.py): header, page, tabs.
 	journal = { file = "journal.png", lazy = true },
+	-- The Cookbook's own header and tabs (Cookbook.lua); its page and pop-up are the journal's.
+	cookbook = { file = "cookbook.png", lazy = true },
 	mapMaskTorn = { file = "map-mask-torn.png", lazy = true },
 	mapMaskFade = { file = "map-mask-fade.png", lazy = true },
 	mapMaskRound = { file = "map-mask-round.png", lazy = true },
@@ -207,7 +209,7 @@ end
 -- columns, rows normal / hover / pressed).
 ns.Art.FLYOUT_CELLS = {
 	spellbook = 0, professions = 1, collections = 2, achievements = 3, groupfinder = 4, pvp = 5,
-	legacy = 6, currency = 7, reputation = 8, fishing = 9,
+	legacy = 6, currency = 7, reputation = 8, fishing = 9, cooking = 10,
 }
 function ns.Art.FlyoutTexCoord(name, state)
 	local i = ns.Art.FLYOUT_CELLS[name] or 0

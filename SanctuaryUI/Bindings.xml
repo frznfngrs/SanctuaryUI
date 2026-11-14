@@ -9,6 +9,9 @@
 	<Binding name="SANCTUARYUIFISHING" category="ADDONS">
 		SanctuaryUI.Journal.Toggle()
 	</Binding>
+	<Binding name="SANCTUARYUICOOKBOOK" category="ADDONS">
+		SanctuaryUI.Cookbook.Toggle()
+	</Binding>
 	<Binding name="CLICK SanctuaryUIFishingCast:LeftButton" category="ADDONS"/>
 	<Binding name="SANCTUARYUIFISHOUTFIT" category="ADDONS">
 		SanctuaryUI.Fishing.ToggleOutfit()

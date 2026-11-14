@@ -70,9 +70,13 @@ Experience.lua
 InventoryWindow.lua
 Bags.lua
 Bank.lua
+Book.lua
 FishingData.lua
 FishingJournal.lua
 Fishing.lua
+CookingRecipes.lua
+CookingData.lua
+Cookbook.lua
 Options.lua
 Minimap.lua
 VersionCheck.lua

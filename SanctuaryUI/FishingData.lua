@@ -25,7 +25,7 @@ D.FISH = {
 	oily = { id = 6358, name = "Oily Blackmouth", where = "Oily Blackmouth Schools on coasts from skill 75", use = "Blackmouth Oil (Alchemy)", quip = "Squeeze it. Alchemists will thank you." },
 	firefin = { id = 6359, name = "Firefin Snapper", where = "Firefin Snapper Schools on coasts from skill 75", use = "Fire Oil (Alchemy)", quip = "Hot to the touch. Do not kiss." },
 	deviate = { id = 6522, name = "Deviate Fish", where = "The Barrens' oases and Wailing Caverns' pools", use = "Savory Deviate Delight (recipe from Barrens mobs)", quip = "Naralex's nightmares, with fins. Eat it: pirate, ninja or skeleton." },
-	whimsyfin = { name = "Whimsyfin", where = "Rivers of the Redridge Mountains (cast from 55)", use = "Savory Whimsyfin Delight: an hour as an ogre or a murloc (recipe drops in Redridge)", quip = "Raw, it makes you dance or nap. Cooked, it makes you a murloc.", forever = true },
+	whimsyfin = { id = 251524, name = "Whimsyfin", where = "Whimsyfin pools in the rivers of the Redridge Mountains (cast from 55)", use = "Savory Whimsyfin Delight: an hour as an orc pirate or an orc ninja (recipe drops in Redridge)", quip = "Raw, it makes you dance or nap. Cooked, it makes you a ninja.", forever = true },
 	sickly = { id = 6299, name = "Sickly Looking Fish", where = "Undercity's canals, Tirisfal", use = "Very little", quip = "Raised in the Apothecaries' runoff. Looks how I feel after the canals." },
 	trout = { id = 8365, name = "Raw Mithril Head Trout", where = "Inland, skill-225 zones (Arathi, Alterac, Dustwallow, Desolace)", use = "Mithril Headed Trout; the Fishing Rack camp object", quip = "Its head is not actually mithril. I checked. With a pick." },
 	greatersage = { id = 21153, name = "Raw Greater Sagefish", where = "Greater Sagefish Schools, inland skill-225 waters", use = "Sagefish Delight (mana regeneration)", quip = "The sagefish's older, wiser, tastier cousin." },
@@ -51,6 +51,7 @@ D.FISH = {
 
 -- Items the book names in passing (reagents, blueprints, books): linked wherever they appear.
 D.ITEMS = {
+	["Savory Whimsyfin Delight"] = 251525,
 	["Blueprint: Fishing Rack"] = 273141,
 	["Blueprint: Fishing Hut"] = 273119,
 	["Seasonal Fish Steaks"] = 273295,
@@ -486,7 +487,7 @@ D.LINES = {
 		[13422] = "Stonescale Eel. Bit me twice. Alchemists will pay for both bites.",
 		[6317] = "Raw Loch Frenzy. Lives only in Loch Modan. Now lives in my bag.",
 	},
-	whimsyfin = "Caught a Whimsyfin. The cook says it turns you into an ogre or a murloc. I asked which. He said yes.",
+	whimsyfin = "Caught a Whimsyfin. The cook says it turns you into a pirate or a ninja. I asked which. He said yes.",
 	total = {
 		[10] = "Ten fish. The bag smells like a decision I made.",
 		[50] = "Fifty fish. Children follow me through town now. So do cats.",

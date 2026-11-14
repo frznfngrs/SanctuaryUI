@@ -143,6 +143,14 @@ local FLYOUT = {
 		toggle = function() ns.Journal.Toggle() end,
 		available = function() return ns.Journal and ns.Journal.Toggle and ns.DB().journal.flyout end,
 	},
+	{
+		-- The Cookbook (Cookbook.lua).
+		key = "cooking",
+		label = "The Cookbook",
+		binding = "SANCTUARYUICOOKBOOK",
+		toggle = function() ns.Cookbook.Toggle() end,
+		available = function() return ns.Cookbook and ns.Cookbook.Toggle and ns.DB().cookbook.flyout end,
+	},
 	-- No Currency or Reputation: they are tabs of the character sheet, and opening that from
 	-- addon code taints it (see the Character button).
 }

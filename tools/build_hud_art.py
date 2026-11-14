@@ -816,13 +816,19 @@ def tab_icon(icon: int, hull: bool = False) -> Image.Image:
 # The flyout's buttons (Lua: ns.Art.FLYOUT_CELLS): the same menu plates with gold icons.
 # Panels a client lacks are left out in Lua; their cells stay in the atlas.
 FLYOUT_ICONS = ["spellbook", "professions", "collections", "achievements", "groupfinder", "pvp",
-                "legacy", "currency", "reputation", "fishing"]
+                "legacy", "currency", "reputation", "fishing", "cooking"]
 
 
 def journal_fish() -> Image.Image:
     """The fish from the journal's medallion, in the menu icons' embossed gold."""
     import build_journal_art
     return build_journal_art.fish_icon(26)
+
+
+def cookbook_pot() -> Image.Image:
+    """The cauldron from the Cookbook's medallion, in the menu icons' embossed gold."""
+    import build_journal_art
+    return build_journal_art.pot_icon(26)
 
 
 def menu_flyout() -> None:
@@ -838,6 +844,7 @@ def menu_flyout() -> None:
         "currency": tab_icon(6),  # gem
         "reputation": tab_icon(15),  # signet ring
         "fishing": journal_fish(),  # the angler's journal (FishingJournal.lua)
+        "cooking": cookbook_pot(),  # the Cookbook (Cookbook.lua)
     }
     atlas = Image.new("RGBA", (512, 256), (0, 0, 0, 0))
     for i, key in enumerate(FLYOUT_ICONS):

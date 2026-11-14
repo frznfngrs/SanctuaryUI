@@ -547,6 +547,20 @@ ns.DEFAULTS = {
 			pageFont = "d3serif", -- the guide's print
 			textScale = 1,
 		},
+		-- the Cookbook (Cookbook.lua). Its page fonts, text size and the diary pop-up's look are the
+		-- journal's above: the two books share them.
+		cookbook = {
+			scale = 1,
+			point = "RIGHT",
+			x = -110,
+			y = 0,
+			moved = false,
+			chapter = "larder", -- the chapter it opens on
+			diary = true, -- write diary entries from dishes, recipes and milestones
+			chat = false, -- and print each new entry in chat
+			toast = true, -- and show it in the diary pop-up
+			flyout = true, -- a cauldron plate in the console menu's flyout (needs a /reload)
+		},
 
 		-- bank window
 		bank = {
@@ -596,6 +610,16 @@ ns.DEFAULTS = {
 		},
 		-- MeterHistory.lua: saved fights, personal bests, the streak and the rival's tally.
 		meter = {},
+		-- Cookbook.lua: this character's kitchen log and diary.
+		cooking = {
+			cooked = {}, -- recipe spell -> dishes made
+			names = {}, -- itemID -> dish name, as cooked
+			known = {}, -- recipe spell -> true, as the spellbook showed it
+			entries = {}, -- { t = time, day = n, text = "" }, oldest first
+			days = {}, -- "YYYY-MM-DD" -> true, the days you cooked
+			dayCount = 0,
+			total = 0,
+		},
 		-- FishingJournal.lua: this character's catches and diary.
 		fishing = {
 			catches = {}, -- itemID -> count
@@ -770,6 +794,7 @@ function ns.Refresh()
 	Run("bags", ns.Bags and ns.Bags.ApplySettings)
 	Run("bank", ns.Bank and ns.Bank.ApplySettings)
 	Run("fishing journal", ns.Journal and ns.Journal.ApplySettings)
+	Run("cookbook", ns.Cookbook and ns.Cookbook.ApplySettings)
 	Run("fishing tools", ns.Fishing and ns.Fishing.ApplySettings)
 	Run("stance", ns.Stance and ns.Stance.ApplySettings)
 	Run("totems", ns.Totem and ns.Totem.ApplySettings)

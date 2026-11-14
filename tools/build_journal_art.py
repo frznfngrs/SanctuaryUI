@@ -17,6 +17,10 @@
 
   menu-flyout.png gets its fish plate from build_hud_art.py (fish_icon below).
 
+  cookbook.png 1024x1024 (the Cookbook, Cookbook.lua): its own header (a cauldron over a fire
+    in the medallion) and tabs, in the same places; `build_journal_art.py cookbook` makes
+    only this one.
+
 Run: PYTHONPATH=<deps> python tools/build_journal_art.py   (numpy, scipy, pillow)
 """
 from __future__ import annotations
@@ -334,7 +338,171 @@ def plate(atlas: Image.Image) -> tuple[int, int]:
     return cut.size
 
 
+# ---------------------------------------------------------------------------
+# The Cookbook (SanctuaryUI/Cookbook.lua): cookbook.png holds its own header (a cauldron over
+# a fire in the medallion's glass) and its chapters' tabs, laid out like journal.png's. The
+# page and the pop-up are the journal's.
+
+# Diary, larder (the eye), road, recipes (tome), from the water (the chest, as the journal's
+# catch), the table (goblet), pantry (satchel), camp and oven (the fire), tales (sack).
+COOK_TABS = [9, 8, 24, 27, 19, 10, 21, 2, 30]
+
+
+def pot_shapes(w: float, h: float):
+    """Polygons in a w x h box: the cauldron's bowl, its rim, the stew's surface, two lugs,
+    three feet, the flames under it and a ladle's handle."""
+    def P(x, y):
+        return (x * w, y * h)
+
+    bowl = []
+    for a in np.linspace(0, math.pi, 40):  # the belly, left rim round to right rim
+        bowl.append(P(0.5 - 0.36 * math.cos(a) * (1 + 0.10 * math.sin(a)), 0.36 + 0.40 * math.sin(a) ** 0.8))
+    rim = [P(0.5 + 0.40 * math.cos(a), 0.34 + 0.065 * math.sin(a)) for a in np.linspace(0, 2 * math.pi, 40)]
+    stew = [P(0.5 + 0.32 * math.cos(a), 0.34 + 0.040 * math.sin(a)) for a in np.linspace(0, 2 * math.pi, 40)]
+    lugs = [[P(0.10, 0.40), P(0.03, 0.44), P(0.05, 0.54), P(0.13, 0.52)],
+            [P(0.90, 0.40), P(0.97, 0.44), P(0.95, 0.54), P(0.87, 0.52)]]
+    feet = [[P(0.24, 0.70), P(0.18, 0.86), P(0.26, 0.86), P(0.31, 0.74)],
+            [P(0.76, 0.70), P(0.82, 0.86), P(0.74, 0.86), P(0.69, 0.74)]]
+    flames = []
+    for cx, top, half in ((0.36, 0.74, 0.065), (0.50, 0.68, 0.08), (0.64, 0.74, 0.065)):
+        # A teardrop: a point leaning with the draught, a round foot.
+        flame = [P(cx + half * 0.25, top)]
+        for a in np.linspace(-0.35, math.pi + 0.35, 12):
+            flame.append(P(cx + half * math.cos(a), top + 0.19 + 0.10 * math.sin(a)))
+        flames.append(flame)
+    ladle = [P(0.62, 0.33), P(0.86, 0.06), P(0.90, 0.09), P(0.67, 0.35)]
+    return bowl, rim, stew, lugs, feet, flames, ladle
+
+
+def pot_icon(height: int = 26) -> Image.Image:
+    """The cauldron in the embossed gold of the console's menu icons, for the flyout's plate."""
+    w, h, ss = 52, 52, 4
+    W, H = w * ss, h * ss
+    bowl, rim, stew, lugs, feet, flames, ladle = pot_shapes(W, H)
+    m = Image.new("L", (W, H), 0)
+    d = ImageDraw.Draw(m)
+    for poly in [bowl, rim, ladle] + lugs + feet:
+        d.polygon(poly, fill=255)
+    mask = np.asarray(m, np.float32) / 255
+    inside = mask > 0.5
+    dist = ndimage.distance_transform_edt(inside)
+    bevel = np.clip(dist / (3.2 * ss), 0, 1)
+    gy, gx = np.gradient(ndimage.gaussian_filter(bevel, ss))
+    light = np.clip(0.62 + (-gx - gy) * 9 * ss, 0, 1)
+    lum = light * (0.55 + 0.45 * bevel)
+    lines = Image.new("L", m.size, 0)
+    ld = ImageDraw.Draw(lines)
+    ld.line(stew + [stew[0]], fill=255, width=int(1.2 * ss))
+    ld.line([bowl[4], bowl[-5]], fill=0, width=1)
+    ld.arc((W * 0.2, H * 0.36, W * 0.8, H * 0.70), 20, 160, fill=170, width=ss)  # a band round the belly
+    groove = np.asarray(lines, np.float32) / 255
+    lum = lum * (1 - 0.6 * groove)
+    lum = ndimage.zoom(lum, 1 / ss, order=1)
+    alpha = ndimage.zoom(mask, 1 / ss, order=1)
+    v = np.clip(lum ** 1.1 * 215 + 52, 0, 255)
+    out = np.zeros((h, w, 4), np.uint8)
+    out[..., 0] = v
+    out[..., 1] = v * 0.76
+    out[..., 2] = v * 0.32
+    out[..., 3] = (alpha * 255).astype(np.uint8)
+    rim_px = ndimage.binary_dilation(alpha > 0.5, iterations=2) & ~(alpha > 0.5)
+    out[rim_px] = (34, 20, 8, 200)
+    img = Image.fromarray(out, "RGBA")
+    img = img.crop(img.getbbox())
+    width = min(27, round(img.width * height / img.height))
+    return img.resize((width, round(img.height * width / img.width)), Image.LANCZOS)
+
+
+def cook_header() -> Image.Image:
+    """D3's inventory header with a cauldron over a fire leaded into the medallion's glass."""
+    head = Image.open(OUT / "bag-frame.png").convert("RGBA").crop((0, 0, 600, 155))
+    ss = 6
+    R = int(GLASS_R + 2)
+    size = 2 * R
+    S = size * ss
+    yy, xx = np.mgrid[0:S, 0:S].astype(np.float32) / ss - R
+    # Kitchen glass: bottle green (the journal's is sea blue), warmed from below by the fire,
+    # mottled like D3's glass.
+    mott = noise((S, S), 2.5 * ss, 17) * 0.5 + noise((S, S), 0.8 * ss, 18) * 0.25
+    heat = np.clip((yy + R) / (2 * R), 0, 1)[..., None] ** 2
+    base = np.stack([16 + 0 * yy, 84 + 0 * yy, 58 + 0 * yy], -1) * (1.1 - 0.35 * heat) + np.array([110, 44, 0]) * heat * 0.55
+    glass = base * (1 + mott[..., None] * 0.35)
+    canvas = Image.fromarray(glass.clip(0, 255).astype(np.uint8), "RGB").convert("RGBA")
+    d = ImageDraw.Draw(canvas)
+    lead = (22, 16, 12, 255)
+    for a in (-2.6, -1.9, -1.2, -0.5):  # spokes in the upper glass, like the original's
+        d.line([((R + 16 * math.cos(a)) * ss, (R + 16 * math.sin(a)) * ss),
+                ((R + 44 * math.cos(a)) * ss, (R + 44 * math.sin(a)) * ss)], fill=lead, width=int(1.4 * ss))
+    # The cauldron, 56 px wide, sitting a little low so the steam has room.
+    pw, ph = int(56 * ss), int(56 * ss)
+    bowl, rim, stew, lugs, feet, flames, ladle = pot_shapes(pw, ph)
+    pot = Image.new("RGBA", (pw, ph), (0, 0, 0, 0))
+    pd = ImageDraw.Draw(pot)
+    fy, fx = np.mgrid[0:ph, 0:pw].astype(np.float32)
+    fn = noise((ph, pw), 1.6 * ss, 21)
+
+    def fill(polys, color_fn):
+        m = Image.new("L", (pw, ph), 0)
+        md = ImageDraw.Draw(m)
+        for poly in polys:
+            md.polygon(poly, fill=255)
+        mask = np.asarray(m, np.float32) / 255
+        col = color_fn() * (1 + fn[..., None] * 0.12)
+        pot.alpha_composite(rgba(col, mask))
+
+    # Flames first (the feet and bowl sit over them): yellow at the heart, orange at the tips.
+    glow = np.clip(1 - np.hypot((fx - pw * 0.5) / (pw * 0.30), (fy - ph * 0.95) / (ph * 0.30)), 0, 1)[..., None]
+    fill(flames, lambda: np.concatenate([232 + 23 * glow, 120 + 110 * glow, 20 + 70 * glow ** 2], -1))
+    # Iron: blue-grey glass, lighter on the upper left.
+    shine = np.clip(1 - np.hypot((fx - pw * 0.34) / (pw * 0.5), (fy - ph * 0.45) / (ph * 0.5)), 0, 1)[..., None]
+    iron = lambda: np.concatenate([58 + 70 * shine, 68 + 78 * shine, 86 + 84 * shine], -1)
+    fill(feet + lugs, iron)
+    fill([bowl], iron)
+    fill([rim], lambda: np.concatenate([96 + 60 * shine, 104 + 62 * shine, 120 + 60 * shine], -1))
+    # The stew: amber, like the journal's fish.
+    fill([stew], lambda: np.concatenate([214 + 30 * shine, 150 + 60 * shine, 40 + 40 * shine], -1))
+    fill([ladle], lambda: np.concatenate([150 + 60 * shine, 108 + 50 * shine, 60 + 30 * shine], -1))
+    for poly in flames + feet + lugs + [bowl, rim, stew, ladle]:
+        pd.line(poly + [poly[0]], fill=lead, width=int(1.4 * ss), joint="curve")
+    canvas.alpha_composite(pot, (int((R - 28) * ss), int((R - 25) * ss)))
+    # Steam: two pale panes rising off the stew, and a bubble.
+    for sx, sy, sr in ((R - 8, R - 24, 3.4), (R + 2, R - 31, 2.6), (R - 14, R - 33, 2.0)):
+        d.ellipse(((sx - sr) * ss, (sy - sr) * ss, (sx + sr) * ss, (sy + sr) * ss), outline=lead, width=int(0.9 * ss),
+                  fill=(236, 214, 190, 255))
+    small = canvas.resize((size, size), Image.LANCZOS)
+    hx, hy = MEDAL
+    hp = np.asarray(head).astype(np.float32)
+    sp = np.asarray(small).astype(np.float32)
+    x0, y0 = int(round(hx - R)), int(round(hy - R))
+    for y in range(size):
+        for x in range(size):
+            X, Y = x0 + x, y0 + y
+            dr = math.hypot(X + 0.5 - hx, Y + 0.5 - hy)
+            if dr > GLASS_R + 0.6:
+                continue
+            if ((X + 0.5 - CHIN[0]) / CHIN[2]) ** 2 + ((Y + 0.5 - CHIN[1]) / CHIN[3]) ** 2 < 1:
+                continue  # the gargoyle's chin hangs over the glass
+            k = min(1.0, GLASS_R + 0.6 - dr)  # soft rim
+            hp[Y, X, :3] = hp[Y, X, :3] * (1 - k) + sp[y, x, :3] * k
+    return Image.fromarray(hp.clip(0, 255).astype(np.uint8), "RGBA")
+
+
+def cookbook() -> None:
+    atlas = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
+    atlas.alpha_composite(cook_header(), (0, 0))
+    global TABS
+    journal_tabs, TABS = TABS, COOK_TABS
+    tabs(atlas)
+    TABS = journal_tabs
+    atlas.save(OUT / "cookbook.png")
+    print("wrote", OUT / "cookbook.png")
+
+
 def main() -> None:
+    import sys
+    if "cookbook" in sys.argv[1:]:  # only the Cookbook's atlas
+        cookbook()
+        return
     atlas = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
     atlas.alpha_composite(header(), (0, 0))
     atlas.alpha_composite(page(), (0, PAGE_Y))
@@ -343,6 +511,7 @@ def main() -> None:
     print("plate", plate(atlas))
     atlas.save(OUT / "journal.png")
     print("wrote", OUT / "journal.png")
+    cookbook()
 
 
 if __name__ == "__main__":
