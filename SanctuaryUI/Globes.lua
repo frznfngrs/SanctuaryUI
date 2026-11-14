@@ -787,6 +787,13 @@ local function Power()
 	return CurrentPower(powerType), UnitPowerMax("player", powerType)
 end
 
+-- For /sanctuary power (PowerTrace.lua): the number the resource globe shows now.
+function ns.Globes.ShownPower()
+	local powerType = UnitPowerType("player")
+	if powerType == nil or Secret(powerType) then return nil end
+	return CurrentPower(powerType)
+end
+
 -- /sanctuary predict: a heal on its way (with a HoT part), a shield and a spell being cast, on
 -- preview levels; then the heal and cast land, then health tops up so the shield overflows into
 -- its glow, then the globes go back to your real values. Each run replaces the last.

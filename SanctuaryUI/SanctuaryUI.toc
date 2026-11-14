@@ -30,6 +30,7 @@ Snap.lua
 Blizzard.lua
 Liquid.lua
 Globes.lua
+PowerTrace.lua
 Menu.lua
 ActionBar.lua
 ActiveSkill.lua
