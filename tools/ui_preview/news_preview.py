@@ -1,0 +1,83 @@
+"""Offline preview of the What's new timeline (WhatsNew.lua): the real Lua in lupa against wow.lua,
+drawn with render.py's layout and drawing. Shots: the releases missed since 0.24.2 (login), a
+first look (nothing seen), and the whole timeline (/sanctuary news, drawn unclipped).
+
+Run: PYTHONPATH=~/.cache/sanctuary-preview-py ~/.venv/bin/python tools/ui_preview/news_preview.py [out_dir]
+"""
+import os, sys
+HERE = os.path.dirname(os.path.abspath(__file__))
+OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "shots")
+sys.argv = [sys.argv[0], OUT]
+src = open(os.path.join(HERE, "render.py")).read()
+exec(compile(src[:src.index("def errors():")], "render.py", "exec"))
+os.makedirs(OUT, exist_ok=True)
+
+
+def string_height(fs):
+    size = (T(fs, "size") or 12)
+    f = font(T(fs, "font") or "body", size * 4)
+    w = (T(fs, "w") or 0) * 4
+    text = strip(str(T(fs, "text") or ""))
+    lines, cur = 1, ""
+    if w > 0:
+        for wd in text.split(" "):
+            trial = (cur + " " + wd).strip()
+            if f.getlength(trial) > w and cur:
+                lines, cur = lines + 1, wd
+            else:
+                cur = trial
+    return lines * size * 1.15 + (lines - 1) * (T(fs, "spacing") or 0)
+
+
+lua.globals().STRING_HEIGHT = string_height
+lua.execute('''
+local ns = SanctuaryUI
+local W = getmetatable(UIParent).__index
+local proto = getmetatable(UIParent)
+local old = proto.__index
+proto.__index = function(t, k)
+	if k == "GetStringHeight" then return function(self) return STRING_HEIGHT(self) end end
+	if k == "SetSpacing" then return function(self, s) self.spacing = s end end
+	if k == "SetScrollChild" then return function(self, c) self.child = c; c.points = { { "TOPLEFT", self, "TOPLEFT", 0, 0 } } end end
+	if k == "GetVerticalScroll" then return function() return 0 end end
+	return old(t, k)
+end
+ns.Fonts = ns.Fonts or {}
+ns.Fonts.Path = function(role) return role end
+PROFILE.news = { enabled = true, scale = 1 }
+ns.db.global = {}
+ns.Art.D3Scale = function(s) return 1 end
+''')
+load(SRC + "/WhatsNew.lua")
+lua.execute('''
+local ns = SanctuaryUI
+function ns.Options.Open() end
+''') if False else None
+
+
+def shot(name, setup):
+    lua.execute('''
+    local w = _G.SanctuaryUIWhatsNew
+    if w then w:Hide() end
+    ''')
+    lua.execute(setup)
+    draw(os.path.join(OUT, name), "SanctuaryUIWhatsNew", K=1.6)
+    print("wrote", name)
+
+
+shot("news-missed.png", 'SanctuaryUI.db.global.newsSeen = "0.24.2"; assert(SanctuaryUI.WhatsNew.Show("missed"))')
+shot("news-one.png", 'assert(SanctuaryUI.WhatsNew.Show("0.26.0"))')
+shot("news-timeline.png", 'assert(SanctuaryUI.WhatsNew.Show())')
+lua.execute('''
+local ns = SanctuaryUI
+ns.db.global.newsSeen = nil
+_G.SanctuaryUIWhatsNew:Hide()
+assert(ns.db.global.newsSeen == "0.27.0", "closing marks the newest shown as seen: " .. tostring(ns.db.global.newsSeen))
+ns.db.global.newsSeen = "0.26.0"
+assert(ns.WhatsNew.Show("0.25.0"))
+_G.SanctuaryUIWhatsNew:Hide()
+assert(ns.db.global.newsSeen == "0.26.0", "viewing an older release doesn't move seen back")
+ns.db.global.newsSeen = "0.27.0"
+assert(not ns.WhatsNew.Show("missed"), "nothing missed at the newest")
+''')
+print("flow ok")

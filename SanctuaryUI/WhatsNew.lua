@@ -3,60 +3,132 @@ local ns = SanctuaryUI
 ns.WhatsNew = ns.WhatsNew or {}
 local N = ns.WhatsNew
 
--- What's new: after an update, a small D3 window lists what the release brought, once per
--- account (the last version shown is kept in the global saved variables). /sanctuary news
--- shows it again. Each release adds its notes to NOTES below, under the .toc's version.
+-- What's new: after an update, a small D3 window lists what the releases you missed brought,
+-- newest first on a timeline, once per account (the newest version shown is kept in the global
+-- saved variables). /sanctuary news shows the whole timeline again, /sanctuary news 0.26.0 one
+-- release. Each feature release adds an entry at the top of RELEASES.
 
 local getMeta = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
 local MINE = getMeta and getMeta("SanctuaryUI", "Version") or "?"
 
--- version -> list of { heading, text, button label, action }. Newest first in LATEST.
-local NOTES = {
-	["0.27.0"] = {
-		{
-			"Share your setup",
-			"Turn your profile into one line of text and paste it to a friend or onto another account, then import theirs as a new profile or over your own. Only the settings you've changed go in; keybindings and your notes and history stay with you. Options > Setup > Import / Export.",
-			"Options", function() ns.Options.Open("share") end,
+-- Newest first: { version, date, notes = { { heading, text, button label, action }, ... } }.
+local RELEASES = {
+	{
+		version = "0.27.0", date = "14 November 2026",
+		notes = {
+			{
+				"Share your setup",
+				"Turn your profile into one line of text and paste it to a friend or onto another account, then import theirs as a new profile or over your own. Only the settings you've changed go in; keybindings and your notes and history stay with you. Options > Setup > Import / Export.",
+				"Options", function() ns.Options.Open("share") end,
+			},
 		},
 	},
-	["0.26.0"] = {
-		{
-			"Your casts on the rail",
-			"While you cast, the XP rail above your skills becomes your cast bar: a molten fill runs along it, the spell's name and the time left sit either side of the skull, and the level medallion shows the spell's icon. A cast that lands flares the rail gold, an interrupted one turns red, channels drain in blue. Blizzard's cast bar is off while this is on. Options > XP, Rep & Casts; /sanctuary cast shows a preview.",
-			"Options", function() ns.Options.Open("rail") end,
+	{
+		version = "0.26.0", date = "14 November 2026",
+		notes = {
+			{
+				"Your casts on the rail",
+				"While you cast, the XP rail above your skills becomes your cast bar: a molten fill runs along it, the spell's name and the time left sit either side of the skull, and the level medallion shows the spell's icon. A cast that lands flares the rail gold, an interrupted one turns red, channels drain in blue. Blizzard's cast bar is off while this is on. Options > XP, Rep & Casts; /sanctuary cast shows a preview.",
+				"Options", function() ns.Options.Open("rail") end,
+			},
 		},
 	},
-	["0.25.0"] = {
-		{
-			"Threat",
-			"Who is closest to pulling your enemy, on the damage meter's rails: a gold rail holds aggro, a molten one is above the tank and about to pull. Target a friend (the tank) to watch their enemy. Big letters warn you when you take aggro, or as the tank when you lose it, and a tank sees the enemies loose on the group and who they are on. Options > Combat > Threat; /sanctuary threat test shows a made-up pull.",
-			"Options", function() ns.Options.Open("threat") end,
+	{
+		version = "0.25.0", date = "14 November 2026",
+		notes = {
+			{
+				"Threat",
+				"Who is closest to pulling your enemy, on the damage meter's rails: a gold rail holds aggro, a molten one is above the tank and about to pull. Target a friend (the tank) to watch their enemy. Big letters warn you when you take aggro, or as the tank when you lose it, and a tank sees the enemies loose on the group and who they are on. Options > Combat > Threat; /sanctuary threat test shows a made-up pull.",
+				"Options", function() ns.Options.Open("threat") end,
+			},
+			{
+				"Saved fights remember everyone",
+				"Dungeon and raid fights the damage meter saves now keep every player's abilities and deaths, so the analysis window shows them long after the game has forgotten the fight. Opened from the Run Report, the analysis window comes in front of it.",
+				"Analysis", function() ns.MeterAnalysis.Open() end,
+			},
+			{
+				"Frozen globe",
+				"The ice on your health globe follows a frost debuff through the whole fight: it melts when the debuff runs out and holds when a caster renews it.",
+			},
 		},
-		{
-			"Saved fights remember everyone",
-			"Dungeon and raid fights the damage meter saves now keep every player's abilities and deaths, so the analysis window shows them long after the game has forgotten the fight. Opened from the Run Report, the analysis window comes in front of it.",
-			"Analysis", function() ns.MeterAnalysis.Open() end,
+	},
+	{
+		version = "0.24.0", date = "13 November 2026",
+		notes = {
+			{
+				"The Run Report",
+				"When a dungeon or raid is done, a banner at the top of the screen offers a report of the run: a summary, every pull with its damage, the bosses, each player, what hurt the group most and your past runs. It never opens by itself. /sanctuary meter run test shows one for a made-up Deadmines run.",
+				"Options", function() ns.Options.Open("meter") end,
+			},
 		},
-		{
-			"Frozen globe",
-			"The ice on your health globe follows a frost debuff through the whole fight: it melts when the debuff runs out and holds when a caster renews it.",
+	},
+	{
+		version = "0.23.0", date = "13 November 2026",
+		notes = {
+			{
+				"The Cookbook",
+				"A sister to the angler's journal: what your bags can cook right now, what each ingredient becomes, which recipes to learn and where, the route to 300, what's worth eating, and a diary that writes itself as you cook. /sanctuary cook, or the cauldron in the menu.",
+				"Options", function() ns.Options.Open("cookbook") end,
+			},
+		},
+	},
+	{
+		version = "0.22.0", date = "13 November 2026",
+		notes = {
+			{
+				"One key to fish",
+				"The Fishing key casts and, when the bobber splashes, hooks the catch. A fishing outfit swaps your pole and gear in and your weapons back when you're done or attacked, and the splash got louder. Options > Professions > Fishing tools.",
+				"Options", function() ns.Options.Open("fishingTools") end,
+			},
+		},
+	},
+	{
+		version = "0.21.0", date = "13 November 2026",
+		notes = {
+			{
+				"The angler's journal",
+				"A complete fishing guide in a D3 book: where to fish for your skill, what bites where, lures and gear, trainers and the route to 300, with a diary that writes itself as you fish and a pop-up for rare catches. /sanctuary fish, or the gold fish in the menu.",
+				"Options", function() ns.Options.Open("fishing") end,
+			},
 		},
 	},
 }
-local LATEST = "0.27.0"
+local BY_VERSION = {}
+for _, r in ipairs(RELEASES) do BY_VERSION[r.version] = r end
+-- A first look (nothing seen yet on this account): only this many of the newest releases.
+local FIRST_LOOK = 3
+
+-- True when version a is newer than b (0.27.0 > 0.26.10 > 0.26.9), as VersionCheck.lua compares.
+local function Newer(a, b)
+	if type(a) ~= "string" or type(b) ~= "string" then return false end
+	local pa, pb = {}, {}
+	for n in a:gmatch("%d+") do pa[#pa + 1] = tonumber(n) end
+	for n in b:gmatch("%d+") do pb[#pb + 1] = tonumber(n) end
+	for i = 1, math.max(#pa, #pb) do
+		local x, y = pa[i] or 0, pb[i] or 0
+		if x ~= y then return x > y end
+	end
+	return false
+end
 
 local GOLD = { 0.91, 0.78, 0.48 }
 local CREAM = { 0.89, 0.84, 0.75 }
 local WIDTH = 500
 local PAD = 32
 local HEADER = 50
--- Text sizes: the header's title and version, each note's heading and text, the buttons.
-local TITLE, VERSION, HEADING, BODY, BUTTON, OK = 18, 11, 13, 10, 9, 12
+-- Text sizes: the header's title and version, a release's version on the timeline, each note's
+-- heading and text, the buttons.
+local TITLE, VERSION, VERSION_MARK, HEADING, BODY, BUTTON, OK = 18, 11, 15, 13, 10, 9, 12
 local LINE_GAP = 4 -- between a note's lines
 local ITEM_GAP = 30 -- between notes; a faint rule sits in its middle
+local RELEASE_GAP = 30 -- between releases on the timeline
+local MARK = 22 -- the timeline's line runs this far in from PAD; notes start past it
+local INDENT = 2 * MARK -- notes' left edge, from PAD
+local MAX_BODY = 560 -- taller than this, the timeline scrolls
+local STEP = 48 -- a mouse wheel notch
 
 local frame
-local items = {}
+local items, marks = {}, {}
 local shownVersion
 
 local function Opt()
@@ -165,79 +237,191 @@ local function Build()
 	frame.version = Text(head, BodyFont(), VERSION, CREAM, "RIGHT")
 	frame.version:SetPoint("RIGHT", head, "RIGHT", -18, -1)
 
+	-- The timeline scrolls inside the window when it is taller than MAX_BODY.
+	local scroll = CreateFrame("ScrollFrame", nil, frame)
+	scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -HEADER - 6)
+	scroll:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, -HEADER - 6)
+	local content = CreateFrame("Frame", nil, scroll)
+	content:SetSize(WIDTH, 1)
+	scroll:SetScrollChild(content)
+	scroll:EnableMouseWheel(true)
+	scroll:SetScript("OnMouseWheel", function(self, delta)
+		local most = math.max(0, (content:GetHeight() or 0) - (self:GetHeight() or 0))
+		local y = math.max(0, math.min(most, (self:GetVerticalScroll() or 0) - delta * STEP))
+		self:SetVerticalScroll(y)
+		N.UpdateThumb()
+	end)
+	frame.scroll, frame.content = scroll, content
+	-- A thin gold thumb on the right while it scrolls.
+	local track = frame:CreateTexture(nil, "ARTWORK")
+	track:SetWidth(2)
+	track:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", -12, -4)
+	track:SetPoint("BOTTOMRIGHT", scroll, "BOTTOMRIGHT", -12, 4)
+	track:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.12)
+	local thumb = frame:CreateTexture(nil, "OVERLAY")
+	thumb:SetWidth(2)
+	thumb:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.6)
+	frame.track, frame.thumb = track, thumb
+
 	frame.ok = Plate(frame, 140, 34, "Got it", OK)
 	frame.ok:SetPoint("BOTTOM", frame, "BOTTOM", 0, 20)
 	frame.ok:SetScript("OnClick", function() frame:Hide() end)
 
 	frame:SetScript("OnHide", function()
 		local global = Global()
-		if global and shownVersion then global.newsSeen = shownVersion end
+		if global and shownVersion and (global.newsSeen == nil or Newer(shownVersion, global.newsSeen)) then
+			global.newsSeen = shownVersion
+		end
 	end)
+end
+
+function N.UpdateThumb()
+	local scroll, content, thumb, track = frame.scroll, frame.content, frame.thumb, frame.track
+	local view, full = scroll:GetHeight() or 0, content:GetHeight() or 0
+	if full <= view + 1 then
+		thumb:Hide()
+		track:Hide()
+		return
+	end
+	local span = view - 8
+	local size = math.max(24, span * view / full)
+	local at = (scroll:GetVerticalScroll() or 0) / (full - view)
+	thumb:SetHeight(size)
+	thumb:ClearAllPoints()
+	thumb:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", -12, -4 - (span - size) * at)
+	thumb:Show()
+	track:Show()
 end
 
 local function Item(i)
 	local it = items[i]
 	if it then return it end
+	local parent = frame.content
 	it = {}
-	it.heading = Text(frame, TitleFont(), HEADING, GOLD)
-	it.text = Text(frame, BodyFont(), BODY, CREAM)
+	it.heading = Text(parent, TitleFont(), HEADING, GOLD)
+	it.text = Text(parent, BodyFont(), BODY, CREAM)
 	it.text:SetWordWrap(true)
 	it.text:SetSpacing(LINE_GAP)
-	it.button = Plate(frame, 84, 22, "", BUTTON)
-	it.rule = frame:CreateTexture(nil, "ARTWORK")
+	it.button = Plate(parent, 84, 22, "", BUTTON)
+	it.rule = parent:CreateTexture(nil, "ARTWORK")
 	it.rule:SetHeight(1)
 	it.rule:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.18)
 	items[i] = it
 	return it
 end
 
--- Lay the notes for version out and size the window around them.
-local function Fill(version)
-	local notes = NOTES[version] or {}
-	frame.version:SetText("SanctuaryUI " .. version)
-	local y = HEADER + 24
-	for i, note in ipairs(notes) do
-		local it = Item(i)
-		it.heading:SetFont(TitleFont(), HEADING, "")
-		it.text:SetFont(BodyFont(), BODY, "")
-		it.button.label:SetFont(TitleFont(), BUTTON, "")
-		it.rule:ClearAllPoints()
-		if i > 1 then
-			it.rule:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -(y - ITEM_GAP / 2))
-			it.rule:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD, -(y - ITEM_GAP / 2))
-			it.rule:Show()
-		else
-			it.rule:Hide()
-		end
-		it.heading:ClearAllPoints()
-		it.heading:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -y)
-		it.heading:SetText(note[1])
-		it.heading:Show()
-		it.button:ClearAllPoints()
-		if note[3] then
-			-- On the heading's line, its middle level with the heading's.
-			it.button.label:SetText(note[3])
-			it.button:SetPoint("RIGHT", frame, "TOPRIGHT", -PAD, -(y + HEADING * 0.55))
-			it.button:SetScript("OnClick", function() pcall(note[4]) end)
-			it.button:Show()
-		else
-			it.button:Hide()
-		end
-		y = y + HEADING + 12
-		it.text:ClearAllPoints()
-		it.text:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -y)
-		it.text:SetWidth(WIDTH - 2 * PAD)
-		it.text:SetText(note[2])
-		it.text:Show()
-		y = y + math.ceil(it.text:GetStringHeight()) + ITEM_GAP
+-- A release's place on the timeline: a gold diamond on the line, its version and date.
+local function Mark(i)
+	local m = marks[i]
+	if m then return m end
+	local parent = frame.content
+	m = {}
+	m.dot = parent:CreateTexture(nil, "OVERLAY")
+	m.dot:SetSize(9, 9)
+	m.dot:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 1)
+	if m.dot.SetRotation then pcall(m.dot.SetRotation, m.dot, math.pi / 4) end -- as Book.lua's diamonds
+	m.version = Text(parent, TitleFont(), VERSION_MARK, GOLD)
+	m.date = Text(parent, BodyFont(), BODY, CREAM)
+	m.date:SetAlpha(0.65)
+	m.line = parent:CreateTexture(nil, "ARTWORK")
+	m.line:SetWidth(1)
+	m.line:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.3)
+	marks[i] = m
+	return m
+end
+
+-- Lay out the releases (newest first) and size the window around them.
+local function Fill(list)
+	local content = frame.content
+	local first, last = list[1], list[#list]
+	if #list == 1 then
+		frame.version:SetText("SanctuaryUI " .. first.version)
+	else
+		frame.version:SetText(("SanctuaryUI %s to %s"):format(last.version, first.version))
 	end
-	for i = #notes + 1, #items do
+	local textW = WIDTH - 2 * PAD - INDENT - 8
+	local lineX = PAD + MARK / 2
+	local y = 18
+	local n = 0
+	for r, release in ipairs(list) do
+		local m = Mark(r)
+		m.version:SetFont(TitleFont(), VERSION_MARK, "")
+		m.date:SetFont(BodyFont(), BODY, "")
+		m.dot:ClearAllPoints()
+		m.dot:SetPoint("CENTER", content, "TOPLEFT", lineX, -(y + VERSION_MARK * 0.55))
+		m.version:ClearAllPoints()
+		m.version:SetPoint("TOPLEFT", content, "TOPLEFT", PAD + MARK, -y)
+		m.version:SetText(release.version)
+		m.date:ClearAllPoints()
+		m.date:SetPoint("BOTTOMLEFT", m.version, "BOTTOMRIGHT", 10, 1)
+		m.date:SetText(release.date or "")
+		local top = y + VERSION_MARK * 0.55 + 8
+		y = y + VERSION_MARK + 18
+		for i, note in ipairs(release.notes) do
+			n = n + 1
+			local it = Item(n)
+			it.heading:SetFont(TitleFont(), HEADING, "")
+			it.text:SetFont(BodyFont(), BODY, "")
+			it.button.label:SetFont(TitleFont(), BUTTON, "")
+			it.rule:ClearAllPoints()
+			if i > 1 then
+				it.rule:SetPoint("TOPLEFT", content, "TOPLEFT", PAD + INDENT, -(y - ITEM_GAP / 2))
+				it.rule:SetPoint("TOPRIGHT", content, "TOPRIGHT", -PAD, -(y - ITEM_GAP / 2))
+				it.rule:Show()
+			else
+				it.rule:Hide()
+			end
+			it.heading:ClearAllPoints()
+			it.heading:SetPoint("TOPLEFT", content, "TOPLEFT", PAD + INDENT, -y)
+			it.heading:SetText(note[1])
+			it.heading:Show()
+			it.button:ClearAllPoints()
+			if note[3] then
+				-- On the heading's line, its middle level with the heading's.
+				it.button.label:SetText(note[3])
+				it.button:SetPoint("RIGHT", content, "TOPRIGHT", -PAD, -(y + HEADING * 0.55))
+				it.button:SetScript("OnClick", function() pcall(note[4]) end)
+				it.button:Show()
+			else
+				it.button:Hide()
+			end
+			y = y + HEADING + 12
+			it.text:ClearAllPoints()
+			it.text:SetPoint("TOPLEFT", content, "TOPLEFT", PAD + INDENT, -y)
+			it.text:SetWidth(textW)
+			it.text:SetText(note[2])
+			it.text:Show()
+			y = y + math.ceil(it.text:GetStringHeight())
+			if i < #release.notes then y = y + ITEM_GAP end
+		end
+		-- The line runs from under this release's diamond to the next one's.
+		m.line:ClearAllPoints()
+		if r < #list then
+			m.line:SetPoint("TOP", content, "TOPLEFT", lineX, -top)
+			m.line:SetHeight(y + RELEASE_GAP - top + 2)
+			m.line:Show()
+		else
+			m.line:Hide()
+		end
+		for _, piece in ipairs({ m.dot, m.version, m.date }) do piece:Show() end
+		y = y + RELEASE_GAP
+	end
+	for i = n + 1, #items do
 		items[i].heading:Hide()
 		items[i].text:Hide()
 		items[i].button:Hide()
 		items[i].rule:Hide()
 	end
-	frame:SetSize(WIDTH, y + 54)
+	for i = #list + 1, #marks do
+		for _, piece in ipairs({ marks[i].dot, marks[i].version, marks[i].date, marks[i].line }) do piece:Hide() end
+	end
+	local full = y - RELEASE_GAP + 24
+	content:SetSize(WIDTH, full)
+	local view = math.min(full, MAX_BODY)
+	frame.scroll:SetHeight(view)
+	frame.scroll:SetVerticalScroll(0)
+	frame:SetSize(WIDTH, HEADER + 6 + view + 66)
+	N.UpdateThumb()
 	for _, t in ipairs(frame.glass) do t:Hide() end
 	local L = ns.Meter and ns.Meter.Lib
 	if L and L.LayGlass then L.LayGlass(frame.head, frame.glass, WIDTH - 14) end
@@ -255,13 +439,36 @@ local function Place()
 	end
 end
 
--- Show the notes for version (default: this copy's, else the latest there are).
+-- The releases newer than the one last shown on this account, up to this copy's version.
+-- Nothing seen yet: the newest few.
+local function Missed()
+	local global = Global()
+	local seen = global and global.newsSeen
+	local list = {}
+	for _, r in ipairs(RELEASES) do
+		local installed = MINE == "?" or not Newer(r.version, MINE)
+		if installed and (seen == nil or Newer(r.version, seen)) then list[#list + 1] = r end
+	end
+	if seen == nil then
+		while #list > FIRST_LOOK do table.remove(list) end
+	end
+	return list
+end
+
+-- Show one release's notes (version), the releases missed ("missed"), or the whole timeline (nil).
 function N.Show(version)
 	if not frame then Build() end
-	version = version or (NOTES[MINE] and MINE) or LATEST
-	if not NOTES[version] then return false end
-	shownVersion = version
-	Fill(version)
+	local list
+	if version == "missed" then
+		list = Missed()
+	elseif version then
+		list = BY_VERSION[version] and { BY_VERSION[version] }
+	else
+		list = RELEASES
+	end
+	if not list or #list == 0 then return false end
+	shownVersion = list[1].version
+	Fill(list)
 	Place()
 	frame:Show()
 	frame:Raise()
@@ -276,15 +483,10 @@ function N.ApplySettings()
 	if frame and frame:IsShown() then Place() end
 end
 
--- After logging in with the latest notes not yet shown (a fix release without notes of its own
--- still shows them to someone updating past them): a few seconds in, out of combat.
+-- After logging in with releases not yet shown on this account: a few seconds in, out of combat.
 local function Due()
-	local global = Global()
-	if not Opt().enabled or not NOTES[LATEST] or not global then return false end
-	local seen = global.newsSeen
-	if seen == nil then return true end
-	if ns.VersionNewer then return ns.VersionNewer(LATEST, seen) end
-	return seen ~= LATEST
+	if not Opt().enabled or not Global() then return false end
+	return #Missed() > 0
 end
 
 function N.Init()
@@ -296,7 +498,7 @@ function N.Init()
 			waiter:RegisterEvent("PLAYER_REGEN_ENABLED")
 			return
 		end
-		N.Show(LATEST)
+		N.Show("missed")
 	end
 	waiter:SetScript("OnEvent", function(self)
 		self:UnregisterEvent("PLAYER_REGEN_ENABLED")
