@@ -14,6 +14,16 @@ local MINE = getMeta and getMeta("SanctuaryUI", "Version") or "?"
 -- Newest first: { version, date, notes = { { heading, text, button label, action }, ... } }.
 local RELEASES = {
 	{
+		version = "0.30.0", date = "15 November 2026",
+		notes = {
+			{
+				"Search the options",
+				"The options window has a search box at its top left, there whatever page you're on. Type a word or two: it looks through every setting's name and description, the choices in its lists, and the titles of pages, tabs and cards, as you type. Each result is a button that opens the page and tab it's on; clear the box to go back to where you were. /sanctuary search <words> does the same from chat.",
+				"Search", function() ns.Options.Search("") end,
+			},
+		},
+	},
+	{
 		version = "0.29.1", date = "15 November 2026",
 		notes = {
 			{

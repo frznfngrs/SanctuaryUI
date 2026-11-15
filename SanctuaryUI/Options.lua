@@ -2452,6 +2452,272 @@ local function ShareArgs()
 	}
 end
 
+-- Search: the tree's first page. A word or two finds settings by name, description and
+-- the choices in their lists, plus pages, tabs and cards by title; a result's button opens
+-- the page (and tab) it lives on. The table is walked on each search, so pages rebuilt on
+-- open (Keybinds) and options hidden right now are always current.
+local SEARCH_MAX = 40
+local search = { text = "" }
+
+local function Plain(text)
+	text = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", ""):gsub("|n", " ")
+	return (text:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+-- An option's name or desc as plain text. One that's a function needing the dialog's info
+-- comes back empty.
+local function Text(value)
+	if type(value) == "function" then
+		local ok, result = pcall(value)
+		value = ok and result or nil
+	end
+	return type(value) == "string" and Plain(value) or ""
+end
+
+local function Choices(option)
+	local values = option.values
+	if type(values) == "function" then
+		local ok, result = pcall(values)
+		values = ok and result or nil
+	end
+	if type(values) ~= "table" then return "" end
+	local out = {}
+	for _, label in pairs(values) do
+		if type(label) == "string" then out[#out + 1] = Plain(label) end
+	end
+	return table.concat(out, " ")
+end
+
+local function IsHidden(option)
+	local hidden = option.hidden
+	if type(hidden) == "function" then
+		local ok, result = pcall(hidden)
+		hidden = ok and result
+	end
+	return hidden and true or false
+end
+
+local function SortedKeys(args)
+	local keys = {}
+	for key in pairs(args) do keys[#keys + 1] = key end
+	local function order(key)
+		local value = args[key].order
+		return type(value) == "number" and value or 100
+	end
+	table.sort(keys, function(a, b)
+		local oa, ob = order(a), order(b)
+		if oa ~= ob then return oa < ob end
+		return tostring(a) < tostring(b)
+	end)
+	return keys
+end
+
+local function Append(list, value)
+	local copy = { unpack(list) }
+	copy[#copy + 1] = value
+	return copy
+end
+
+-- Lists everything under args in window order. path: the keys Dialog:SelectGroup takes to
+-- get there (cards are inline, so they add to the trail but not the path).
+local function Index(args, path, trail, out, tabbed)
+	local top = #path == 0 and #trail == 0
+	local section
+	for _, key in ipairs(SortedKeys(args)) do
+		local option = args[key]
+		local name = Text(option.name)
+		if IsHidden(option) or (top and key == "search") then
+			-- not shown, or this page
+		elseif option.type == "group" and option.disabled == true then
+			-- a tree label (or the gap above it): the pages after it sit under its name
+			if top then section = name ~= "" and (name:sub(1, 1) .. name:sub(2):lower()) or nil end
+		elseif option.type == "group" then
+			local here = option.inline and path or Append(path, key)
+			local above = (top and section) and { section } or trail
+			if name ~= "" then
+				out[#out + 1] = {
+					name = name, desc = Text(option.desc), choices = "", path = here, trail = above,
+					group = option.inline and "card" or (tabbed and "tab" or "page"),
+				}
+			end
+			Index(option.args or {}, here, name ~= "" and Append(above, name) or above, out, option.childGroups == "tab")
+		elseif option.type ~= "header" and option.type ~= "description" and name ~= "" then
+			out[#out + 1] = { name = name, desc = Text(option.desc), choices = Choices(option), path = path, trail = trail }
+		end
+	end
+end
+
+-- Every word has to be somewhere: in the name, in where it lives (so "party target" finds
+-- the party's target settings), or in the description or choices. Words found only in
+-- where it lives don't count, or a page's name would list the whole page.
+local function Find(text, options)
+	local words = {}
+	for word in text:lower():gmatch("%S+") do words[#words + 1] = word end
+	if #words == 0 then return {} end
+	local all, hits = {}, {}
+	Index(options.args, {}, {}, all, false)
+	for index, entry in ipairs(all) do
+		local name, place = entry.name:lower(), table.concat(entry.trail, " "):lower()
+		local rest = (entry.desc .. " " .. entry.choices):lower()
+		local found, own, allName, needsRest = true, false, true, false
+		for _, word in ipairs(words) do
+			if name:find(word, 1, true) then
+				own = true
+			else
+				allName = false
+				if rest:find(word, 1, true) then
+					own = true
+					if not place:find(word, 1, true) then needsRest = true end
+				elseif not place:find(word, 1, true) then
+					found = false
+					break
+				end
+			end
+		end
+		if found and own then
+			entry.rank = allName and (entry.group and 1 or 2) or (needsRest and 4 or 3)
+			entry.index = index
+			hits[#hits + 1] = entry
+		end
+	end
+	table.sort(hits, function(a, b)
+		if a.rank ~= b.rank then return a.rank < b.rank end
+		return a.index < b.index
+	end)
+	return hits
+end
+
+local SetSearch
+
+local function SearchArgs()
+	local args = {}
+	if search.text == "" then
+		args.note = Note(3, "Type a word or two in the search box at the top of the window.")
+		return args
+	end
+	local hits = Find(search.text, ns.Options.table)
+	local shown = math.min(#hits, SEARCH_MAX)
+	local quoted = "\"" .. search.text:gsub("|", "||") .. "\""
+	if #hits == 0 then
+		args.note = Note(3, "Nothing matches " .. quoted .. ". Try one word, or a shorter one: \"bind\" finds Keybinds.")
+	elseif #hits > SEARCH_MAX then
+		args.note = Note(3, ("The first %d of %d matches for %s. Add a word to narrow it."):format(shown, #hits, quoted))
+	else
+		args.note = Note(3, ("%d %s for %s."):format(#hits, #hits == 1 and "match" or "matches", quoted))
+	end
+	for i = 1, shown do
+		local hit = hits[i]
+		local where = table.concat(hit.trail, " > ")
+		if hit.group then where = (where ~= "" and where .. " > " or "") .. hit.name .. Muted("  (" .. hit.group .. ")") end
+		local desc = hit.desc
+		if #desc > 170 then desc = desc:sub(1, 167):gsub("%s+%S*$", "") .. "..." end
+		args["go" .. i] = Third({
+			type = "execute", order = 10 + i * 2, name = hit.name, desc = "Open " .. (hit.path[1] and "its page" or "it") .. ".",
+			func = function() LibStub("AceConfigDialog-3.0"):SelectGroup(APP, unpack(hit.path)) end,
+		})
+		args["at" .. i] = Width({
+			type = "description", order = 11 + i * 2, fontSize = "medium",
+			name = Gold(where) .. (desc ~= "" and "\n" .. Muted(desc) or ""),
+		}, 0.66)
+	end
+	return args
+end
+
+local boxes = {} -- the search boxes: the window's, and the one in Blizzard's options panel
+local beforeSearch -- the page that was open when the search began: clearing the box returns to it
+
+function SetSearch(text)
+	search.text = (text or ""):match("^%s*(.-)%s*$")
+	if ns.Options.table then ns.Options.table.args.search.args = SearchArgs() end
+	for _, box in ipairs(boxes) do
+		if not box:HasFocus() and box:GetText() ~= search.text then box:SetText(search.text) end
+	end
+end
+
+local function NoSearch() return search.text == "" end
+
+-- Runs the search and shows its results; an empty one goes back to the page before it.
+local function ApplySearch(text)
+	local Dialog = LibStub("AceConfigDialog-3.0")
+	local status = Dialog:GetStatusTable(APP)
+	local selected = status.groups and status.groups.selected
+	if selected ~= "search" then beforeSearch = selected end
+	SetSearch(text)
+	if search.text ~= "" then
+		Dialog:SelectGroup(APP, "search")
+	elseif selected == "search" then
+		Dialog:SelectGroup(APP, strsplit("\001", beforeSearch or "general"))
+	else
+		LibStub("AceConfigRegistry-3.0"):NotifyChange(APP) -- the results row leaves the tree
+	end
+end
+
+-- Blizzard's search box (magnifier, placeholder, clear button). It searches as you type,
+-- a moment after the last key; it isn't part of the page, so it keeps focus as results redraw.
+local function SearchBox(parent)
+	local box = CreateFrame("EditBox", "SanctuaryUIOptionsSearch" .. (#boxes + 1), parent, "SearchBoxTemplate")
+	box:SetAutoFocus(false)
+	box:SetSize(176, 20)
+	local wait
+	local function Tick(self, elapsed)
+		wait = wait - elapsed
+		if wait <= 0 then
+			self:SetScript("OnUpdate", nil)
+			ApplySearch(self:GetText())
+		end
+	end
+	box:HookScript("OnTextChanged", function(self)
+		if (self:GetText() or ""):match("^%s*(.-)%s*$") == search.text then
+			self:SetScript("OnUpdate", nil)
+		else
+			wait = 0.25
+			self:SetScript("OnUpdate", Tick)
+		end
+	end)
+	box:SetScript("OnEnterPressed", function(self)
+		self:SetScript("OnUpdate", nil)
+		ApplySearch(self:GetText())
+		self:ClearFocus()
+	end)
+	box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+	boxes[#boxes + 1] = box
+	return box
+end
+
+-- The standalone window is an AceGUI frame from a pool shared with other addons, so the box
+-- is put on it each time it opens (with the content moved down to make room) and taken off
+-- when the window is released.
+local windowBox, windowWidget
+local CONTENT_TOP, CONTENT_TOP_SEARCH = -27, -38
+
+local function DetachSearch()
+	if windowWidget then windowWidget.content:SetPoint("TOPLEFT", 17, CONTENT_TOP) end
+	windowWidget = nil
+	windowBox:ClearFocus()
+	windowBox:Hide()
+	windowBox:SetParent(UIParent)
+end
+
+local function AttachSearch()
+	local widget = LibStub("AceConfigDialog-3.0").OpenFrames[APP]
+	if not widget or widget == windowWidget then return end
+	if not windowBox then
+		windowBox = SearchBox(UIParent)
+		-- Shown with a frame that is no longer this window: some other addon's now.
+		windowBox:HookScript("OnShow", function()
+			if LibStub("AceConfigDialog-3.0").OpenFrames[APP] ~= windowWidget then DetachSearch() end
+		end)
+	end
+	windowWidget = widget
+	windowBox:SetParent(widget.frame)
+	windowBox:SetFrameLevel(widget.frame:GetFrameLevel() + 5)
+	windowBox:ClearAllPoints()
+	windowBox:SetPoint("TOPLEFT", widget.frame, "TOPLEFT", 26, -13)
+	windowBox:Show()
+	widget.content:SetPoint("TOPLEFT", 17, CONTENT_TOP_SEARCH)
+	widget:SetCallback("OnRelease", DetachSearch)
+end
+
 local function Build()
 	-- A party target option, greyed out while their targets are off.
 	-- A party pet option, greyed out while their pets are off (notFree: as below).
@@ -2475,6 +2741,8 @@ local function Build()
 		name = "SanctuaryUI  " .. Muted("v" .. VERSION),
 		childGroups = "tree",
 		args = {
+			search = { type = "group", order = -2, name = "|cffe6dfd0Search results|r", args = SearchArgs(), hidden = NoSearch },
+			gapSearch = { type = "group", order = -1, name = " ", disabled = true, hidden = NoSearch, args = {} },
 			sectionSetup = Section(0, "Setup"),
 			general = Page(1, "General", {
 				moving = Card(1, "Moving frames", {
@@ -3034,7 +3302,19 @@ function ns.Options.Init()
 	AceConfig:RegisterOptionsTable(APP, Table)
 	Dialog:SetDefaultSize(APP, 900, 680)
 	Dialog:AddToBlizOptions(APP, "SanctuaryUI")
+	hooksecurefunc(Dialog, "Open", function(_, app) if app == APP then AttachSearch() end end)
+	local panel = Dialog.BlizOptions and Dialog.BlizOptions[APP] and Dialog.BlizOptions[APP][APP]
+	if panel then SearchBox(panel.frame):SetPoint("TOPRIGHT", panel.frame, "TOPRIGHT", -24, -14) end
 end
+
+-- /sanctuary search <words>: opens the window with the results, or with the box ready to type in.
+function ns.Options.Search(text)
+	local Dialog = LibStub("AceConfigDialog-3.0")
+	if not Dialog.OpenFrames[APP] then Dialog:Open(APP) end
+	ApplySearch(text)
+	if search.text == "" and windowBox then windowBox:SetFocus() end
+end
+ns.Options.Find = Find
 
 -- page: a tree row's key to open on (then the window opens rather than toggles).
 function ns.Options.Open(page)
