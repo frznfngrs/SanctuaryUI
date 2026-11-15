@@ -364,6 +364,7 @@ local function Mark(i)
 	m.version = Text(parent, TitleFont(), VERSION_MARK, GOLD)
 	m.date = Text(parent, BodyFont(), BODY, CREAM)
 	m.date:SetAlpha(0.65)
+	m.new = Text(parent, TitleFont(), BODY, { 1, 0.45, 0.25 })
 	m.line = parent:CreateTexture(nil, "ARTWORK")
 	m.line:SetWidth(1)
 	m.line:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.3)
@@ -372,7 +373,7 @@ local function Mark(i)
 end
 
 -- Lay out the releases (newest first) and size the window around them.
-local function Fill(list)
+local function Fill(list, newSet)
 	local content = frame.content
 	local first, last = list[1], list[#list]
 	if #list == 1 then
@@ -396,6 +397,12 @@ local function Fill(list)
 		m.date:ClearAllPoints()
 		m.date:SetPoint("BOTTOMLEFT", m.version, "BOTTOMRIGHT", 10, 1)
 		m.date:SetText(release.date or "")
+		-- Releases this account hasn't seen yet are marked.
+		m.new:SetFont(TitleFont(), BODY, "")
+		m.new:ClearAllPoints()
+		m.new:SetPoint("LEFT", m.date, "RIGHT", 10, 0)
+		m.new:SetText(newSet and newSet[release.version] and "NEW" or "")
+		m.new:Show()
 		local top = y + VERSION_MARK * 0.55 + 8
 		y = y + VERSION_MARK + 18
 		for i, note in ipairs(release.notes) do
@@ -454,7 +461,7 @@ local function Fill(list)
 		items[i].rule:Hide()
 	end
 	for i = #list + 1, #marks do
-		for _, piece in ipairs({ marks[i].dot, marks[i].version, marks[i].date, marks[i].line }) do piece:Hide() end
+		for _, piece in ipairs({ marks[i].dot, marks[i].version, marks[i].date, marks[i].line, marks[i].new }) do piece:Hide() end
 	end
 	local full = y - RELEASE_GAP + 24
 	content:SetSize(WIDTH, full)
@@ -496,20 +503,31 @@ local function Missed()
 	return list
 end
 
--- Show one release's notes (version), the releases missed ("missed"), or the whole timeline (nil).
+-- The releases up to this copy's version, newest first: the timeline.
+local function Timeline()
+	local list = {}
+	for _, r in ipairs(RELEASES) do
+		if MINE == "?" or not Newer(r.version, MINE) then list[#list + 1] = r end
+	end
+	return list
+end
+
+-- Show one release's notes (version), or the whole timeline (nil, or "missed" after an update).
+-- The timeline is always the whole history, newest first, with the releases this account hasn't
+-- seen yet marked NEW: a new release is added on top, never in place of the older ones.
 function N.Show(version)
 	if not frame then Build() end
-	local list
-	if version == "missed" then
-		list = Missed()
-	elseif version then
+	local list, newSet
+	if version and version ~= "missed" then
 		list = BY_VERSION[version] and { BY_VERSION[version] }
 	else
-		list = RELEASES
+		list = Timeline()
+		newSet = {}
+		for _, r in ipairs(Missed()) do newSet[r.version] = true end
 	end
 	if not list or #list == 0 then return false end
 	shownVersion = list[1].version
-	Fill(list)
+	Fill(list, newSet)
 	Place()
 	frame:Show()
 	frame:Raise()

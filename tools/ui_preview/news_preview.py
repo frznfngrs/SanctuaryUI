@@ -79,7 +79,18 @@ ns.db.global.newsSeen = second
 assert(ns.WhatsNew.Show(third))
 _G.SanctuaryUIWhatsNew:Hide()
 assert(ns.db.global.newsSeen == second, "viewing an older release doesn't move seen back")
-ns.db.global.newsSeen = newest
-assert(not ns.WhatsNew.Show("missed"), "nothing missed at the newest")
+-- After an update the whole timeline shows, with only the unseen releases marked NEW.
+ns.db.global.newsSeen = second
+assert(ns.WhatsNew.Show("missed"))
+local news, versions = 0, 0
+for _, w in ipairs(ALL) do
+	if w.kind == "FontString" and w.shown then
+		if w.text == "NEW" then news = news + 1 end
+		for _, r in ipairs(R) do if w.text == r.version then versions = versions + 1 end end
+	end
+end
+assert(news == 1, "one release marked NEW, got " .. news)
+assert(versions == #R, "the whole timeline shows (" .. versions .. " of " .. #R .. ")")
+_G.SanctuaryUIWhatsNew:Hide()
 ''')
 print("flow ok")
