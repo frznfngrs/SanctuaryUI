@@ -14,6 +14,16 @@ local MINE = getMeta and getMeta("SanctuaryUI", "Version") or "?"
 -- Newest first: { version, date, notes = { { heading, text, button label, action }, ... } }.
 local RELEASES = {
 	{
+		version = "0.29.1", date = "15 November 2026",
+		notes = {
+			{
+				"Threat on the nameplates",
+				"In a group, an enemy's health bar now shows its threat: D3 red while it's not on you, gold when you're about to pull it, bright orange and pulsing when it's on you. As the tank it's the other way round: red while you hold it, gold as you lose it, orange when it's loose on someone else. Colours, the pulse and showing it solo too are under Nameplates > Marks.",
+				"Options", function() ns.Options.Open("plates") end,
+			},
+		},
+	},
+	{
 		version = "0.29.0", date = "15 November 2026",
 		notes = {
 			{

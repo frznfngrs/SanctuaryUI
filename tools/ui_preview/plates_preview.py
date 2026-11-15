@@ -249,6 +249,18 @@ ok(p1.execute.alpha == 1, "15%: execute")
 UNITS.nameplate2.threat = 3
 Fire("UNIT_THREAT_LIST_UPDATE", "nameplate2")
 ok(p2.threat.alpha > 0.5 and p2.threat.vcolor[1] == 1 and p2.threat.vcolor[2] < 0.3, "aggro on you: red")
+ok(not p2.fillIsThreat, "solo: the bar keeps its colour")
+function IsInGroup() return true end
+Fire("GROUP_ROSTER_UPDATE")
+ok(p2.fillIsThreat and p2.fillTint[1] == 1 and p2.fillTint[2] == 0.5, "in a group, on you: orange bar")
+UNITS.nameplate2.threat = 1
+Fire("UNIT_THREAT_LIST_UPDATE", "nameplate2")
+ok(p2.fillIsThreat and p2.fillTint[2] == 0.75, "about to pull: gold bar")
+UNITS.nameplate2.threat = 0
+Fire("UNIT_THREAT_LIST_UPDATE", "nameplate2")
+ok(not p2.fillIsThreat, "not on you: D3 red again")
+UNITS.nameplate2.threat = 3
+Fire("UNIT_THREAT_LIST_UPDATE", "nameplate2")
 -- target
 TARGET = "nameplate2"
 UNITS.target = UNITS.nameplate2

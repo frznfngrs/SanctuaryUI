@@ -576,12 +576,27 @@ local function UpdateName(p)
 	end
 end
 
+-- Threat on the health bar (Marks > Threat colours). Safe (not on you; as the tank, held by you)
+-- keeps the bar's own colour; about to pull (as the tank, losing it) turns gold; on you (as the
+-- tank, loose on someone else) turns bright orange and pulses. Only in a group unless Also when
+-- solo is on: alone, everything fighting you is on you. p.threatState comes from UpdateThreat.
+function P.ThreatTint(p)
+	local o = Opt()
+	if o.threatFill == false or not p.threatState or p.threatState == "safe" then return nil end
+	if not (o.threatSolo or (IsInGroup and IsInGroup())) and not (ns.Threat and ns.Threat.IsTank and ns.Threat.IsTank()) then return nil end
+	if p.threatState == "danger" then return o.threatDangerRGB or { 1, 0.5, 0.08 } end
+	return o.threatWarnRGB or { 0.95, 0.75, 0.15 }
+end
+
 local function UpdateFill(p)
 	local unit = p.unit
 	local tex = ns.Art.Path("unitFill")
 	local tint
+	local threatTint = P.ThreatTint(p)
 	if Ask(UnitIsTapDenied, unit) then
 		tint = FILL.tapped
+	elseif threatTint then
+		tint = threatTint
 	elseif Ask(UnitIsPlayer, unit) and Opt().classFill ~= false then
 		local _, class = UnitClass(unit)
 		local cc = Plain(class) and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
@@ -596,6 +611,8 @@ local function UpdateFill(p)
 			tint = FILL.hostile
 		end
 	end
+	p.fillTint = tint
+	p.fillIsThreat = tint ~= nil and tint == threatTint
 	if tint then
 		p.health:SetStatusBarTexture(ns.Art.Path("unitFillWhite") or tex or "Interface\\Buttons\\WHITE8X8")
 		p.health:SetStatusBarColor(tint[1], tint[2], tint[3], 1)
@@ -769,19 +786,33 @@ end
 local function UpdateThreat(p)
 	if p.friend then return end
 	local o = Opt()
-	local status = o.threat ~= false and Ask(UnitThreatSituation, "player", p.unit)
-	local color
+	local status = Ask(UnitThreatSituation, "player", p.unit)
+	local state -- safe | warn | danger, nil out of a fight
 	if status then
 		local inCombat = Ask(UnitAffectingCombat, p.unit)
 		if IsTank() then
-			-- In a fight and not on you: loose.
-			if inCombat and status < 2 then color = THREAT.warn end
+			-- Held by you: safe; someone's above you: losing; in a fight and not on you: loose.
+			if status == 3 then
+				state = "safe"
+			elseif status == 2 then
+				state = "warn"
+			elseif inCombat then
+				state = "danger"
+			end
 		elseif status >= 2 then
-			color = THREAT.aggro
+			state = "danger"
 		elseif status == 1 then
-			color = THREAT.warn
+			state = "warn"
+		elseif inCombat then
+			state = "safe"
 		end
 	end
+	if state ~= p.threatState then
+		p.threatState = state
+		UpdateFill(p)
+	end
+	local color = o.threat ~= false and ((state == "danger" and THREAT.aggro) or (state == "warn" and THREAT.warn)) or nil
+	if IsTank() and state == "danger" then color = o.threat ~= false and THREAT.warn or nil end
 	if color then
 		p.threat:SetVertexColor(color[1], color[2], color[3])
 		p.threat:SetAlpha(0.95)
@@ -1549,6 +1580,10 @@ local function OnEvent(_, event, unit, ...)
 			UpdateQuest(p)
 		end
 		C_Timer.After(0.3, AdoptAllQuestie) -- after Questie has redrawn its icons
+	elseif event == "GROUP_ROSTER_UPDATE" then
+		for _, p in pairs(byUnit) do
+			if not p.friend then UpdateFill(p) end
+		end
 	elseif event == "UNIT_THREAT_SITUATION_UPDATE" or event == "PLAYER_REGEN_ENABLED" or event == "PLAYER_REGEN_DISABLED" then
 		for _, p in pairs(byUnit) do UpdateThreat(p) end
 		if event == "PLAYER_REGEN_ENABLED" then P.FillPool(Opt().pool or 20) end
@@ -1564,7 +1599,13 @@ end
 -- The cast spark rides the fill; a plain-timed cast (no duration object) runs here too.
 local function OnUpdate()
 	local now = GetTime() * 1000
+	local pulse = Opt().threatPulse ~= false and (0.72 + 0.28 * math.sin(GetTime() * 6.5)) or 1
 	for _, p in pairs(byUnit) do
+		-- On you: the bar's orange breathes.
+		if p.threatState == "danger" and pulse ~= 1 and p.fillIsThreat then
+			local c = p.fillTint
+			p.health:SetStatusBarColor(c[1] * pulse, c[2] * pulse, c[3] * pulse, 1)
+		end
 		local cast = p.cast
 		if cast:IsShown() and cast.startMS and cast.endMS and not cast.holdUntil then
 			local v = cast.channel and (cast.endMS - (now - cast.startMS)) or now
@@ -1586,7 +1627,7 @@ function P.Init()
 	active = P.Enabled()
 	if not active then return end
 	P.hasTarget = UnitExists("target") and true or false
-	for _, e in ipairs({ "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "PLAYER_TARGET_CHANGED",
+	for _, e in ipairs({ "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "PLAYER_TARGET_CHANGED", "GROUP_ROSTER_UPDATE",
 		"RAID_TARGET_UPDATE", "QUEST_LOG_UPDATE", "UNIT_THREAT_SITUATION_UPDATE", "PLAYER_REGEN_ENABLED",
 		"PLAYER_REGEN_DISABLED", "PLAYER_ENTERING_WORLD" }) do
 		pcall(driver.RegisterEvent, driver, e)
@@ -1668,6 +1709,10 @@ local function PreviewTick(_, elapsed)
 	for i, p in ipairs(preview.plates) do
 		local d = PACK[i]
 		if not d.friend then
+		if p.demoThreat and Opt().threatPulse ~= false then
+			local k = 0.72 + 0.28 * math.sin(preview.t * 6.5)
+			p.health:SetStatusBarColor(p.demoThreat[1] * k, p.demoThreat[2] * k, p.demoThreat[3] * k, 1)
+		end
 		-- A hit every ~1.6 s, staggered; back to full once empty.
 		p.demoT = (p.demoT or i * 0.37) + elapsed
 		if p.demoT > 1.6 then
@@ -1800,6 +1845,15 @@ function P.DrawPreview()
 			p.raid:Hide()
 		end
 		p.quest:SetShown(d.quest and Opt().quest ~= false or false)
+		-- Threat on the bar, as in a group: Henchman is on you, Watchman about to be pulled.
+		if Opt().threatFill ~= false and d.threat then
+			local c = d.threat == "aggro" and (Opt().threatDangerRGB or { 1, 0.5, 0.08 }) or (Opt().threatWarnRGB or { 0.95, 0.75, 0.15 })
+			p.health:SetStatusBarTexture(ns.Art.Path("unitFillWhite") or "Interface\\Buttons\\WHITE8X8")
+			p.health:SetStatusBarColor(c[1], c[2], c[3], 1)
+			p.demoThreat = d.threat == "aggro" and c or nil
+		else
+			p.demoThreat = nil
+		end
 		local color = Opt().threat ~= false and d.threat and THREAT[d.threat]
 		if color then
 			p.threat:SetVertexColor(color[1], color[2], color[3])

@@ -1211,6 +1211,27 @@ local function PlatesArgs()
 			note = Note(0, "Enemy plates; the target diamonds and raid markers show on friendly plates too."),
 			targetMark = T(1, "Mark your target", "A gold glow and a gold diamond either side of your target's plate.", "targetMark"),
 			threat = T(2, "Threat glow", "Red when an enemy is on you, orange when you're about to pull it. As the tank, orange when one is loose on someone else.", "threat"),
+			threatFill = T(2.1, "Threat colours the bar", "Not on you (as the tank: held by you) keeps the bar's colour; about to pull it (as the tank: losing it) turns gold; on you (as the tank: loose on someone else) turns orange. In a group, unless Also when solo is on.", "threatFill"),
+			threatSolo = T(2.2, "Also when solo", "Alone, everything fighting you is on you, so every bar would be orange.", "threatSolo"),
+			threatPulse = T(2.3, "Orange pulses", nil, "threatPulse"),
+			threatWarnRGB = Width({
+				type = "color", order = 2.4, name = "About to pull",
+				disabled = function() return DB().plates.threatFill == false end,
+				get = function() local c = DB().plates.threatWarnRGB or { 0.95, 0.75, 0.15 } return c[1], c[2], c[3] end,
+				set = function(_, r, g, b)
+					DB().plates.threatWarnRGB = { r, g, b }
+					Changed()
+				end,
+			}, THIRD),
+			threatDangerRGB = Width({
+				type = "color", order = 2.5, name = "On you",
+				disabled = function() return DB().plates.threatFill == false end,
+				get = function() local c = DB().plates.threatDangerRGB or { 1, 0.5, 0.08 } return c[1], c[2], c[3] end,
+				set = function(_, r, g, b)
+					DB().plates.threatDangerRGB = { r, g, b }
+					Changed()
+				end,
+			}, THIRD),
 			quest = T(3, "Quest mobs", "A gold ! beside enemies you still need for a quest. Read from the tooltip out of combat.", "quest"),
 			raidIcon = T(4, "Raid markers", nil, "raidIcon"),
 			softIcon = T(4.5, "Soft-target icon", "The game's icon for what your action key would hit or use, beside the level. The game's own Interface settings choose which of them show.", "softIcon"),
