@@ -68,7 +68,12 @@ end
 
 -- A macro slice's index now. Macros are listed by name, so an index moves whenever one is made
 -- or deleted, and names can be blank or shared: find it by name and text, then by name alone.
-local MACRO_SLOTS = (MAX_ACCOUNT_MACROS or 120) + (MAX_CHARACTER_MACROS or 18)
+-- Account macros are slots 1-120 and character macros follow. This client keeps the counts in
+-- Constants.MacroConsts (120 and 30): the old globals are gone, and the 18 character slots
+-- assumed without them lost every character macro past the 18th (#23).
+local MACRO_CONSTS = Constants and Constants.MacroConsts or {}
+local MACRO_SLOTS = (MACRO_CONSTS.MAX_ACCOUNT_MACROS or MAX_ACCOUNT_MACROS or 120)
+	+ (MACRO_CONSTS.MAX_CHARACTER_MACROS or MAX_CHARACTER_MACROS or 30)
 
 local function MacroIndex(slice)
 	local byName
@@ -109,7 +114,8 @@ local function Info(slice)
 	return "?", QUESTION
 end
 
--- The secure button's "type" and that type's attribute value.
+-- The secure button's "type", that type's attribute value, and the attribute's name when it
+-- isn't the type's own.
 local function Action(slice)
 	if slice.kind == "spell" then
 		-- By name, so a new rank is used as soon as it is learned; by ID if the name is unknown.
@@ -117,8 +123,16 @@ local function Action(slice)
 	elseif slice.kind == "item" then
 		return "item", "item:" .. slice.id
 	elseif slice.kind == "macro" then
-		-- By index: a blank or shared name can't pick the macro out.
-		return "macro", MacroIndex(slice) or slice.name
+		-- By index: a blank or shared name can't pick the macro out. One that can't be found
+		-- (deleted, or not loaded yet) runs the text it had when it was put on the ring.
+		local index = MacroIndex(slice)
+		if index then
+			local _, _, body = GetMacroInfo(index)
+			if body then slice.body = body end -- edited: still found by its text next time
+			return "macro", index
+		end
+		if slice.body and slice.body ~= "" then return "macro", slice.body, "macrotext" end
+		return "macro", slice.name
 	end
 end
 
@@ -395,8 +409,14 @@ local PRE = [[
 		self:SetAttribute("pieX", nil)
 		local kind = pick and self:GetAttribute("pieType" .. pick)
 		if kind then
+			-- A macro by index wins over macro text, so only one of the two is ever set.
+			local attr = self:GetAttribute("pieAttr" .. pick) or kind
+			if kind == "macro" then
+				self:SetAttribute("macro", nil)
+				self:SetAttribute("macrotext", nil)
+			end
 			self:SetAttribute("type", kind)
-			self:SetAttribute(kind, self:GetAttribute("pieValue" .. pick))
+			self:SetAttribute(attr, self:GetAttribute("pieValue" .. pick))
 		else
 			self:SetAttribute("type", nil)
 		end
@@ -458,10 +478,11 @@ function ns.Pie.Apply()
 		b:SetAttribute("pieDead", (DEAD * scale) ^ 2)
 		for i = 1, count do
 			local a = Angle(i, count)
-			local kind, value = Action(slices[i])
+			local kind, value, attr = Action(slices[i])
 			b:SetAttribute("pieUX" .. i, math.cos(a))
 			b:SetAttribute("pieUY" .. i, math.sin(a))
 			b:SetAttribute("pieType" .. i, kind)
+			b:SetAttribute("pieAttr" .. i, attr or kind)
 			b:SetAttribute("pieValue" .. i, value)
 		end
 	end
