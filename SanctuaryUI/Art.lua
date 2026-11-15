@@ -163,6 +163,8 @@ ns.Art.slots = {
 	levelPlates = { file = "level-plates.png" }, -- 98x25 plaques at y 0/32/64/96 of 128x128
 	castFill = { file = "cast-fill.png" },
 	castFillWhite = { file = "cast-fill-white.png" }, -- the same in grey, for tinted fills (SwingTimer.lua)
+	castBars = { file = "cast-bars.png" }, -- the stand-alone cast bar: D3's Paragon bar and its ram-skull boss bar
+	castLava = { file = "cast-lava.png" }, -- the boss bar's lava, the stand-alone cast bar's fill
 	-- globe auras (GlobeAura.lua): white, ADD, drawn 2x the globe and tinted
 	auraCorona = { file = "aura-corona.png" },
 	auraRaysA = { file = "aura-rays-a.png" },
@@ -221,6 +223,14 @@ end
 
 -- unit-frames.png (1024x256): D3 enemy health frames and party frames. x, y, w, h in the atlas;
 -- bar = the frame's dark bar slot, relative to the piece; well = the party portrait well.
+-- cast-bars.png (1024x256), from tools/build_hud_art.py cast_bars: x, y, w, h in the atlas; bar:
+-- the opened slot the fill shows through; ring: the Paragon bar's socket (centre x, y, the icon's
+-- radius), all in piece pixels.
+ns.Art.CAST_BARS = {
+	paragon = { 0, 0, 792, 98, bar = { 124, 19, 648, 58 }, ring = { 73, 48, 35 } },
+	demon = { 0, 104, 278, 75, bar = { 14, 12, 230, 18 } },
+}
+
 ns.Art.UNIT = {
 	boss = { 0, 0, 491, 87, bar = { 76, 25, 339, 19 } },
 	elite = { 500, 0, 425, 47, bar = { 43, 17, 339, 17 } },

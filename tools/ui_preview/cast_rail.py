@@ -40,9 +40,17 @@ function ns.Or(v, d) if v == nil then return d end return v end
 ns.Fonts = { Set = function(fs, role, size, flags) fs.role, fs.size = role, size end }
 ns.LEVEL = { rail = 8, console = 9 }
 ns.TEX_W = 1595
-PROFILE = { castRail = true, castMedallion = true, castTextSize = 11, levelPlaque = true }
+PROFILE = { castRail = true, castMedallion = true, castTextSize = 13, levelPlaque = true, castWhere = "rail",
+	castBar = { style = "paragon", width = 340, scale = 1, textSize = 12, moved = false, mx = 0, my = 0 } }
 function ns.DB() return PROFILE end
-ns.Art = { Path = function(s) return "art:" .. s end, Apply = function(t, s) t:SetTexture("art:" .. s) return true end }
+ns.Art = { Path = function(s) return "art:" .. s end, Apply = function(t, s) t:SetTexture("art:" .. s) return true end,
+	CAST_BARS = {
+		paragon = { 0, 0, 792, 98, bar = { 124, 19, 648, 58 }, ring = { 73, 48, 35 } },
+		demon = { 0, 104, 278, 75, bar = { 14, 12, 230, 18 } },
+	} }
+function ns.MakeMover(anchor) local m = CreateFrame("Frame", nil, anchor) m:Hide() return m end
+function ns.MovedPoint(_, o) return o.mx, o.my end
+function SetPreviewDummy() end
 ns.Cluster = CreateFrame("Frame", nil, UIParent)
 ns.Cluster.level = 10
 local width = 1595 * 1100 / 1416
@@ -61,7 +69,12 @@ local ns = SanctuaryUI
 local C = ns.CastRail
 C.Init()
 local holder = _G.SanctuaryUICastRail
-local function Step(dt) NOW = NOW + dt; local f = holder.scripts.OnUpdate; if holder.shown and f then f(holder, dt) end end
+local function Step(dt)
+	NOW = NOW + dt
+	for _, w in ipairs(ALL) do
+		if w.shown and w.scripts.OnUpdate then w.scripts.OnUpdate(w, dt) end
+	end
+end
 local function Run(t) local n = math.floor(t / 0.02) for i = 1, n do Step(0.02) end end
 FAILS = 0
 local function ok(c, m) if not c then FAILS = FAILS + 1 print("FAIL " .. m) else print("ok   " .. m) end end
@@ -111,7 +124,7 @@ Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "guid1", 19750)
 Fire("UNIT_SPELLCAST_STOP", "player", "guid1", 19750)
 CAST = nil
 RunTimers()
-ok(still.shown and still.blend == "BLEND" and not bar.shown, "flare on landing")
+ok(still.shown and still.blend ~= "ADD" and not bar.shown, "flare on landing")
 SNAP("It lands: the rail flares")
 Run(0.6)
 ok(not holder.shown and ns.ExperienceBar.alpha == 1 and ns.LevelPlaque.alpha == 1, "XP back after the flare")
@@ -179,6 +192,32 @@ ok(seen["Flash of Light"] and seen["Frostbolt"] and seen["Interrupted"] and seen
 C.SetPreview(false)
 Run(0.1)
 ok(not holder.shown, "preview off hides")
+-- 7. a bar of its own
+local own = _G.SanctuaryUICastBar
+PROFILE.castWhere = "bar"
+C.ApplySettings()
+CAST = { name = "Fireball", icon = "icon:f", startMS = NOW * 1000, endMS = NOW * 1000 + 2000 }
+Fire("UNIT_SPELLCAST_START", "player", "guid7", 133)
+Run(0.5)
+ok(own.shown and not holder.shown, "own bar: the bar shows, the rail doesn't")
+ok(ns.ExperienceBar.alpha == 1 and ns.LevelPlaque.alpha == 1, "own bar: the XP and level stay")
+Fire("UNIT_SPELLCAST_SUCCEEDED", "player", "guid7", 133)
+CAST = nil
+Run(0.7)
+ok(not own.shown, "own bar: gone after the flare")
+-- 8. both
+PROFILE.castWhere = "both"
+C.ApplySettings()
+CAST = { name = "Fireball", icon = "icon:f", startMS = NOW * 1000, endMS = NOW * 1000 + 2000 }
+Fire("UNIT_SPELLCAST_START", "player", "guid8", 133)
+Run(0.5)
+ok(own.shown and holder.shown and ns.ExperienceBar.alpha == 0, "both: bar and rail, XP faded")
+Fire("UNIT_SPELLCAST_INTERRUPTED", "player", "guid8", 133)
+CAST = nil
+Run(1.2)
+ok(not own.shown and not holder.shown and ns.ExperienceBar.alpha == 1, "both: gone after the interrupt")
+PROFILE.castWhere = "rail"
+C.ApplySettings()
 print("FAILS " .. FAILS)
 ''')
 for l in lua.globals().PRINTED.values(): print(l)

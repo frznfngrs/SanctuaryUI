@@ -52,6 +52,11 @@ noted next to each file.
   cast-fill-white.png 512x16  the same fill in grey with a white core, tinted per swing timer bar
   unit-frames.png 1024x256 D3 enemy health frames (boss banner, elite gold, normal silver), red and neutral fills, party frames
   skill-timer.png 128x32   skill timer tab (steel, gold) and its amber and green fills, from 2DUIBottomBar
+  cast-bars.png  1024x256  the stand-alone cast bar (CastRail.lua): D3's Paragon bar (2DUIParagon, its
+                 spiked ring for the spell icon) at 0,0 792x98, its boss bar with the ram skull
+                 (2DUIBossBar) at 0,104 278x75, and the boss bar's lava fill at 300,104 312x48.
+                 The bar slots are opened up so the fill drawn under them shows
+  cast-lava.png  512x64    the lava fill on its own, the stand-alone cast bar's StatusBar texture
   party-*.png    party frames (`build_hud_art.py party`, needs Blender): globes 512x512 (bezel, medallion,
                  pet in iron and gold, halos), crescent (the resource groove's fill), slab 512x1024 (stone,
                  iron and gold layers, halos), aura 128x64 (neutral debuff and gold buff frames). Places
@@ -1172,6 +1177,36 @@ def shimmer() -> None:
     lo, hi = lum.getextrema()
     lum = wrap_blend(lum.point(lambda v: int(255 * (v - lo) / max(1, hi - lo))))
     Image.merge("RGBA", (lum, lum, lum, Image.new("L", lum.size, 255))).save(OUT / "liquid-shimmer.png")
+
+
+# The stand-alone cast bar's art (CastRail.lua mirrors these boxes in ns.Art.CAST_BARS).
+CAST_BAR_PIECES = {
+    # name: (sheet, source box, atlas position, slot in the piece, share of the slot's alpha kept)
+    "paragon": ("2DUIParagon", (1196, 2, 1988, 100), (0, 0), (124, 19, 648, 58), 0.3),
+    "demon": ("2DUIBossBar", (12, 72, 290, 147), (0, 104), (14, 12, 230, 18), 0.0),
+    "lava": ("2DUIBossBar", (372, 4, 684, 52), (300, 104), None, None),
+}
+
+
+def cast_bars() -> None:
+    atlas = Image.new("RGBA", (1024, 256), (0, 0, 0, 0))
+    for name, (sheet, box, at, slot, keep) in CAST_BAR_PIECES.items():
+        piece = load(sheet).crop(box)
+        if slot:
+            # Open the bar's slot: the Paragon bar keeps a little of its glass (its inner shadow),
+            # the boss bar's opaque slot goes.
+            x, y, w, h = slot
+            alpha = piece.getchannel("A")
+            px = alpha.load()
+            for yy in range(y, y + h):
+                for xx in range(x, x + w):
+                    px[xx, yy] = int(px[xx, yy] * keep)
+            piece.putalpha(alpha)
+        atlas.alpha_composite(piece, at)
+    atlas.save(OUT / "cast-bars.png")
+    # The lava again on its own, for the StatusBar (a fill crops its texture's coordinates).
+    load("2DUIBossBar").crop(CAST_BAR_PIECES["lava"][1]).resize((512, 64), Image.LANCZOS).save(OUT / "cast-lava.png")
+    print("cast-bars.png, cast-lava.png")
 
 
 # D3's skill timer: a tab on a socket while the skill's effect is up, with a bar inside that
@@ -2418,7 +2453,7 @@ def party_styled() -> None:
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     only = set(sys.argv[1:])
-    for step in (frame_and_glass, console_tiers, console_pods, liquid, liquid_halves, animated_liquid, surface_mask, hotline, xp_fills, menu, glow, blade, socket_glow, bag_frame, bank_frame, bag_cells, d3_button, pips, pip_frames, shimmer, socket, skill_timer, icon, unit_frames, menu_flyout, target_rings, globe_aura, globe_shell, globe_surge, globe_storm, party, rendered_liquid, pollution_art, rendered_break, surge_art, rendered_storm, heal_art, rendered_shields, target_slab, party_styled):
+    for step in (cast_bars, frame_and_glass, console_tiers, console_pods, liquid, liquid_halves, animated_liquid, surface_mask, hotline, xp_fills, menu, glow, blade, socket_glow, bag_frame, bank_frame, bag_cells, d3_button, pips, pip_frames, shimmer, socket, skill_timer, icon, unit_frames, menu_flyout, target_rings, globe_aura, globe_shell, globe_surge, globe_storm, party, rendered_liquid, pollution_art, rendered_break, surge_art, rendered_storm, heal_art, rendered_shields, target_slab, party_styled):
         if only and step.__name__ not in only:
             continue
         step()

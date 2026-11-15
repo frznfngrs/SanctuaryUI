@@ -43,7 +43,9 @@ end
 function W:GetStringHeight() return (self.size or 12) * 1.2 end
 function W:SetPoint(p, a, b, c, d)
 	local rel, rp, x, y
-	if type(a) == "number" or a == nil then rel, rp, x, y = self.parent, p, a or 0, b or 0
+	-- SetPoint(p, nil, "RIGHT", ...): an explicit nil is the screen, as in the game (not the parent).
+	if a == nil and type(b) == "string" then rel, rp, x, y = nil, b, c or 0, d or 0
+	elseif type(a) == "number" or a == nil then rel, rp, x, y = self.parent, p, a or 0, b or 0
 	elseif type(b) == "number" or b == nil then rel, rp, x, y = a, p, b or 0, c or 0
 	else rel, rp, x, y = a, b, c or 0, d or 0 end
 	for i, pt in ipairs(self.points) do if pt[1] == p then table.remove(self.points, i) break end end

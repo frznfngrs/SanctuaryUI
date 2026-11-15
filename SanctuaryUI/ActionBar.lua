@@ -1481,6 +1481,9 @@ function ns.ActionBar.UpdateMovers(hide)
 	if ns.Swing and ns.Swing.UpdateMovers then
 		ns.Swing.UpdateMovers(unlocked)
 	end
+	if ns.CastRail and ns.CastRail.UpdateMovers then
+		ns.CastRail.UpdateMovers(unlocked)
+	end
 	if ns.Meter and ns.Meter.UpdateMovers then
 		ns.Meter.UpdateMovers(unlocked)
 	end
