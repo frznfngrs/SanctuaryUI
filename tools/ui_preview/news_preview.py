@@ -65,19 +65,21 @@ def shot(name, setup):
     print("wrote", name)
 
 
-shot("news-missed.png", 'SanctuaryUI.db.global.newsSeen = "0.24.2"; assert(SanctuaryUI.WhatsNew.Show("missed"))')
+shot("news-missed.png", 'SanctuaryUI.db.global.newsSeen = SanctuaryUI.WhatsNew.RELEASES[4].version; assert(SanctuaryUI.WhatsNew.Show("missed"))')
 shot("news-one.png", 'assert(SanctuaryUI.WhatsNew.Show("0.26.0"))')
 shot("news-timeline.png", 'assert(SanctuaryUI.WhatsNew.Show())')
 lua.execute('''
 local ns = SanctuaryUI
+local R = ns.WhatsNew.RELEASES
+local newest, second, third = R[1].version, R[2].version, R[3].version
 ns.db.global.newsSeen = nil
 _G.SanctuaryUIWhatsNew:Hide()
-assert(ns.db.global.newsSeen == "0.27.0", "closing marks the newest shown as seen: " .. tostring(ns.db.global.newsSeen))
-ns.db.global.newsSeen = "0.26.0"
-assert(ns.WhatsNew.Show("0.25.0"))
+assert(ns.db.global.newsSeen == newest, "closing marks the newest shown as seen: " .. tostring(ns.db.global.newsSeen))
+ns.db.global.newsSeen = second
+assert(ns.WhatsNew.Show(third))
 _G.SanctuaryUIWhatsNew:Hide()
-assert(ns.db.global.newsSeen == "0.26.0", "viewing an older release doesn't move seen back")
-ns.db.global.newsSeen = "0.27.0"
+assert(ns.db.global.newsSeen == second, "viewing an older release doesn't move seen back")
+ns.db.global.newsSeen = newest
 assert(not ns.WhatsNew.Show("missed"), "nothing missed at the newest")
 ''')
 print("flow ok")

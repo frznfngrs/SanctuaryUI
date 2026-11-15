@@ -14,6 +14,21 @@ local MINE = getMeta and getMeta("SanctuaryUI", "Version") or "?"
 -- Newest first: { version, date, notes = { { heading, text, button label, action }, ... } }.
 local RELEASES = {
 	{
+		version = "0.28.0", date = "15 November 2026",
+		notes = {
+			{
+				"Diablo III nameplates",
+				"Enemies wear D3's own frames: silver for monsters, gold for elites (blue names) and rares (yellow), the scroll banner for bosses. Lost health drains away pale behind each hit, the bar turns molten in execute range, and your target grows with a gold glow. Cast bars say who the spell is aimed at, with a red » YOU when it's you, and who interrupted it. Your debuffs sit above the name, quest mobs get a gold !, and enemies burst into embers as they die. Friends outside dungeons are just their names. Turn Plater off to use them. Options > Unit frames > Nameplates; /sanctuary plates shows a made-up pull.",
+				"Options", function() ns.Options.Open("plates") end,
+			},
+			{
+				"Where to fish",
+				"The angler's journal now says where to fish now: the best zones for your skill and the next ones, on Here & Now and Waters. Every fish has a Where line, coloured by your skill, zone names find their fish in search, and Show on the world map lights those zones on the real map.",
+				"Journal", function() ns.Journal.Open("waters") end,
+			},
+		},
+	},
+	{
 		version = "0.27.0", date = "14 November 2026",
 		notes = {
 			{
@@ -93,6 +108,7 @@ local RELEASES = {
 		},
 	},
 }
+N.RELEASES = RELEASES -- for tools/ui_preview/news_preview.py
 local BY_VERSION = {}
 for _, r in ipairs(RELEASES) do BY_VERSION[r.version] = r end
 -- A first look (nothing seen yet on this account): only this many of the newest releases.
