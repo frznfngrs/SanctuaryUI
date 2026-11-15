@@ -2199,6 +2199,95 @@ local function UnitPlatePage(K, M, order, title, intro, placeNote)
 	}, "tab")
 end
 
+-- Setup > Import / Export (Share.lua): the current profile as a string, and a pasted one back.
+local share = {} -- export, exportNote, pasted, info, err, name, result
+local function ShareArgs()
+	local function Class(token)
+		local name = token and LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[token]
+		return name and (" (a " .. name .. "'s)") or ""
+	end
+	return {
+		export = Card(1, "Export", {
+			note = Note(0, "Your current profile as one line of text, to paste to a friend or onto another account. Only the settings you have changed go in. Your keybindings (the game keeps those), damage meter history and fishing and cooking notes stay here."),
+			make = Width({
+				type = "execute", order = 1, name = "Export this profile",
+				func = function()
+					local text, n = ns.Share.Export()
+					share.export = text
+					share.exportNote = text and ("%d settings from profile %s. Click in the box, press Ctrl+A, then Ctrl+C."):format(n, ns.db:GetCurrentProfile()) or n
+				end,
+			}, HALF),
+			status = Note(2, function() return share.exportNote or "" end),
+			text = {
+				type = "input", order = 3, name = "", width = "full", multiline = 8,
+				get = function() return share.export or "" end,
+				set = function() end, -- read only: typing in it changes nothing
+				hidden = function() return not share.export end,
+			},
+		}),
+		import = Card(2, "Import", {
+			note = Note(0, "Paste a profile string into the box and press Accept. Then import it as a new profile (your current one stays as it is) or over the profile you're using. Pie menu macros come in by name only: they use your own macro of that name."),
+			text = {
+				type = "input", order = 1, name = "", width = "full", multiline = 8,
+				get = function() return share.pasted or "" end,
+				set = function(_, value)
+					share.pasted, share.result = value, nil
+					share.info, share.err = ns.Share.Decode(value)
+					share.name = share.info and ns.Share.FreeName(share.info.name) or nil
+				end,
+			},
+			summary = Note(2, function()
+				if share.result then return share.result end
+				if share.err then return "|cffff6060" .. share.err .. "|r" end
+				local info = share.info
+				if not info then return "" end
+				local lines = { ("Profile %s%s from SanctuaryUI %s: %d settings."):format(Gold(info.name), Class(info.class), info.addon, info.count) }
+				if info.dropped > 0 then
+					lines[#lines + 1] = ("%d settings this version can't use were left out."):format(info.dropped)
+				end
+				if info.macros > 0 then
+					lines[#lines + 1] = ("%d pie menu macros come in by name only."):format(info.macros)
+				end
+				return table.concat(lines, " ")
+			end),
+			name = Width({
+				type = "input", order = 3, name = "New profile name",
+				get = function() return share.name or "" end,
+				set = function(_, value) share.name, share.err = value, nil end,
+				hidden = function() return not share.info end,
+			}, HALF),
+			spacer = Width(Note(3.5, ""), HALF),
+			asNew = Width({
+				type = "execute", order = 4, name = "Import as a new profile",
+				hidden = function() return not share.info end,
+				func = function()
+					local ok, why = ns.Share.Import(share.info, "new", share.name)
+					if ok then
+						share.result = ("Imported as %s, now in use."):format(Gold(ns.db:GetCurrentProfile()))
+						share.info, share.pasted = nil, nil
+					else
+						share.err = why
+					end
+				end,
+			}, HALF),
+			replace = Width({
+				type = "execute", order = 5, name = "Replace the current profile",
+				hidden = function() return not share.info end,
+				confirm = function() return ("Replace every setting in profile %s with the imported ones? This can't be undone."):format(ns.db:GetCurrentProfile()) end,
+				func = function()
+					local ok, why = ns.Share.Import(share.info, "replace")
+					if ok then
+						share.result = ("Imported over %s."):format(Gold(ns.db:GetCurrentProfile()))
+						share.info, share.pasted = nil, nil
+					else
+						share.err = why
+					end
+				end,
+			}, HALF),
+		}),
+	}
+end
+
 local function Build()
 	-- A party target option, greyed out while their targets are off.
 	-- A party pet option, greyed out while their pets are off (notFree: as below).
@@ -2742,6 +2831,7 @@ local function Build()
 				end),
 			}),
 
+			share = Page(2.5, "Import / Export", ShareArgs()),
 			feedback = Page(3, "Feedback", {
 				note = Note(1, "Each of these gives you a link to paste into a browser. Nothing is sent until you submit it on GitHub."),
 				request = {

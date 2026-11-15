@@ -12,6 +12,13 @@ local MINE = getMeta and getMeta("SanctuaryUI", "Version") or "?"
 
 -- version -> list of { heading, text, button label, action }. Newest first in LATEST.
 local NOTES = {
+	["0.27.0"] = {
+		{
+			"Share your setup",
+			"Turn your profile into one line of text and paste it to a friend or onto another account, then import theirs as a new profile or over your own. Only the settings you've changed go in; keybindings and your notes and history stay with you. Options > Setup > Import / Export.",
+			"Options", function() ns.Options.Open("share") end,
+		},
+	},
 	["0.26.0"] = {
 		{
 			"Your casts on the rail",
@@ -36,7 +43,7 @@ local NOTES = {
 		},
 	},
 }
-local LATEST = "0.26.0"
+local LATEST = "0.27.0"
 
 local GOLD = { 0.91, 0.78, 0.48 }
 local CREAM = { 0.89, 0.84, 0.75 }
