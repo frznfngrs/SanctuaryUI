@@ -241,6 +241,58 @@ ns.DEFAULTS = {
 		},
 
 		-- D3 party-style portraits, top left: your pet, and you if wanted
+		-- enemy nameplates (Plates.lua)
+		plates = {
+			enabled = true,
+			look = "framed", -- framed (D3's frames by rank) | thin (D3's bare bar)
+			friendly = "names", -- names (D3 name, guild, a strip while hurt) | off (the game's own)
+			width = 130,
+			barHeight = 9,
+			scale = 1,
+			targetScale = 1.15,
+			othersAlpha = 1, -- the other plates while you have a target
+			nameSize = 10,
+			nameFont = "d3", -- Title font, Body font ("wow") or any font key (Fonts.lua)
+			nameOutline = "outline", -- outline | thick | none (a drop shadow)
+			nameColor = "rank", -- rank (D3: elite blue, rare yellow, boss orange) | reaction | white
+			namePos = "above", -- above the frame | inside (on the bar)
+			textFont = "wow", -- level, percent, casts, guild
+			textSize = 9,
+			textOutline = "outline",
+			showLevel = true,
+			healthText = "target", -- target | all | none
+			healthTextPos = "right", -- right | center
+			healthColor = "d3", -- d3 (D3's red) | reaction | custom
+			healthRGB = { 0.8, 0.1, 0.1 },
+			castScale = 1,
+			castIcon = true,
+			friendlyNameSize = 10,
+			friendlyFont = "d3",
+			friendlyOutline = "outline",
+			friendlyGuildFont = "wow",
+			friendlyGuildSize = 8,
+			friendlyColor = "gold", -- NPC names: gold | white | green
+			friendlyGuild = true,
+			friendlyStrip = "hurt", -- hurt (or fighting) | always | never
+			classFill = true, -- enemy players' health in their class colour
+			targetMark = true, -- gold glow and diamonds on your target
+			threat = true,
+			quest = true,
+			raidIcon = true,
+			execute = true,
+			executeAt = 20,
+			trail = true,
+			hitFlash = true,
+			deathBurst = true,
+			cast = true,
+			castTarget = true, -- who the cast is at; "» YOU" in red when it's you
+			interrupter = true,
+			auras = true,
+			auraSize = 16,
+			maxAuras = 4,
+			pool = 20, -- aura containers built ahead (behind the loading screen)
+		},
+
 		portraits = {
 			enabled = true,
 			scale = 1.25, -- 1 = D3's own size
@@ -829,6 +881,7 @@ function ns.Refresh()
 	Run("auras", ns.Auras and ns.Auras.ApplySettings)
 	Run("target", ns.TargetPlate and ns.TargetPlate.ApplySettings)
 	Run("focus", ns.FocusPlate and ns.FocusPlate.ApplySettings)
+	Run("nameplates", ns.Plates and ns.Plates.ApplySettings)
 	Run("portraits", ns.Portraits and ns.Portraits.ApplySettings)
 	Run("party", ns.Party and ns.Party.ApplySettings)
 	Run("pollution", ns.Pollution and ns.Pollution.ApplySettings)

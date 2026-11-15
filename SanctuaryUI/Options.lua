@@ -1127,6 +1127,114 @@ local function ThreatArgs()
 	}
 end
 
+-- Unit frames > Nameplates (Plates.lua)
+local function PlatesArgs()
+	local function T(order, name, desc, key) return Toggle(order, name, desc, "plates", key) end
+	return {
+		intro = Note(0, "Nameplates in Diablo III's look: monsters in D3's silver frame, elites in its gold frame with blue names, rare elites with yellow names, bosses in the scroll banner; friends as names, as D3 shows townsfolk. Turning them on or off needs a reload."),
+		conflict = {
+			type = "description", order = 0.5, fontSize = "medium",
+			name = function()
+				local other = ns.Plates and ns.Plates.Conflict()
+				return other and ("|cffff6060%s is on, so these stay off. Turn one of them off.|r"):format(other) or ""
+			end,
+			hidden = function() return not (ns.Plates and ns.Plates.Conflict()) end,
+		},
+		enabled = T(1, "Enabled", nil, "enabled"),
+		preview = Width({
+			type = "toggle", order = 2, name = "Preview",
+			desc = "A made-up pull in the middle of the screen: casts, your target, aggro, a quest mob, execute range, an elite, a rare and a boss, taking hits. Turns off when this window closes. /sanctuary plates does the same.",
+			get = function() return ns.Plates and ns.Plates.preview end,
+			set = ns.Plates and OwningFlag("plates", ns.Plates, function(_, value) ns.Plates.SetPreview(value) end) or function() end,
+			disabled = function() return not ns.Plates end,
+		}, HALF),
+		look = Tab(3, "Enemy look", {
+			note = Note(0, "Enemy plates. Friendly plates have their own tab."),
+			look = Width(Select(1, "Look", "Framed: D3's frames, by rank. Thin: D3's bare bar, as it draws over monsters.", "plates", "look", { framed = "Framed (Diablo III frames)", thin = "Thin (bare bar)" }), HALF),
+			width = Range(3, "Width", nil, "plates", "width", 80, 220, 1),
+			barHeight = Range(4, "Bar height", nil, "plates", "barHeight", 4, 18, 1),
+			scale = Range(5, "Scale", nil, "plates", "scale", 0.5, 2, 0.05, true),
+			targetScale = Range(6, "Your target's scale", "How much bigger your target's plate is than the rest.", "plates", "targetScale", 1, 1.6, 0.05, true),
+			othersAlpha = Range(7, "Others while you have a target", "Fade the plates that aren't your target, so it stands out.", "plates", "othersAlpha", 0.2, 1, 0.05, true),
+			healthColor = Select(8, "Health colour", "D3's red: the fill D3 draws on monsters. By reaction: red for hostile, yellow for neutral. Custom: your own colour. Neutral enemies, enemy players (in class colours) and enemies tapped by others (grey) keep their own.", "plates", "healthColor", { d3 = "D3's red", reaction = "By reaction", custom = "Custom" }),
+			healthRGB = Width({
+				type = "color", order = 9, name = "Custom colour",
+				hidden = function() return DB().plates.healthColor ~= "custom" end,
+				get = function() local c = DB().plates.healthRGB or { 0.8, 0.1, 0.1 } return c[1], c[2], c[3] end,
+				set = function(_, r, g, b)
+					DB().plates.healthRGB = { r, g, b }
+					Changed()
+				end,
+			}, THIRD),
+			classFill = T(10, "Enemy players in class colours", nil, "classFill"),
+		}),
+		text = Tab(3.5, "Enemy text", {
+			note = Note(0, "Enemy plates. Friendly names have their own settings on the Friendly tab."),
+			names = Card(1, "Names", {
+				nameFont = Select(1, "Font", "Title font and Body font follow Options > Fonts.", "plates", "nameFont", TEXT_FONTS, TEXT_FONT_ORDER),
+				nameSize = Range(2, "Size", nil, "plates", "nameSize", 7, 18, 1),
+				nameOutline = Select(3, "Outline", nil, "plates", "nameOutline", { outline = "Outline", thick = "Thick outline", none = "Shadow only" }),
+				nameColor = Select(4, "Colour", "By rank: as D3 colours monsters (elites blue, rares yellow, bosses orange). By reaction: hostile red, neutral yellow. Players always show their class colour.", "plates", "nameColor", { rank = "By rank (Diablo III)", reaction = "By reaction", white = "White" }),
+				namePos = Select(5, "Position", "Above the frame, or on the bar itself (best with a taller bar).", "plates", "namePos", { above = "Above the frame", inside = "On the bar" }),
+				showLevel = Third(T(6, "Level", "Coloured by how hard the enemy is for you; ?? in red when it's far above you.", "showLevel")),
+			}),
+			small = Card(2, "Smaller text", {
+				note = Note(0, "The level, health percent, cast names and guilds."),
+				textFont = Select(1, "Font", "Title font and Body font follow Options > Fonts.", "plates", "textFont", TEXT_FONTS, TEXT_FONT_ORDER),
+				textSize = Range(2, "Size", nil, "plates", "textSize", 6, 16, 1),
+				textOutline = Select(3, "Outline", nil, "plates", "textOutline", { outline = "Outline", thick = "Thick outline", none = "Shadow only" }),
+				healthText = Select(4, "Health percent", nil, "plates", "healthText", { target = "On your target", all = "On every plate", none = "Never" }),
+				healthTextPos = Select(5, "Percent position", nil, "plates", "healthTextPos", { right = "Right of the bar", center = "Centre of the bar" }),
+			}),
+		}),
+		friends = Tab(8, "Friendly", {
+			note = Note(0, "Friendly plates outside dungeons and raids (inside them the game keeps its own). Everything for them is here; the enemy tabs don't change them."),
+			friendly = Width(Select(1, "Friendly plates", "Names: the name in D3's font, NPCs in soft gold and players in class colour with their guild, and a thin health strip while they're hurt or fighting.", "plates", "friendly", { names = "Names (Diablo III)", off = "The game's own" }), HALF),
+			names = Card(2, "Names", {
+				friendlyFont = Select(1, "Font", "Title font and Body font follow Options > Fonts.", "plates", "friendlyFont", TEXT_FONTS, TEXT_FONT_ORDER),
+				friendlyNameSize = Range(2, "Size", nil, "plates", "friendlyNameSize", 7, 18, 1),
+				friendlyOutline = Select(3, "Outline", nil, "plates", "friendlyOutline", { outline = "Outline", thick = "Thick outline", none = "Shadow only" }),
+				friendlyColor = Select(4, "NPC names", "Players always show their class colour.", "plates", "friendlyColor", { gold = "Soft gold (Diablo III)", white = "White", green = "Green" }),
+			}),
+			guilds = Card(3, "Guilds", {
+				friendlyGuild = Third(T(1, "Players' guilds", nil, "friendlyGuild")),
+				friendlyGuildFont = Select(2, "Font", nil, "plates", "friendlyGuildFont", TEXT_FONTS, TEXT_FONT_ORDER),
+				friendlyGuildSize = Range(3, "Size", nil, "plates", "friendlyGuildSize", 6, 14, 1),
+			}),
+			health = Card(4, "Health", {
+				friendlyStrip = Select(1, "Health strip", nil, "plates", "friendlyStrip", { hurt = "While hurt or fighting", always = "Always", never = "Never" }),
+			}),
+		}),
+		marks = Tab(4, "Marks", {
+			note = Note(0, "Enemy plates; the target diamonds and raid markers show on friendly plates too."),
+			targetMark = T(1, "Mark your target", "A gold glow and a gold diamond either side of your target's plate.", "targetMark"),
+			threat = T(2, "Threat glow", "Red when an enemy is on you, orange when you're about to pull it. As the tank, orange when one is loose on someone else.", "threat"),
+			quest = T(3, "Quest mobs", "A gold ! beside enemies you still need for a quest. Read from the tooltip out of combat.", "quest"),
+			raidIcon = T(4, "Raid markers", nil, "raidIcon"),
+			execute = T(5, "Execute range", "Below the line the fill turns molten, and a faint tick marks the line on the frame.", "execute"),
+			executeAt = Range(6, "Execute below", nil, "plates", "executeAt", 5, 50, 1),
+		}),
+		casts = Tab(5, "Casts", {
+			cast = T(1, "Cast bars", "D3's thin bar under the plate, filling as a spell is cast and draining as it's channelled. Grey with a lock when it can't be interrupted.", "cast"),
+			castIcon = T(1.5, "Spell icon", "The spell's icon at the left of the bar.", "castIcon"),
+			castScale = Range(1.7, "Bar height", nil, "plates", "castScale", 0.6, 2, 0.05, true),
+			castTarget = T(2, "Who it's cast at", "The name of whoever the spell is aimed at, or a red \"» YOU\" when it's you.", "castTarget"),
+			interrupter = T(3, "Who interrupted it", "\"Interrupted\" with the name of whoever kicked it, in their class colour.", "interrupter"),
+		}),
+		auras = Tab(6, "Debuffs", {
+			note = Note(0, "Your own debuffs, above the name, soonest to expire first, with the time left (the game draws the numbers when its cooldown numbers setting is on). Size and count apply to plates made after a reload."),
+			auras = T(1, "Your debuffs", nil, "auras"),
+			auraSize = Range(2, "Icon size", nil, "plates", "auraSize", 10, 30, 1),
+			maxAuras = Range(3, "Most shown", nil, "plates", "maxAuras", 1, 8, 1),
+		}),
+		effects = Tab(7, "Effects", {
+			trail = T(1, "Lost health trail", "The health a hit takes stays pale for a moment, then drains away.", "trail"),
+			hitFlash = T(2, "Hit flash", "The bar flashes as the enemy's health changes.", "hitFlash"),
+			deathBurst = T(3, "Death burst", "Embers burst where an enemy's plate was when it dies.", "deathBurst"),
+		}),
+	}
+end
+
 local function SwingArgs()
 	return {
 		intro = Note(1, "A bar for each weapon that fills as your next auto attack winds up, and stays full while the swing is ready. While your target is out of a weapon's reach, its bar dims once the swing in hand is done. Haste mid-swing stretches or shortens what's left. Blizzard has a swing timer of its own (Options > Combat); turn one of them off so you don't see two."),
@@ -2650,6 +2758,7 @@ local function Build()
 				}),
 				place = PositionCard(5, "Top left by default. " .. UNLOCK, function() ns.Portraits.ResetPosition() end, function() return not DB().portraits.moved end),
 			}),
+			plates = Page(33.5, "Nameplates", PlatesArgs(), "tab"),
 			party = Page(33, "Party", {
 				intro = Note(1, "Your party under your portrait. Left-click targets, right-click opens the unit menu, and click-casting addons (Clique) work on them. In a raid they hide and Blizzard's raid frames take over."),
 				style = Select(2, "Style", "Globes: a small health globe of your own liquid for each member. Slab: a thin slab of D3 stone. Lintel, Slim Lintel, Forged Bracket, Tablet and Monster bar: the target frame's looks, smaller, gold on your target; pets get a small ring and bar. None: Blizzard's party frames (or another addon's) instead.", "party", "style",

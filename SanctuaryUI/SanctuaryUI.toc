@@ -70,6 +70,7 @@ Portraits.lua
 PartyArt.lua
 PartyStyles.lua
 Party.lua
+Plates.lua
 Pollution.lua
 Freeze.lua
 Experience.lua
