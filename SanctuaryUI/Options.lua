@@ -1196,7 +1196,9 @@ local function PlatesArgs()
 				friendlyOutline = Select(3, "Outline", nil, "plates", "friendlyOutline", { outline = "Outline", thick = "Thick outline", none = "Shadow only" }),
 				friendlyColor = Select(4, "NPC names", "Players always show their class colour.", "plates", "friendlyColor", { gold = "Soft gold (Diablo III)", white = "White", green = "Green" }),
 			}),
-			guilds = Card(3, "Guilds", {
+			guilds = Card(3, "Titles and guilds", {
+				friendlyTitle = Third(T(0.5, "NPC titles", "What an NPC does, under its name: <Warrior Trainer>, <Innkeeper>, <Flight Master>. Read from its tooltip out of combat.", "friendlyTitle")),
+				friendlyDetails = Third(T(0.7, "Level and faction", "An NPC's level and faction under its name (Level 20 · Darnassus), as its tooltip has them; under its title when it has one.", "friendlyDetails")),
 				friendlyGuild = Third(T(1, "Players' guilds", nil, "friendlyGuild")),
 				friendlyGuildFont = Select(2, "Font", nil, "plates", "friendlyGuildFont", TEXT_FONTS, TEXT_FONT_ORDER),
 				friendlyGuildSize = Range(3, "Size", nil, "plates", "friendlyGuildSize", 6, 14, 1),

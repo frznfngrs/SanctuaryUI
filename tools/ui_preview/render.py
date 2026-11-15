@@ -125,8 +125,9 @@ class Layout:
                 w, h = w or im.size[0] * s, h or im.size[1] * s
         if T(o, "kind") == "FontString":
             size = (T(o, "size") or 12) * s
-            w = w or font(T(o, "font") or "body", size).getlength(strip(T(o, "text")))
-            h = h or size * 1.15
+            lines = strip(T(o, "text")).split("\n")  # the game breaks lines at \n
+            w = w or max(font(T(o, "font") or "body", size).getlength(line) for line in lines)
+            h = h or size * 1.15 * len(lines)
         if L is not None and R is not None: pass
         elif L is not None: R = L + w
         elif R is not None: L = R - w
@@ -241,8 +242,10 @@ def draw(out, root_name, K=2.0, pad=50):
             col = T(o, "color")
             base = tuple(int(255 * col[j]) for j in (1, 2, 3)) if col is not None else (255, 255, 255)
             has_w, boxw = (T(o, "w") or 0) > 0, x1 - x0
-            lines = [str(text)]
-            if has_w and T(o, "wrap"):
+            lines = str(text).split("\n")  # the game breaks lines at \n
+            if len(lines) > 1:
+                pass
+            elif has_w and T(o, "wrap"):
                 lines, cur = [], ""
                 for wd in str(text).split(" "):
                     trial = (cur + " " + wd).strip()

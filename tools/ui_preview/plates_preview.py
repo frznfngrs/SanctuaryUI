@@ -154,6 +154,8 @@ function GetPlayerInfoByGUID(g) if g == "Player-1" then return "Warrior", "WARRI
 function GetTime() return 100 end
 C_TooltipInfo = { GetUnit = function(u)
 	if u == "nameplate1" then return { lines = { { type = 8, leftText = "Defias Pillager slain: 3/10" } } } end
+	if u == "nameplate3" then return { lines = { { leftText = "Stormwind Guard" }, { leftText = "Warrior Trainer" }, { leftText = "Level 55 Humanoid" } } } end
+	if u == "nameplate4" then return { lines = { { leftText = "Caretaker Kalvan" }, { leftText = "Level 20" }, { leftText = "Darnassus" }, { leftText = "PvP" } } } end
 	return { lines = {} }
 end }
 Enum = Enum or {}
@@ -171,7 +173,15 @@ ok(p1 and p1.root.shown and p1.name.text == "Defias Pillager", "enemy plate show
 ok(not plates.nameplate1.UnitFrame.shown, "the game's own plate hidden")
 local p3 = P.byUnit.nameplate3
 ok(p3 and p3.friend and p3.name.text == "Stormwind Guard" and not plates.nameplate3.UnitFrame.shown, "a friend: our name-only plate")
-ok(p3.guild.text == "" and not p3.art.shown and p3.cast.shown == false, "friend: no guild for an NPC, no frame, no cast bar")
+ok(p3.guild.text == "<Warrior Trainer>\nLevel 55" and not p3.art.shown and p3.cast.shown == false, "friend NPC: its title under the name, no frame, no cast bar (" .. tostring(p3.guild.text) .. ")")
+UNITS.nameplate4 = { name = "Caretaker Kalvan", level = 20, c = "normal", hp = 1, max = 1, reaction = 5 }
+Fire("NAME_PLATE_UNIT_ADDED", "nameplate4")
+ok(P.byUnit.nameplate4.guild.text == "Level 20 · Darnassus", "an NPC with no title: level and faction (" .. tostring(P.byUnit.nameplate4.guild.text) .. ")")
+PROFILE.plates.friendlyDetails = false
+Fire("NAME_PLATE_UNIT_REMOVED", "nameplate4")
+Fire("NAME_PLATE_UNIT_ADDED", "nameplate4")
+ok(P.byUnit.nameplate4.guild.text == "", "level and faction off: nothing")
+PROFILE.plates.friendlyDetails = true
 ok(p3.health.alpha == 0, "friend at full health, out of combat: no strip")
 UNITS.nameplate3.hp = 2500
 Fire("UNIT_HEALTH", "nameplate3")

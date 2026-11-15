@@ -228,6 +228,7 @@ local function NewPlate(parent)
 	p.guild = over:CreateFontString(nil, "OVERLAY")
 	p.guild:SetShadowOffset(0, 0)
 	p.guild:SetTextColor(0.78, 0.74, 0.66)
+	p.guild:SetJustifyH("CENTER") -- title over level and faction, both centred under the name
 	p.pct = over:CreateFontString(nil, "OVERLAY")
 	p.pct:SetShadowOffset(0, 0)
 	p.pct:SetTextColor(0.95, 0.92, 0.86)
@@ -1143,9 +1144,75 @@ local function UpdateFriend(p)
 	p.health:SetStatusBarTexture(ns.Art.Path("unitFillWhite") or "Interface\\Buttons\\WHITE8X8")
 	p.health:SetStatusBarColor(fill[1], fill[2], fill[3], 1)
 	-- A player's guild, small, under the name.
-	local guild = isPlayer and Opt().friendlyGuild ~= false and GetGuildInfo and GetGuildInfo(unit)
+	-- An NPC's title (<Warrior Trainer>, <Innkeeper>) in the same place.
+	local guild
+	if isPlayer then
+		guild = Opt().friendlyGuild ~= false and GetGuildInfo and GetGuildInfo(unit)
+	else
+		-- An NPC: its title (<Warrior Trainer>), then its level and faction (Level 20 · Darnassus),
+		-- as its tooltip has them, each on its own line.
+		local title, faction = P.NPCInfo(unit)
+		local lines = {}
+		if title and Opt().friendlyTitle ~= false then lines[#lines + 1] = "<" .. title .. ">" end
+		if Opt().friendlyDetails ~= false then
+			local level = Ask(UnitLevel, unit)
+			local parts = {}
+			if level and level > 0 then parts[#parts + 1] = (LEVEL or "Level") .. " " .. level end
+			if faction then parts[#parts + 1] = faction end
+			if #parts > 0 then lines[#lines + 1] = table.concat(parts, " · ") end
+		end
+		p.guild:SetText(table.concat(lines, "\n"))
+		FriendHealth(p)
+		return
+	end
 	if not (guild and pcall(function() p.guild:SetText("<" .. guild .. ">") end)) then p.guild:SetText("") end
 	FriendHealth(p)
+end
+
+-- An NPC's title and faction from its tooltip: the title is the second line when it isn't the
+-- level line ("Level 30 Humanoid"); the faction is the first line after the level line that isn't
+-- PvP (Darnassus, Stormwind). Read out of combat (tooltip lines can be secret in it); kept per
+-- name, since the same guard or trainer comes back on every plate.
+local infos = {}
+local LEVEL_WORD = (LEVEL or "Level"):lower()
+local function Text(line)
+	local text = line and line.leftText
+	if Plain(text) and type(text) == "string" and text ~= "" then return text end
+end
+function P.NPCInfo(unit)
+	local name = UnitName(unit)
+	local key = Plain(name) and name or nil
+	local known = key and infos[key]
+	if known then return known.title, known.faction end
+	if InCombatLockdown() or not (C_TooltipInfo and C_TooltipInfo.GetUnit) then return nil end
+	local ok, data = pcall(C_TooltipInfo.GetUnit, unit)
+	if not ok or not data or Secret(data.lines) or type(data.lines) ~= "table" then return nil end
+	local lines = data.lines
+	local title, faction
+	local levelAt
+	for i = 2, #lines do
+		local text = Text(lines[i])
+		if text and text:lower():find("^" .. LEVEL_WORD .. "[%s%d%?]") then
+			levelAt = i
+			break
+		end
+	end
+	local second = Text(lines[2])
+	if second and levelAt and levelAt > 2 then title = second:gsub("^<(.*)>$", "%1") end
+	if levelAt then
+		local types = Enum and Enum.TooltipDataLineType
+		for i = levelAt + 1, #lines do
+			local text = Text(lines[i])
+			local t = lines[i].type
+			local questLine = types and Plain(t) and (t == types.QuestObjective or t == types.QuestTitle or t == types.QuestPlayer)
+			if text and not questLine and text ~= (PVP or "PvP") and not text:find("%d") then
+				faction = text
+				break
+			end
+		end
+	end
+	if key then infos[key] = { title = title, faction = faction } end
+	return title, faction
 end
 
 local function Setup(plate)
@@ -1382,7 +1449,7 @@ local PACK = {
 	{ name = "Sneed", level = 20, rank = "elite", x = -150, y = -90, hp = 0.73 },
 	{ name = "Foreman Thistlenettle", level = -1, rank = "rare", x = 150, y = -90, hp = 0.55 },
 	{ name = "Edwin VanCleef", level = -1, rank = "boss", x = 0, y = -165, hp = 0.62 },
-	{ name = "Stormwind City Guard", friend = true, x = -380, y = -165, hp = 1 },
+	{ name = "Wu Shen", friend = true, guild = "Warrior Trainer", detail = "Level 60 · Stormwind", x = -380, y = -165, hp = 1 },
 	{ name = "Brakka", friend = true, class = "WARRIOR", guild = "The Rethiadians", x = 380, y = -165, hp = 0.6 },
 }
 
@@ -1474,7 +1541,10 @@ function P.DrawPreview()
 			local cc = d.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[d.class]
 			local c = cc and { cc.r, cc.g, cc.b } or FRIEND_NAME
 			p.name:SetTextColor(c[1], c[2], c[3])
-			p.guild:SetText(d.guild and ("<" .. d.guild .. ">") or "")
+			local sub = {}
+			if d.guild then sub[#sub + 1] = "<" .. d.guild .. ">" end
+			if d.detail and Opt().friendlyDetails ~= false then sub[#sub + 1] = d.detail end
+			p.guild:SetText(table.concat(sub, "\n"))
 			p.health:SetStatusBarTexture(ns.Art.Path("unitFillWhite") or "Interface\\Buttons\\WHITE8X8")
 			local f = cc and c or FRIEND_FILL
 			p.health:SetStatusBarColor(f[1], f[2], f[3], 1)
