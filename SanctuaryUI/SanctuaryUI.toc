@@ -70,6 +70,7 @@ Party.lua
 Pollution.lua
 Freeze.lua
 Experience.lua
+CastRail.lua
 InventoryWindow.lua
 Bags.lua
 Bank.lua

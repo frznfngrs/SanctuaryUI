@@ -75,6 +75,9 @@ ns.DEFAULTS = {
 		railMode = "auto", -- auto | xp | rep
 		railRested = true,
 		levelPlaque = true, -- your level on a D3 plaque over the console's centre skull
+		castRail = true, -- your casts run on the rail; Blizzard's cast bar is off (CastRail.lua)
+		castMedallion = true, -- the level medallion wears the spell's icon while you cast
+		castTextSize = 11, -- the spell name and time over the rail
 
 		-- action buttons (main bar and rows)
 		buttons = {
@@ -822,6 +825,7 @@ function ns.Refresh()
 	Run("globes", ns.Globes and ns.Globes.ApplySettings)
 	Run("globe auras", ns.GlobeAura and ns.GlobeAura.ApplySettings)
 	Run("rail", ns.Experience and ns.Experience.Update)
+	Run("cast rail", ns.CastRail and ns.CastRail.ApplySettings)
 	Run("auras", ns.Auras and ns.Auras.ApplySettings)
 	Run("target", ns.TargetPlate and ns.TargetPlate.ApplySettings)
 	Run("focus", ns.FocusPlate and ns.FocusPlate.ApplySettings)

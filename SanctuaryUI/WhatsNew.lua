@@ -12,6 +12,13 @@ local MINE = getMeta and getMeta("SanctuaryUI", "Version") or "?"
 
 -- version -> list of { heading, text, button label, action }. Newest first in LATEST.
 local NOTES = {
+	["0.26.0"] = {
+		{
+			"Your casts on the rail",
+			"While you cast, the XP rail above your skills becomes your cast bar: a molten fill runs along it, the spell's name and the time left sit either side of the skull, and the level medallion shows the spell's icon. A cast that lands flares the rail gold, an interrupted one turns red, channels drain in blue. Blizzard's cast bar is off while this is on. Options > XP, Rep & Casts; /sanctuary cast shows a preview.",
+			"Options", function() ns.Options.Open("rail") end,
+		},
+	},
 	["0.25.0"] = {
 		{
 			"Threat",
@@ -29,7 +36,7 @@ local NOTES = {
 		},
 	},
 }
-local LATEST = "0.25.0"
+local LATEST = "0.26.0"
 
 local GOLD = { 0.91, 0.78, 0.48 }
 local CREAM = { 0.89, 0.84, 0.75 }

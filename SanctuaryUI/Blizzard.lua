@@ -311,9 +311,46 @@ function ns.Blizzard.Hide()
 			end
 		end
 	end
+	ns.Blizzard.CastBar()
 	WatchHelpTips()
 	ns.Blizzard.CloseOrphanTips()
 	ns.Blizzard.PruneDispatchers()
+end
+
+-- Blizzard's player cast bar, while your casts run on the console's rail (CastRail.lua). Hidden
+-- through the C Hide and silenced, as ElvUI's build for this client does: an Edit Mode frame,
+-- and with no events its own code never shows it in combat. Silenced, it can't be given back
+-- without a reload (its events come from its Lua SetUnit, tainted if called from here).
+local CAST_BARS = { "PlayerCastingBarFrame", "CastingBarFrame" }
+local castBarSilenced = false
+
+StaticPopupDialogs["SANCTUARYUI_CASTBAR_RELOAD"] = {
+	text = "Giving Blizzard's cast bar back needs a reload.",
+	button1 = "Reload now",
+	button2 = "Later",
+	OnAccept = function() ReloadUI() end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+}
+
+function ns.Blizzard.CastBar()
+	if InCombatLockdown() then return end
+	-- Only with CastRail.lua loaded (a new file needs a client restart, not just a reload).
+	if ns.DB().castRail ~= false and ns.CastRail and ns.CastRail.Init then
+		for _, name in ipairs(CAST_BARS) do
+			local frame = _G[name]
+			if frame then
+				frame.sanctuaryAllow = nil
+				pcall(Suppress, frame)
+				Silence(frame)
+				castBarSilenced = true
+			end
+		end
+	elseif castBarSilenced then
+		castBarSilenced = false
+		StaticPopup_Show("SANCTUARYUI_CASTBAR_RELOAD")
+	end
 end
 
 local function Restore(frame, parent)

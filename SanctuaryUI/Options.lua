@@ -2353,7 +2353,7 @@ local function Build()
 				}),
 			}),
 			globeAuras = Page(12, "Globe auras", GlobeAuraArgs(), "tab"),
-			rail = Page(13, "XP & Reputation", {
+			rail = Page(13, "XP, Rep & Casts", {
 				rail = Card(1, "Rail", {
 					railMode = Width(Select(1, "Rail shows", nil, nil, "railMode", {
 						auto = "Experience, then reputation at max level",
@@ -2364,6 +2364,18 @@ local function Build()
 					railRested = Toggle(2, "Show rested experience", nil, nil, "railRested"),
 					levelPlaque = Toggle(3, "Your level on the console", "Your level in a D3 medallion resting on the skull at the console's top centre.", nil, "levelPlaque"),
 					note = Note(4, "Reputation is tinted with your resource colour. Watch a faction from the Reputation panel."),
+				}),
+				cast = Card(2, "Casts", {
+					castRail = Toggle(1, "Casts take over the rail", "While you cast, the XP fades from the rail and a molten fill runs through it, the spell's name left of the skull and the time left on the right. A cast that lands flares the rail; one interrupted turns red where it stopped; channels drain in blue. Blizzard's cast bar is off while this is on (turning it off again asks for a reload).", nil, "castRail"),
+					preview = Width({
+						type = "toggle", order = 2, name = "Preview",
+						desc = "Loop a cast that lands, one interrupted and a channel. Turns off when this window closes. /sanctuary cast does the same.",
+						get = function() return ns.CastRail and ns.CastRail.preview end,
+						set = ns.CastRail and OwningFlag("castRail", ns.CastRail, function(_, value) ns.CastRail.SetPreview(value) end) or function() end,
+						disabled = function() return DB().castRail == false or not ns.CastRail end,
+					}, HALF),
+					castMedallion = Toggle(3, "Spell icon in the medallion", "The level medallion on the skull wears the spell's icon while you cast, darkened by a clockwise sweep as the cast runs.", nil, "castMedallion"),
+					castTextSize = Range(4, "Text size", "The spell name and time over the rail.", nil, "castTextSize", 8, 20, 1),
 				}),
 			}),
 
