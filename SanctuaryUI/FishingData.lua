@@ -176,6 +176,30 @@ for _, z in ipairs(D.ZONES) do
 	D.ZONE_BY_NAME[z[1]] = z
 end
 
+-- Where the world map shows a water that isn't a map of its own: sub-zones and dungeons by the
+-- zone they're in, and the capitals by their home zone, should the map not draw them apart.
+D.WITHIN = {
+	["Bay of Storms"] = "Azshara", ["Hetaera's Clutch"] = "Azshara", ["Scalebeard's Cave"] = "Azshara",
+	["Jademir Lake"] = "Feralas", ["Verdantis River"] = "Feralas", ["Sar'theris Strand"] = "Desolace",
+	["Savage Coast"] = "Stranglethorn Vale", ["Booty Bay"] = "Stranglethorn Vale",
+	["Misty Reed Strand"] = "Swamp of Sorrows",
+	["Blackfathom Deeps"] = "Ashenvale", ["Wailing Caverns"] = "The Barrens", ["The Deadmines"] = "Westfall",
+	["Scarlet Monastery"] = "Tirisfal Glades", ["Maraudon"] = "Desolace", ["Sunken Temple"] = "Swamp of Sorrows",
+	["Zul'Gurub"] = "Stranglethorn Vale", ["Stratholme"] = "Eastern Plaguelands", ["Scholomance"] = "Western Plaguelands",
+	["Stormwind City"] = "Elwynn Forest", ["Ironforge"] = "Dun Morogh", ["Darnassus"] = "Teldrassil",
+	["Orgrimmar"] = "Durotar", ["Thunder Bluff"] = "Mulgore", ["Undercity"] = "Tirisfal Glades",
+}
+
+-- Dungeons and capitals: no schools there, and not where the book sends you to level.
+D.DUNGEONS = { ["Blackfathom Deeps"] = true, ["Wailing Caverns"] = true, ["The Deadmines"] = true,
+	["Scarlet Monastery"] = true, ["Maraudon"] = true, ["Sunken Temple"] = true, ["Zul'Gurub"] = true,
+	["Stratholme"] = true, ["Scholomance"] = true }
+D.CAPITALS = { ["Stormwind City"] = true, ["Ironforge"] = true, ["Darnassus"] = true, ["Orgrimmar"] = true,
+	["Thunder Bluff"] = true, ["Undercity"] = true }
+
+-- The water a fish's schools gather in (the band's "pools"): inland lakes and rivers, or the coast.
+D.SCHOOL_WATER = { sagefish = "inland", greatersage = "inland" }
+
 ---------------------------------------------------------------------------
 -- Trainers. name, zone, place, x, y, side (A, H or N for both)
 

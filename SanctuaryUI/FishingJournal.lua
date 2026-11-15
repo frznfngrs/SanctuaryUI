@@ -486,6 +486,137 @@ local function Caught(id)
 	return log and id and log.catches[id] or 0
 end
 
+---------------------------------------------------------------------------
+-- Where to fish: for your skill, and for each fish.
+
+local function Hex(c)
+	return ("ff%02x%02x%02x"):format(c[1] * 255, c[2] * 255, c[3] * 255)
+end
+
+-- How a water treats your skill: "open" (nothing gets away), "some" (some get away), "shut"
+-- (nothing bites yet); nil with no skill or no band.
+local function Reach(band, eff)
+	if not band or not eff then return end
+	if eff >= band then return "open" end
+	if eff >= band - D().ESCAPE_GAP then return "some" end
+	return "shut"
+end
+J.Reach = Reach
+local REACH_COLOR = { open = GREEN, some = AMBER, shut = MUTED }
+
+local function Has(list, key)
+	for _, k in ipairs(list or {}) do
+		if k == key then return true end
+	end
+end
+
+-- Where a fish bites, as { z = zone entry, how = "spot" | "water" | "school" }: spot where the
+-- book names it, water where its band's inland or coastal fish include it, school where its
+-- band's schools may turn up (lakes and rivers for sagefish, the coast for the rest). Named
+-- spots first, then by skill.
+function J.WhereFish(key)
+	local d, out, seen = D(), {}, {}
+	local function Put(z, how)
+		if not seen[z[1]] then
+			seen[z[1]] = true
+			out[#out + 1] = { z = z, how = how }
+		end
+	end
+	for _, z in ipairs(d.ZONES) do
+		if Has(z[4], key) then Put(z, "spot") end
+	end
+	for _, z in ipairs(d.ZONES) do
+		local band = z[2] and d.BANDS[z[2]]
+		if band and not z.sub and not d.DUNGEONS[z[1]] then
+			if Has(band.inland, key) or (z[3] and Has(band.coast, key)) then
+				Put(z, "water")
+			elseif Has(band.pools, key) and not d.CAPITALS[z[1]] then
+				if (d.SCHOOL_WATER[key] or "coast") == "inland" or z[3] then Put(z, "school") end
+			end
+		end
+	end
+	local rank = { spot = 1, water = 2, school = 3 }
+	table.sort(out, function(a, b)
+		if rank[a.how] ~= rank[b.how] then return rank[a.how] < rank[b.how] end
+		if (a.z[2] or 999) ~= (b.z[2] or 999) then return (a.z[2] or 999) < (b.z[2] or 999) end
+		return a.z[1] < b.z[1]
+	end)
+	return out
+end
+
+-- The waters for your skill: best = the highest band where nothing gets away, next = the band
+-- above it, where some still do. Your side's and neutral zones only, no dungeons or sub-zones;
+-- the other side's land only when nothing else is left. Each a list of zone entries.
+function J.BestWaters(eff)
+	local d = D()
+	local function Fits(z, enemyOK)
+		return z[2] and not z.sub and not d.DUNGEONS[z[1]] and (enemyOK or not (z.side and Enemy(z.side)))
+	end
+	local bestBand, nextBand
+	for _, z in ipairs(d.ZONES) do
+		if Fits(z, false) then
+			if z[2] <= eff and (not bestBand or z[2] > bestBand) then bestBand = z[2] end
+			if z[2] > eff and (not nextBand or z[2] < nextBand) then nextBand = z[2] end
+		end
+	end
+	local best, nxt = {}, {}
+	for _, z in ipairs(d.ZONES) do
+		if Fits(z, false) and z[2] == bestBand then best[#best + 1] = z end
+		if Fits(z, false) and z[2] == nextBand and Reach(z[2], eff) == "some" then nxt[#nxt + 1] = z end
+	end
+	return best, bestBand, nxt, nextBand
+end
+
+-- Zone names in one line, each coloured by how its water treats your skill.
+local function ZoneLine(list, eff)
+	local parts = {}
+	for _, w in ipairs(list) do
+		local z = w.z or w
+		local reach = Reach(z[2], eff)
+		local enemy = z.side and Enemy(z.side)
+		local name = z[1] .. (enemy and (" (%s)"):format(SIDE_NAME[z.side]) or "")
+		local c = enemy and MUTED or (reach and REACH_COLOR[reach]) or INK
+		parts[#parts + 1] = ("|c%s%s|r"):format(Hex(c), name)
+	end
+	return table.concat(parts, ", ")
+end
+
+-- The "Where to fish now" block: Here & Now and Waters.
+local function WhereNow(eff)
+	B.h("Where to fish now")
+	local best, bestBand, nxt, nextBand = J.BestWaters(eff)
+	local _, here = J.Where()
+	local function Row(z, reason)
+		local hub = ZoneHub(z)
+		B.row({ z[1] .. (z[1] == here and "  (you)" or ""), reason .. (reason ~= "" and hub and " " or "") .. (hub and ("Stay: " .. hub .. ".") or "") },
+			{ 0.36, 0.64 }, { colors = { z[1] == here and GOLD or INK, MUTED } })
+	end
+	-- A zone's first sentence: usually where its water is. The rest is in Waters.
+	local function Brief(z)
+		local note = z[5] or ""
+		return note:match("^(.-[%.!?])%s") or note
+	end
+	if #best > 0 then
+		B.p(("Nothing gets away here at %d (they open at %d):"):format(eff, bestBand), GREEN, 12.5)
+		for _, z in ipairs(best) do Row(z, Brief(z)) end
+	end
+	if #nxt > 0 then
+		B.p(("Next, at %d (some get away until then, you're %d short):"):format(nextBand, nextBand - eff), AMBER, 12.5)
+		for _, z in ipairs(nxt) do Row(z, Brief(z)) end
+	end
+	if #best == 0 and #nxt == 0 then
+		B.p("Nothing on your side of the map bites for you yet. Any starting lake will.", MUTED, 12.5)
+		return
+	end
+	local list = {}
+	for _, z in ipairs(best) do list[#list + 1] = { z = z } end
+	for _, z in ipairs(nxt) do list[#list + 1] = { z = z } end
+	B.row({ "", "Show these on the world map" }, { 0.0, 1.0 }, {
+		colors = { MUTED, GOLD }, tip = "Opens the world map with these zones lit up: green, nothing gets away; amber, some do.",
+		onClick = function() J.ShowOnMap("Where to fish at " .. eff, list) end,
+	})
+end
+
 function BUILD.diary()
 	local log = Log()
 	if not log then return end
@@ -611,6 +742,8 @@ function BUILD.now()
 		if note ~= "" then B.note(note) end
 	end
 
+	if eff then WhereNow(eff) end
+
 	-- What bites.
 	if entry and band then
 		B.h("Biting here")
@@ -722,6 +855,7 @@ function BUILD.waters()
 	if rank then
 		B.note(("You fish at %d. Green: all yours. Ink: some escape. Grey: not yet. Faded: the other faction's land."):format(eff))
 	end
+	if eff then WhereNow(eff) end
 	local function Zone(z, band)
 		local color = INK
 		if rank and band then
@@ -756,7 +890,7 @@ function BUILD.catches()
 		total = total + 1
 		if Caught(fish.id) > 0 then have = have + 1 end
 	end
-	B.note(("Ticked: caught on this character (%d of %d). Hover a fish for its card, shift-click to link it."):format(have, total))
+	B.note(("Ticked: caught on this character (%d of %d). Hover a fish for its card, shift-click to link it. Zones: green, nothing gets away for you; amber, some do; grey, not yet; faded, the other side's land."):format(have, total))
 	B.h("Fish")
 	for _, key in ipairs(D().FISH_ORDER) do
 		local fish = D().FISH[key]
@@ -764,6 +898,25 @@ function BUILD.catches()
 		local name = (n > 0 and "|TInterface\\RaidFrame\\ReadyCheck-Ready:13:13:0:-1|t " or "") .. fish.name .. (fish.forever and "  |cff9a6a0e(new)|r" or "")
 		B.row({ name, fish.where }, { 0.42, 0.58 }, { item = fish.id, pad = 2, colors = { INK, MUTED }, anchor = "fish:" .. key })
 		B.row({ "", fish.use .. ". " .. fish.quip }, { 0.0, 1.0 }, { colors = { MUTED, MUTED }, cont = true })
+		local where = J.WhereFish(key)
+		if #where > 0 then
+			local spots, waters, schools = {}, {}, {}
+			for _, w in ipairs(where) do
+				local list = w.how == "spot" and spots or w.how == "water" and waters or schools
+				list[#list + 1] = w
+			end
+			local eff = Effective()
+			local lines = {}
+			if #spots > 0 then lines[#lines + 1] = "Known for it: " .. ZoneLine(spots, eff) end
+			if #waters > 0 then lines[#lines + 1] = (#spots > 0 and "Also in: " or "Bites in: ") .. ZoneLine(waters, eff) end
+			if #schools > 0 then lines[#lines + 1] = "Schools may turn up in: " .. ZoneLine(schools, eff) end
+			B.row({ "", table.concat(lines, "\n") }, { 0.0, 1.0 }, { colors = { MUTED, INK }, cont = true })
+			B.row({ "", "Show where it bites on the world map" }, { 0.0, 1.0 }, {
+				colors = { MUTED, GOLD }, cont = true,
+				tip = "Opens the world map with these zones lit up: green, nothing gets away for you; amber, some do; grey, not yet.",
+				onClick = function() J.ShowOnMap(fish.name, where, fish.id) end,
+			})
+		end
 	end
 	B.h("Not fish, still caught")
 	for i, o in ipairs(D().OTHER_CATCHES) do
@@ -924,7 +1077,9 @@ local function Index(Add)
 	local d = D()
 	for _, key in ipairs(d.FISH_ORDER) do
 		local f = d.FISH[key]
-		Add("catches", "fish:" .. key, f.name, ("%s. %s. %s"):format(f.where, f.use, f.quip), f.id)
+		local zones = {}
+		for _, w in ipairs(J.WhereFish(key)) do zones[#zones + 1] = w.z[1] end
+		Add("catches", "fish:" .. key, f.name, ("%s. %s. %s. %s"):format(f.where, f.use, f.quip, table.concat(zones, ", ")), f.id)
 	end
 	for i, o in ipairs(d.OTHER_CATCHES) do Add("catches", "other:" .. i, o.name, o.text) end
 	for i, r in ipairs(d.RECIPES) do Add("catches", "recipe:" .. i, r[1], Parts(r[2])) end
@@ -1033,4 +1188,378 @@ function J.Init()
 			J.Refresh("now")
 		end
 	end)
+end
+
+---------------------------------------------------------------------------
+-- The world map: "Show on the world map" lights up the zones a list names, coloured by how
+-- their water treats your skill, with a pin in each whose tooltip says what bites there. A
+-- banner over the map names the list, offers the other continent, and clears it. The zones'
+-- shapes are the game's own hover highlights (C_Map.GetMapHighlightInfoAtPosition), found at a
+-- point the map says lies inside the zone; a map that can't do that still gets the pins.
+do
+	local want -- { title, list = { { z, how } }, icon }
+	local overlay, banner, hooked
+	local pins, lights = {}, {}
+	local placed = {} -- this map's zones: { x, y, lit, mapID, waters, reach, enemy }
+	local idByName
+	local FISH_ICON = "Interface\\Icons\\Trade_Fishing"
+	local MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
+	local MAP_COLOR = { open = { 0.35, 1, 0.3 }, some = { 1, 0.72, 0.18 }, shut = { 0.62, 0.62, 0.62 } }
+	local REACH_RANK = { open = 3, some = 2, shut = 1 }
+	local CONTINENT = Enum and Enum.UIMapType and Enum.UIMapType.Continent or 2
+	local ZONE = Enum and Enum.UIMapType and Enum.UIMapType.Zone or 3
+	-- Points to try, nearest the middle of a zone's box first, for one inside the zone.
+	local PROBES = {}
+	for i = 0, 6 do
+		for j = 0, 6 do PROBES[#PROBES + 1] = { 0.2 + i * 0.1, 0.2 + j * 0.1 } end
+	end
+	table.sort(PROBES, function(a, b)
+		return (a[1] - 0.5) ^ 2 + (a[2] - 0.5) ^ 2 < (b[1] - 0.5) ^ 2 + (b[2] - 0.5) ^ 2
+	end)
+
+	local function MapIDs()
+		if idByName then return idByName end
+		idByName = {}
+		local roots = { 946, C_Map.GetFallbackWorldMapID and C_Map.GetFallbackWorldMapID() or 947 }
+		for _, root in ipairs(roots) do
+			local ok, kids = pcall(C_Map.GetMapChildrenInfo, root, nil, true)
+			for _, m in ipairs(ok and kids or {}) do
+				local prev = idByName[m.name]
+				if not prev or (m.mapType == ZONE and prev.mapType ~= ZONE) then idByName[m.name] = m end
+			end
+		end
+		return idByName
+	end
+
+	local function ContinentOf(mapID)
+		for _ = 1, 8 do
+			local info = mapID and C_Map.GetMapInfo(mapID)
+			if not info then return end
+			if info.mapType == CONTINENT then return info.mapID end
+			if info.mapType < CONTINENT then return end
+			mapID = info.parentMapID
+		end
+	end
+
+	-- A water's map: its own, or the zone it lies within.
+	local function Resolve(name)
+		local ids = MapIDs()
+		local m = ids[name]
+		if m and ContinentOf(m.mapID) then return m end
+		local outer = D().WITHIN[name]
+		m = outer and ids[outer]
+		if m and ContinentOf(m.mapID) then return m end
+	end
+
+	local function Within(mapID, zoneID)
+		for _ = 1, 6 do
+			if not mapID then return false end
+			if mapID == zoneID then return true end
+			local info = C_Map.GetMapInfo(mapID)
+			mapID = info and info.parentMapID
+		end
+		return false
+	end
+
+	-- Where to put a zone on the map shown: a point inside it (and so its highlight), or the
+	-- middle of its box.
+	local located = {} -- "zone:shown" -> { x, y, lit } or false
+	local function Locate(zoneID, shownID)
+		local key = zoneID .. ":" .. shownID
+		local hit = located[key]
+		if hit ~= nil then
+			if hit then return hit[1], hit[2], hit[3] end
+			return
+		end
+		located[key] = false
+		local ok, left, right, top, bottom = pcall(C_Map.GetMapRectOnMap, zoneID, shownID)
+		if not ok or not left or not right or right <= left or bottom <= top then return end
+		hit = { (left + right) / 2, (top + bottom) / 2, false }
+		for _, p in ipairs(PROBES) do
+			local x, y = left + (right - left) * p[1], top + (bottom - top) * p[2]
+			local at = C_Map.GetMapInfoAtPosition(shownID, x, y)
+			if at and Within(at.mapID, zoneID) then
+				hit = { x, y, true }
+				break
+			end
+		end
+		located[key] = hit
+		return hit[1], hit[2], hit[3]
+	end
+
+	local function Canvas()
+		return WorldMapFrame and WorldMapFrame.GetCanvas and WorldMapFrame:GetCanvas()
+	end
+
+	local function Light(i, shownID, g, color, alpha)
+		local canvas = Canvas()
+		local ok, fileID, atlasID, px, py, tx, ty, sx, sy = pcall(C_Map.GetMapHighlightInfoAtPosition, shownID, g.x, g.y)
+		if not ok or not ((fileID and fileID > 0) or atlasID) then return end
+		local t = lights[i]
+		if not t then
+			t = overlay:CreateTexture(nil, "OVERLAY")
+			t:SetBlendMode("ADD")
+			lights[i] = t
+		end
+		local w, h = canvas:GetWidth(), canvas:GetHeight()
+		t:ClearAllPoints()
+		t:SetTexCoord(0, px, 0, py)
+		if atlasID then
+			t:SetAtlas(atlasID, true, "TRILINEAR")
+			t:SetPoint("CENTER", overlay, "CENTER", ((sx + 0.5 * tx) - 0.5) * w, -((sy + 0.5 * ty) - 0.5) * h)
+		else
+			if tx <= 0 or ty <= 0 then return end
+			t:SetTexture(fileID, nil, nil, "LINEAR")
+			t:SetSize(tx * w, ty * h)
+			t:SetPoint("TOPLEFT", overlay, "TOPLEFT", sx * w, -sy * h)
+		end
+		t:SetVertexColor(color[1], color[2], color[3], alpha)
+		t:Show()
+	end
+
+	local function PinTooltip(pin)
+		local g = pin.g
+		local eff = Effective()
+		local c = MAP_COLOR[g.reach] or MAP_COLOR.shut
+		GameTooltip:SetOwner(pin, "ANCHOR_RIGHT")
+		GameTooltip:SetText(g.name .. (g.enemy and (" (%s land)"):format(SIDE_NAME[g.enemy]) or ""), c[1], c[2], c[3])
+		for _, w in ipairs(g.waters) do
+			local z = w.z
+			local label = z[1] ~= g.name and (z[1] .. ": ") or ""
+			local reach = Reach(z[2], eff)
+			local how = w.how == "spot" and ("Known for " .. want.title .. ".") or w.how == "school" and "Schools may turn up." or w.how == "water" and "In its waters." or nil
+			local skill
+			if not z[2] then
+				skill = "Skill not pinned down yet."
+			elseif reach == "open" then
+				skill = ("Opens at %d: nothing gets away for you."):format(z[2])
+			elseif reach == "some" then
+				skill = ("Opens at %d: some get away, you're %d short."):format(z[2], z[2] - eff)
+			elseif reach == "shut" then
+				skill = ("Nothing bites below %d."):format(z[2] - D().ESCAPE_GAP)
+			else
+				skill = ("Fishing %d."):format(z[2])
+			end
+			GameTooltip:AddLine(label .. (how and (how .. " ") or "") .. skill, 1, 0.82, 0.45, true)
+			local note = ZoneNote(z)
+			if note ~= "" then GameTooltip:AddLine(note, 0.9, 0.86, 0.78, true) end
+			local hub = ZoneHub(z)
+			if hub then GameTooltip:AddLine("Stay: " .. hub .. ".", 0.75, 0.72, 0.65, true) end
+		end
+		GameTooltip:AddLine("Click to zoom in.", 0.6, 0.6, 0.6)
+		GameTooltip:Show()
+	end
+
+	local function Pin(i)
+		local pin = pins[i]
+		if pin then return pin end
+		pin = CreateFrame("Button", nil, overlay)
+		pin:SetSize(26, 26)
+		pin.disc = pin:CreateTexture(nil, "ARTWORK")
+		pin.disc:SetAllPoints()
+		pin.disc:SetTexture("Interface\\Buttons\\WHITE8x8")
+		pin.disc:SetMask(MASK)
+		pin.icon = pin:CreateTexture(nil, "OVERLAY")
+		pin.icon:SetPoint("CENTER")
+		pin.icon:SetSize(20, 20)
+		pin.icon:SetMask(MASK)
+		pin:SetScript("OnEnter", PinTooltip)
+		pin:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		pin:SetScript("OnClick", function(self) WorldMapFrame:SetMapID(self.g.mapID) end)
+		pins[i] = pin
+		return pin
+	end
+
+	-- Pins keep their size on screen as the map zooms: placed again when the canvas changes.
+	local lastW, lastH, lastScale
+	local function Place()
+		local canvas = Canvas()
+		if not canvas then return end
+		local w, h, scale = canvas:GetWidth(), canvas:GetHeight(), canvas:GetScale()
+		lastW, lastH, lastScale = w, h, scale
+		local k = 1 / math.max(scale, 0.05)
+		for i, g in ipairs(placed) do
+			local pin = pins[i]
+			pin:SetScale(k)
+			pin:ClearAllPoints()
+			pin:SetPoint("CENTER", overlay, "TOPLEFT", g.x * w / k, -g.y * h / k)
+		end
+	end
+
+	local Draw
+	local function Banner()
+		if banner then return banner end
+		local parent = WorldMapFrame.ScrollContainer or WorldMapFrame
+		banner = CreateFrame("Frame", nil, parent)
+		banner:SetFrameLevel(parent:GetFrameLevel() + 2500)
+		banner:SetPoint("TOP", parent, "TOP", 0, -6)
+		banner:SetHeight(26)
+		local bg = banner:CreateTexture(nil, "BACKGROUND")
+		bg:SetAllPoints()
+		bg:SetColorTexture(0.05, 0.03, 0.02, 0.82)
+		local edge = banner:CreateTexture(nil, "BORDER")
+		edge:SetPoint("BOTTOMLEFT")
+		edge:SetPoint("BOTTOMRIGHT")
+		edge:SetHeight(1)
+		edge:SetColorTexture(0.62, 0.42, 0.06, 0.9)
+		banner.text = banner:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+		banner.text:SetPoint("LEFT", 10, 0)
+		banner.other = CreateFrame("Button", nil, banner)
+		banner.other:SetPoint("LEFT", banner.text, "RIGHT", 12, 0)
+		banner.other.text = banner.other:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+		banner.other.text:SetPoint("LEFT")
+		banner.other:SetScript("OnClick", function(self) if self.mapID then WorldMapFrame:SetMapID(self.mapID) end end)
+		banner.other:SetScript("OnEnter", function(self) self.text:SetTextColor(1, 0.82, 0.3) end)
+		banner.other:SetScript("OnLeave", function(self) self.text:SetTextColor(1, 1, 1) end)
+		banner.close = CreateFrame("Button", nil, banner, "UIPanelCloseButton")
+		banner.close:SetSize(22, 22)
+		banner.close:SetPoint("RIGHT", -2, 0)
+		banner.close:SetScript("OnClick", function() J.ClearMap() end)
+		return banner
+	end
+
+	local function UpdateBanner(shownID)
+		local b = Banner()
+		b.text:SetText(("|cffd8b86aAngler's journal:|r %s   |cff66ff55green|r nothing gets away   |cffffb82eamber|r some do"):format(want.title))
+		local here = ContinentOf(shownID)
+		local counts, best, bestN = {}, nil, 0
+		for _, w in ipairs(want.list) do
+			local m = Resolve(w.z[1])
+			local c = m and ContinentOf(m.mapID)
+			if c and c ~= here then
+				counts[c] = (counts[c] or 0) + 1
+				if counts[c] > bestN then best, bestN = c, counts[c] end
+			end
+		end
+		if best then
+			local info = C_Map.GetMapInfo(best)
+			b.other.mapID = best
+			b.other.text:SetText(("Also on %s (%d) >"):format(info and info.name or "another continent", bestN))
+			b.other:SetSize(b.other.text:GetStringWidth() + 4, 20)
+			b.other:Show()
+		else
+			b.other:Hide()
+		end
+		local width = 10 + b.text:GetStringWidth() + (best and (12 + b.other:GetWidth()) or 0) + 34
+		b:SetWidth(width)
+		b:Show()
+	end
+
+	Draw = function()
+		for _, pin in ipairs(pins) do pin:Hide() end
+		for _, t in ipairs(lights) do t:Hide() end
+		wipe(placed)
+		if not want or not WorldMapFrame or not WorldMapFrame:IsShown() then
+			if banner then banner:Hide() end
+			if overlay then overlay:Hide() end
+			return
+		end
+		local canvas = Canvas()
+		local shownID = WorldMapFrame:GetMapID()
+		local info = shownID and C_Map.GetMapInfo(shownID)
+		if not canvas or not info then return end
+		if not overlay then
+			overlay = CreateFrame("Frame", nil, canvas)
+			overlay:SetAllPoints(canvas)
+			overlay:SetScript("OnUpdate", function()
+				local c = Canvas()
+				if c and (c:GetWidth() ~= lastW or c:GetHeight() ~= lastH or c:GetScale() ~= lastScale) then Place() end
+			end)
+		end
+		overlay:SetFrameLevel(canvas:GetFrameLevel() + 1500)
+		overlay:Show()
+		UpdateBanner(shownID)
+		if info.mapType > CONTINENT then return end -- a zone's own map: the banner only
+		local eff = Effective()
+		local byID = {}
+		for _, w in ipairs(want.list) do
+			local m = Resolve(w.z[1])
+			if m then
+				local g = byID[m.mapID]
+				if not g then
+					local x, y, lit = Locate(m.mapID, shownID)
+					if x then
+						g = { x = x, y = y, lit = lit, mapID = m.mapID, name = m.name, waters = {} }
+						byID[m.mapID] = g
+						placed[#placed + 1] = g
+					end
+				end
+				if g then
+					g.waters[#g.waters + 1] = w
+					local reach = Reach(w.z[2], eff) or "shut"
+					if not g.reach or REACH_RANK[reach] > REACH_RANK[g.reach] then g.reach = reach end
+					local side = w.z.side
+					if side and Enemy(side) then g.enemy = g.enemy or side else g.friendly = true end
+				end
+			end
+		end
+		for i, g in ipairs(placed) do
+			if g.friendly then g.enemy = nil end
+			local c = MAP_COLOR[g.reach] or MAP_COLOR.shut
+			if g.lit and info.mapType == CONTINENT then Light(i, shownID, g, c, g.enemy and 0.3 or 0.55) end
+			local pin = Pin(i)
+			pin.g = g
+			pin.disc:SetVertexColor(c[1] * 0.8, c[2] * 0.8, c[3] * 0.8, 1)
+			pin.icon:SetTexture(want.icon)
+			pin.icon:SetDesaturated(g.reach == "shut" or g.enemy and true or false)
+			pin:SetAlpha(g.enemy and 0.6 or 1)
+			pin:SetFrameLevel(overlay:GetFrameLevel() + 10 + i)
+			pin:Show()
+		end
+		Place()
+	end
+
+	local function Hook()
+		if hooked or not WorldMapFrame then return end
+		hooked = true
+		hooksecurefunc(WorldMapFrame, "OnMapChanged", Draw)
+		WorldMapFrame:HookScript("OnShow", Draw)
+	end
+
+	function J.ShowOnMap(title, list, itemID)
+		if not C_Map or not C_Map.GetMapRectOnMap then
+			ns.Print("This client's map can't be marked.")
+			return
+		end
+		if InCombatLockdown() then
+			ns.Print("The map waits until the fight's over.")
+			return
+		end
+		if not WorldMapFrame and C_AddOns and C_AddOns.LoadAddOn then pcall(C_AddOns.LoadAddOn, "Blizzard_WorldMap") end
+		if not WorldMapFrame then return end
+		Hook()
+		local icon = itemID and C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(itemID)
+		want = { title = title, list = list, icon = icon or FISH_ICON }
+		-- Your continent if the list has a zone there, else the one with most.
+		local counts, best, bestN = {}, nil, 0
+		for _, w in ipairs(list) do
+			local m = Resolve(w.z[1])
+			local c = m and ContinentOf(m.mapID)
+			if c then
+				counts[c] = (counts[c] or 0) + 1
+				if counts[c] > bestN then best, bestN = c, counts[c] end
+			end
+		end
+		local here = C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+		here = Readable(here) and here and ContinentOf(here)
+		local target = (here and counts[here]) and here or best
+		if not target then
+			want = nil
+			ns.Print("The world map doesn't know these waters.")
+			return
+		end
+		if not WorldMapFrame:IsShown() then
+			if OpenWorldMap then OpenWorldMap(target) else ShowUIPanel(WorldMapFrame) end
+		end
+		if WorldMapFrame:GetMapID() ~= target then
+			WorldMapFrame:SetMapID(target) -- draws, through the OnMapChanged hook
+		else
+			Draw()
+		end
+	end
+
+	function J.ClearMap()
+		want = nil
+		Draw()
+	end
 end
