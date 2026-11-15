@@ -324,7 +324,8 @@ local function FriendLayout(p)
 	p.guild:ClearAllPoints()
 	p.guild:SetPoint("TOP", p.name, "BOTTOM", 0, -(sh + 4))
 	p.guild:Show()
-	p.bar = { (root:GetWidth() - sw) / 2, root:GetHeight() / 2 - 3, sw, sh }
+	-- (Sizes are worked out, never read back: the game won't let addons measure nameplates.)
+	p.bar = { (width - sw) / 2, (size + 10) / 2 - 3, sw, sh }
 	p.targetGlow:ClearAllPoints()
 	p.targetGlow:SetPoint("TOPLEFT", p.name, "TOPLEFT", -size * 1.5, size)
 	p.targetGlow:SetPoint("BOTTOMRIGHT", p.name, "BOTTOMRIGHT", size * 1.5, -size)
@@ -376,7 +377,7 @@ local function Layout(p)
 		art:ClearAllPoints()
 		art:SetPoint("TOPLEFT", root, "TOPLEFT", 0, 0)
 		local extra = ns.Art.DrawSliced(art, piece, width * scaleW, k)
-		root:SetSize(art:GetWidth(), art:GetHeight())
+		root:SetSize(r[3] * k + extra, r[4] * k) -- what DrawSliced drew; never read back from a plate
 		bx, by = r.bar[1] * k, r.bar[2] * k
 		bw, bh = r.bar[3] * k + extra, r.bar[4] * k
 		p.tick:SetShown(o.execute ~= false and rank ~= "boss")
@@ -447,11 +448,13 @@ local function Layout(p)
 	local cw = bw * 0.92
 	local cr = ns.Art.UNIT.cast
 	local ck = math.max(0.4, barH * 0.75 * (o.castScale or 1) / cr.bar[4])
+	local castH
 	cast:ClearAllPoints()
 	cast:SetPoint("TOP", root, "TOPLEFT", bx + bw / 2, -(by + bh + (look == "thin" and 4 or bh * 0.45)))
 	if look == "thin" then
 		for _, t in ipairs(cast.art.slices or {}) do t:Hide() end
-		cast:SetSize(cw, barH * 0.7 * (o.castScale or 1))
+		castH = barH * 0.7 * (o.castScale or 1)
+		cast:SetSize(cw, castH)
 		cast.bg:SetAllPoints(cast)
 		for _, b in ipairs({ cast.bar, cast.grey }) do
 			b:ClearAllPoints()
@@ -461,7 +464,8 @@ local function Layout(p)
 		cast.art:ClearAllPoints()
 		cast.art:SetPoint("TOPLEFT", cast, "TOPLEFT", 0, 0)
 		local extra = ns.Art.DrawSliced(cast.art, "cast", cw, ck)
-		cast:SetSize(cast.art:GetWidth(), cast.art:GetHeight())
+		cast:SetSize(cr[3] * ck + extra, cr[4] * ck)
+		castH = cr[4] * ck
 		for _, region in ipairs({ cast.bg, cast.bar, cast.grey }) do
 			region:ClearAllPoints()
 			region:SetPoint("TOPLEFT", cast, "TOPLEFT", cr.bar[1] * ck, -cr.bar[2] * ck)
@@ -472,7 +476,7 @@ local function Layout(p)
 	cast.lock:SetSize(barH * 1.1, barH * 1.1)
 	cast.lock:ClearAllPoints()
 	cast.lock:SetPoint("LEFT", cast, "RIGHT", 1, 0)
-	local iconSize = cast:GetHeight() + (o.castIcon ~= false and barH * 0.6 or 0)
+	local iconSize = castH + (o.castIcon ~= false and barH * 0.6 or 0)
 	cast.icon:SetSize(iconSize, iconSize)
 	cast.icon:ClearAllPoints()
 	cast.icon:SetPoint("RIGHT", cast, "LEFT", -2, 0)
@@ -1008,8 +1012,10 @@ end
 -- Death: embers burst where the plate was
 
 local bursts = {}
-local function Burst(x, y, scale)
-	if not x then return end
+-- anchor: where it bursts. Pinned to the plate rather than measured: the game won't let an
+-- addon measure nameplates ("Can't measure restricted regions"); a removed plate stays put.
+local function Burst(anchor, scale)
+	if not anchor then return end
 	local b
 	for _, f in ipairs(bursts) do
 		if not f:IsShown() then b = f break end
@@ -1047,16 +1053,13 @@ local function Burst(x, y, scale)
 	end
 	b.t, b.s = 0, scale or 1
 	b:ClearAllPoints()
-	b:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
+	b:SetPoint("CENTER", anchor, "CENTER")
 	b:Show()
 end
 
 local function BurstAt(p)
 	if Opt().deathBurst == false then return end
-	local x, y = p.root:GetCenter()
-	if not x then return end
-	local k = p.root:GetEffectiveScale() / UIParent:GetEffectiveScale()
-	Burst(x * k, y * k, k)
+	Burst(p.root, Opt().scale or 1)
 end
 
 ---------------------------------------------------------------------------

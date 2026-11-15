@@ -47,7 +47,14 @@ local extra = {
 	GetParent = function(self) return self.parent end,
 	SetParent = function(self, p) self.parent = p end,
 	GetEffectiveScale = function(self) local s, w = 1, self while w do s = s * (w.scale or 1) w = w.parent end return s end,
-	GetCenter = function(self) return 960, 540 end,
+	GetCenter = function(self)
+		local w = self
+		while w do
+			if w.isNamePlate then error("Frame:GetCenter(): Can't measure restricted regions", 2) end
+			w = w.parent
+		end
+		return 960, 540
+	end,
 }
 proto.__index = function(t, k)
 	if extra[k] then return extra[k] end
@@ -119,6 +126,7 @@ local function PlateFor(u)
 	local plate = plates[u]
 	if not plate then
 		plate = CreateFrame("Frame", nil, UIParent)
+		plate.isNamePlate = true
 		plate.UnitFrame = CreateFrame("Frame", nil, plate)
 		plate.namePlateUnitToken = u
 		plates[u] = plate
