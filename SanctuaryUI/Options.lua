@@ -1184,7 +1184,7 @@ local function PlatesArgs()
 				textSize = Range(2, "Size", nil, "plates", "textSize", 6, 16, 1),
 				textOutline = Select(3, "Outline", nil, "plates", "textOutline", { outline = "Outline", thick = "Thick outline", none = "Shadow only" }),
 				healthText = Select(4, "Health percent", nil, "plates", "healthText", { target = "On your target", all = "On every plate", none = "Never" }),
-				healthTextPos = Select(5, "Percent position", nil, "plates", "healthTextPos", { right = "Right of the bar", center = "Centre of the bar" }),
+				healthTextPos = Select(5, "Percent position", nil, "plates", "healthTextPos", { center = "Centre of the bar", right = "Right of the bar" }),
 			}),
 		}),
 		friends = Tab(8, "Friendly", {
@@ -1213,8 +1213,11 @@ local function PlatesArgs()
 			threat = T(2, "Threat glow", "Red when an enemy is on you, orange when you're about to pull it. As the tank, orange when one is loose on someone else.", "threat"),
 			quest = T(3, "Quest mobs", "A gold ! beside enemies you still need for a quest. Read from the tooltip out of combat.", "quest"),
 			raidIcon = T(4, "Raid markers", nil, "raidIcon"),
-			execute = T(5, "Execute range", "Below the line the fill turns molten, and a faint tick marks the line on the frame.", "execute"),
+			softIcon = T(4.5, "Soft-target icon", "The game's icon for what your action key would hit or use, beside the level. The game's own Interface settings choose which of them show.", "softIcon"),
+			questieIcons = T(4.7, "Questie's quest icons", "With Questie's nameplate icons on (a sword for mobs to kill, a bag for mobs that drop a quest item), they move onto the plate, at the end of the name row in place of the gold !.", "questieIcons"),
+			execute = T(5, "Execute range", "Below the line the fill turns molten.", "execute"),
 			executeAt = Range(6, "Execute below", nil, "plates", "executeAt", 5, 50, 1),
+			executeTick = T(7, "Mark the line", "A faint line on the frame where execute range starts.", "executeTick"),
 		}),
 		casts = Tab(5, "Casts", {
 			cast = T(1, "Cast bars", "D3's thin bar under the plate, filling as a spell is cast and draining as it's channelled. Grey with a lock when it can't be interrupted.", "cast"),
@@ -1234,6 +1237,36 @@ local function PlatesArgs()
 			hitFlash = T(2, "Hit flash", "The bar flashes as the enemy's health changes.", "hitFlash"),
 			deathBurst = T(3, "Death burst", "Embers burst where an enemy's plate was when it dies.", "deathBurst"),
 		}),
+	}
+end
+
+-- Combat > Cast bar (CastRail.lua): your casts on the XP rail, on a bar of their own, or both.
+local function CastArgs()
+	return {
+		cast = Card(2, "Casts", {
+			castRail = Toggle(1, "SanctuaryUI cast bar", "Your casts on the XP rail, on a bar of their own, or both. A cast that lands flares; one interrupted turns red where it stopped; channels drain in blue. Blizzard's cast bar is off while this is on (turning it off again asks for a reload).", nil, "castRail"),
+			preview = Width({
+				type = "toggle", order = 2, name = "Preview",
+				desc = "Loop a cast that lands, one interrupted and a channel. Turns off when this window closes. /sanctuary cast does the same.",
+				get = function() return ns.CastRail and ns.CastRail.preview end,
+				set = ns.CastRail and OwningFlag("castRail", ns.CastRail, function(_, value) ns.CastRail.SetPreview(value) end) or function() end,
+				disabled = function() return DB().castRail == false or not ns.CastRail end,
+			}, HALF),
+			castWhere = Width(Select(3, "Show casts", nil, nil, "castWhere", { rail = "On the XP rail", bar = "On a bar of their own", both = "Both" }), HALF),
+		}),
+		railCast = Card(3, "On the rail", {
+			castMedallion = Toggle(1, "Spell icon in the medallion", "The level medallion on the skull wears the spell's icon while you cast, darkened by a clockwise sweep as the cast runs.", nil, "castMedallion"),
+			castHaze = Toggle(2, "Ember glow", "The fill glows past the rail's edges, and its spark drags a short trail.", nil, "castHaze"),
+			castPlates = Toggle(3, "Dark plates behind the words", "So the spell's name and the time read over bright ground.", nil, "castPlates"),
+			castTextSize = Range(4, "Text size", "The spell name and time over the rail.", nil, "castTextSize", 8, 22, 1),
+		}, { hidden = function() return DB().castWhere == "bar" end }),
+		barCast = Card(4, "On its own bar", {
+			style = Width(Select(1, "Look", "Paragon: D3's Paragon bar, the spell's icon sweeping in its spiked ring. Demon: D3's boss bar with the ram skull beneath it. Both fill with D3's lava. Unlock frames to move it.", "castBar", "style", { paragon = "Paragon", demon = "Demon (ram skull)" }), HALF),
+			width = Range(2, "Width", nil, "castBar", "width", 180, 600, 1),
+			scale = Range(3, "Scale", nil, "castBar", "scale", 0.5, 2, 0.05, true),
+			textSize = Range(4, "Text size", nil, "castBar", "textSize", 8, 22, 1),
+			reset = { type = "execute", order = 5, name = "Reset position", func = function() ns.CastRail.ResetBar() end, disabled = function() return not DB().castBar.moved end },
+		}, { hidden = function() return (DB().castWhere or "rail") == "rail" end }),
 	}
 end
 
@@ -2552,7 +2585,7 @@ local function Build()
 				}),
 			}),
 			globeAuras = Page(12, "Globe auras", GlobeAuraArgs(), "tab"),
-			rail = Page(13, "XP, Rep & Casts", {
+			rail = Page(13, "XP & Reputation", {
 				rail = Card(1, "Rail", {
 					railMode = Width(Select(1, "Rail shows", nil, nil, "railMode", {
 						auto = "Experience, then reputation at max level",
@@ -2563,18 +2596,6 @@ local function Build()
 					railRested = Toggle(2, "Show rested experience", nil, nil, "railRested"),
 					levelPlaque = Toggle(3, "Your level on the console", "Your level in a D3 medallion resting on the skull at the console's top centre.", nil, "levelPlaque"),
 					note = Note(4, "Reputation is tinted with your resource colour. Watch a faction from the Reputation panel."),
-				}),
-				cast = Card(2, "Casts", {
-					castRail = Toggle(1, "Casts take over the rail", "While you cast, the XP fades from the rail and a molten fill runs through it, the spell's name left of the skull and the time left on the right. A cast that lands flares the rail; one interrupted turns red where it stopped; channels drain in blue. Blizzard's cast bar is off while this is on (turning it off again asks for a reload).", nil, "castRail"),
-					preview = Width({
-						type = "toggle", order = 2, name = "Preview",
-						desc = "Loop a cast that lands, one interrupted and a channel. Turns off when this window closes. /sanctuary cast does the same.",
-						get = function() return ns.CastRail and ns.CastRail.preview end,
-						set = ns.CastRail and OwningFlag("castRail", ns.CastRail, function(_, value) ns.CastRail.SetPreview(value) end) or function() end,
-						disabled = function() return DB().castRail == false or not ns.CastRail end,
-					}, HALF),
-					castMedallion = Toggle(3, "Spell icon in the medallion", "The level medallion on the skull wears the spell's icon while you cast, darkened by a clockwise sweep as the cast runs.", nil, "castMedallion"),
-					castTextSize = Range(4, "Text size", "The spell name and time over the rail.", nil, "castTextSize", 8, 20, 1),
 				}),
 			}),
 
@@ -2886,6 +2907,7 @@ local function Build()
 			sectionCombat = Section(36, "Combat"),
 			meter = Page(37, "Damage meter", MeterArgs(), "tab"),
 			threat = Page(37.5, "Threat", ThreatArgs(), "tab"),
+			castbar = Page(37.8, "Cast bar", CastArgs()),
 			swing = Page(38, "Swing timer", SwingArgs()),
 			trinkets = Page(38.5, "Trinkets", TrinketArgs()),
 			gapMap = Gap(39),

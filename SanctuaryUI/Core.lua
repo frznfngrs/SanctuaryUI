@@ -1019,6 +1019,8 @@ local function Slash(msg)
 	elseif cmd == "plates" or cmd == "nameplates" then
 		if not ns.Plates then
 			ns.Print("the nameplates are new: exit the game and start it again to load them (a /reload can't see new files).")
+		elseif rest:lower() == "soft" then
+			ns.Plates.SoftReport()
 		else
 			KeepPreview("plates")
 			ns.Plates.SetPreview(not ns.Plates.preview)

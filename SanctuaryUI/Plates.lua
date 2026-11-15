@@ -235,11 +235,13 @@ local function NewPlate(parent)
 	p.raid = over:CreateTexture(nil, "OVERLAY")
 	p.raid:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
 	p.raid:Hide()
+	p.soft = over:CreateTexture(nil, "OVERLAY", nil, 2) -- the soft-target icon (P.UpdateSoftTargets)
+	p.soft:Hide()
 	p.quest = over:CreateTexture(nil, "OVERLAY")
 	p.quest:SetTexture("Interface\\GossipFrame\\AvailableQuestIcon")
 	p.quest:Hide()
-	p.left = Diamond(over, 6)
-	p.right = Diamond(over, 6)
+	p.left = Diamond(over, 5)
+	p.right = Diamond(over, 5)
 
 	-- The cast bar under the frame.
 	local cast = CreateFrame("Frame", nil, root)
@@ -354,11 +356,13 @@ local function Layout(p)
 	local width = o.width or 130
 	local root, art = p.root, p.art
 	local bx, by, bw, bh -- the bar inside root, from root's top left
+	local rootW -- the whole frame's width
 
 	if look == "thin" then
 		for _, t in ipairs(art.slices or {}) do t:Hide() end
 		bw, bh = width * 0.82, barH
-		root:SetSize(bw + 3, bh + 3)
+		rootW = bw + 3
+		root:SetSize(rootW, bh + 3)
 		bx, by = 1.5, 1.5
 		p.thinEdge:ClearAllPoints()
 		p.thinEdge:SetPoint("TOPLEFT", root, "TOPLEFT", 0, 0)
@@ -377,10 +381,11 @@ local function Layout(p)
 		art:ClearAllPoints()
 		art:SetPoint("TOPLEFT", root, "TOPLEFT", 0, 0)
 		local extra = ns.Art.DrawSliced(art, piece, width * scaleW, k)
-		root:SetSize(r[3] * k + extra, r[4] * k) -- what DrawSliced drew; never read back from a plate
+		rootW = r[3] * k + extra
+		root:SetSize(rootW, r[4] * k) -- what DrawSliced drew; never read back from a plate
 		bx, by = r.bar[1] * k, r.bar[2] * k
 		bw, bh = r.bar[3] * k + extra, r.bar[4] * k
-		p.tick:SetShown(o.execute ~= false and rank ~= "boss")
+		p.tick:SetShown(o.execute ~= false and o.executeTick == true and rank ~= "boss")
 	end
 	p.bar = { bx, by, bw, bh }
 	for _, region in ipairs({ p.slot, p.trail, p.health, p.execute, p.flash }) do
@@ -401,9 +406,9 @@ local function Layout(p)
 	p.targetGlow:SetPoint("BOTTOMRIGHT", root, "TOPLEFT", bx + bw + bh * 3, -by - bh * 3.4)
 	local mid = -(by + bh / 2)
 	p.left:ClearAllPoints()
-	p.left:SetPoint("CENTER", root, "TOPLEFT", -5, mid)
+	p.left:SetPoint("CENTER", root, "TOPLEFT", -3, mid)
 	p.right:ClearAllPoints()
-	p.right:SetPoint("CENTER", root, "TOPRIGHT", 5, mid)
+	p.right:SetPoint("CENTER", root, "TOPRIGHT", 3, mid)
 
 	-- Texts: the name over the frame, level and marks beside it.
 	local nameSize = o.nameSize or 10
@@ -416,15 +421,25 @@ local function Layout(p)
 		p.level:SetPoint("LEFT", root, "TOPLEFT", bx + 3, mid)
 		p.name:SetPoint("LEFT", root, "TOPLEFT", bx + 3 + levelW + (levelW > 0 and 3 or 0), mid)
 		p.nameRoom = bw - 8 - levelW
+		p.nameFitW = nil
 		P.FitName(p)
 		p.name:SetJustifyH("LEFT")
 		p.name:SetWordWrap(false)
 	else
+		-- Over the frame, laid out against it (the game won't let an addon measure the name): the
+		-- level at the row's left end, the quest mark at its right end, the name centred between
+		-- them and cut short with "..." when it's longer than the room.
+		local levelW = o.showLevel ~= false and (o.textSize or 9) * 1.8 or 0
+		local questW = o.quest ~= false and nameSize + 6 or 0
+		local edge = math.max(levelW, questW)
 		p.name:SetPoint("BOTTOM", root, "TOP", 0, 1)
 		p.nameRoom = nil
-		p.name:SetWidth(0)
+		local row = rootW * 1.35 -- the name's row may reach a little past the frame's ends
+		p.nameFitW = math.max(20, row - 2 * edge)
+		p.name:SetWidth(p.nameFitW)
+		p.name:SetWordWrap(false)
 		p.name:SetJustifyH("CENTER")
-		p.level:SetPoint("RIGHT", p.name, "LEFT", -3, 0)
+		p.level:SetPoint("LEFT", p.name, "LEFT", -edge, 0)
 	end
 	p.raid:SetSize(nameSize + 6, nameSize + 6)
 	p.raid:ClearAllPoints()
@@ -435,7 +450,11 @@ local function Layout(p)
 	end
 	p.quest:SetSize(nameSize + 4, nameSize + 4)
 	p.quest:ClearAllPoints()
-	p.quest:SetPoint("LEFT", p.name, "RIGHT", 3, 0)
+	if o.namePos == "inside" then
+		p.quest:SetPoint("BOTTOMRIGHT", root, "TOPRIGHT", 0, 1)
+	else
+		p.quest:SetPoint("RIGHT", p.name, "RIGHT", math.max(o.showLevel ~= false and (o.textSize or 9) * 1.8 or 0, nameSize + 6), 0)
+	end
 	p.pct:ClearAllPoints()
 	if o.healthTextPos == "center" and o.namePos ~= "inside" then
 		p.pct:SetPoint("CENTER", root, "TOPLEFT", bx + bw / 2, mid)
@@ -535,6 +554,7 @@ local function UpdateName(p)
 	local o = Opt()
 	local name = UnitName(unit)
 	if not pcall(p.name.SetText, p.name, name) then p.name:SetText("") end
+	P.FitNameFont(p, name)
 	local c = P.NameColor(p.rank, Ask(UnitReaction, unit, "player"))
 	if Ask(UnitIsPlayer, unit) then
 		local _, class = UnitClass(unit)
@@ -606,6 +626,23 @@ function P.FitName(p)
 	if not p.nameRoom then return end
 	local pctW = ShowPercent(p) and (Opt().textSize or 9) * 2.8 or 0
 	p.name:SetWidth(math.max(10, p.nameRoom - pctW))
+	p.nameFitInside = math.max(10, p.nameRoom - pctW)
+end
+
+-- A long name shrinks to fit its room (down to 72%) before it's cut short with "...". Sized from
+-- the name's length, not by measuring the plate, which the game doesn't allow; Exocet runs about
+-- two thirds of its size per letter, other faces a little less. A secret name keeps the size.
+function P.FitNameFont(p, name)
+	if p.friend then return end
+	local o = Opt()
+	local size = o.nameSize or 10
+	local room = p.nameRoom and p.nameFitInside or p.nameFitW
+	if room and name ~= nil and not Secret(name) and type(name) == "string" and #name > 0 then
+		local per = ((o.nameFont or "d3") == "d3" and 0.66 or 0.56) * size
+		local need = #name * per
+		if need > room then size = math.max(size * 0.72, size * room / need) end
+	end
+	ns.Fonts.Set(p.name, "title", size, OUTLINES[o.nameOutline or "outline"] or "OUTLINE", o.nameFont)
 end
 
 local function UpdatePercent(p)
@@ -698,7 +735,7 @@ end
 -- Quest mobs, from the unit's tooltip: an objective still open. Out of combat (lines can be
 -- secret in it), so a plate that appears mid-fight keeps what it had.
 local function UpdateQuest(p)
-	if p.friend or Opt().quest == false or not (C_TooltipInfo and C_TooltipInfo.GetUnit) then
+	if p.friend or p.questie or Opt().quest == false or not (C_TooltipInfo and C_TooltipInfo.GetUnit) then
 		p.quest:Hide()
 		return
 	end
@@ -919,6 +956,23 @@ end
 local HAS_CONTAINERS = HasTemplate("CustomAuraContainerTemplate")
 local containerPool = {}
 
+-- One font object per icon size, for the debuff countdowns.
+local countdownFonts = {}
+function P.CountdownFont(size)
+	local key = math.floor(size + 0.5)
+	if countdownFonts[key] == nil then
+		local name = "SanctuaryUIPlateCountdown" .. key
+		local ok, font = pcall(CreateFont, name)
+		if ok and font then
+			font:SetFont(ns.Fonts.Path("body"), math.max(7, math.floor(size * 0.55 + 0.5)), "OUTLINE")
+			countdownFonts[key] = name
+		else
+			countdownFonts[key] = false
+		end
+	end
+	return countdownFonts[key] or nil
+end
+
 local function DressAura(button)
 	local size = Opt().auraSize or 16
 	button:SetSize(size, size)
@@ -936,8 +990,13 @@ local function DressAura(button)
 	cooldown:EnableMouse(false)
 	if cooldown.SetDrawEdge then cooldown:SetDrawEdge(false) end
 	if cooldown.SetDrawBling then cooldown:SetDrawBling(false) end
-	-- The client's countdown numbers (they need the cooldown-numbers setting on).
+	-- The client's countdown numbers (they need the cooldown-numbers setting on), in a small font
+	-- sized to the icon: the game's own is far too big for these and the numbers run together.
 	if cooldown.SetHideCountdownNumbers then cooldown:SetHideCountdownNumbers(false) end
+	if cooldown.SetCountdownFont then
+		local font = P.CountdownFont(size)
+		if font then pcall(cooldown.SetCountdownFont, cooldown, font) end
+	end
 	button:SetDurationCooldown(cooldown)
 	local count = button:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
 	count:SetPoint("BOTTOMRIGHT", 2, -1)
@@ -1218,6 +1277,129 @@ function P.NPCInfo(unit)
 	return title, faction
 end
 
+-- The game's soft-target icon (the sword over the enemy your action key would hit, the bag over a
+-- corpse to loot) sits on the game's own plate, which is protected here: we can only fade that
+-- plate, not move its pieces, and the icon ignores its parent's fade. So the game's icon is faded
+-- too, and ours is drawn beside the level (above the name on a friend). Which plate it belongs on
+-- comes from GetNamePlateForUnit("softenemy"/"softfriend"/"softinteract"): a frame, never secret.
+local SOFT = {
+	{ token = "softenemy", cvar = "SoftTargetIconEnemy" },
+	{ token = "softfriend", cvar = "SoftTargetIconFriend" },
+	{ token = "softinteract", cvar = "SoftTargetIconInteract" },
+}
+
+local function FadeSoftTarget(plate, owned)
+	local uf = plate.UnitFrame
+	local soft = uf and uf.SoftTargetFrame
+	if soft then pcall(soft.SetAlpha, soft, owned and 0 or 1) end
+end
+
+local function PlaceSoft(p)
+	local icon = p.soft
+	icon:ClearAllPoints()
+	if p.friend or Opt().namePos == "inside" then
+		icon:SetPoint("BOTTOM", p.friend and p.name or p.root, "TOP", 0, 2)
+	else
+		icon:SetPoint("RIGHT", p.level, "LEFT", -2, 0)
+	end
+	local size = (Opt().nameSize or 10) + 8
+	icon:SetSize(size, size)
+end
+
+function P.UpdateSoftTargets()
+	for _, p in pairs(byUnit) do p.soft:Hide() end
+	if Opt().softIcon == false or not C_NamePlate or not SetUnitCursorTexture then return end
+	local cvarOn = (C_CVar and C_CVar.GetCVarBool) or GetCVarBool
+	for _, s in ipairs(SOFT) do
+		local on = true
+		if cvarOn then
+			local ok, v = pcall(cvarOn, s.cvar)
+			if ok and v == false then on = false end
+		end
+		local plate = on and C_NamePlate.GetNamePlateForUnit(s.token)
+		local p = plate and objs[plate]
+		if p and p.unit and not p.soft:IsShown() then
+			local ok, has = pcall(SetUnitCursorTexture, p.soft, s.token, nil, nil, true)
+			if ok and has then
+				PlaceSoft(p)
+				p.soft:Show()
+			end
+		end
+	end
+end
+
+-- Questie's quest icons (a sword for mobs to kill, a bag for mobs that drop quest items) are its own
+-- frames, children of the game's plate, pinned at Questie's offset from that plate's left edge: off
+-- in space beside ours. They move onto our plate, at the end of the name row where our "!" goes
+-- (which then steps aside: Questie's says more). Their LEFT point is the one replaced, the point
+-- Questie itself sets, so the two never pull against each other.
+local function QuestieFrames(plate)
+	local list = {}
+	local ok, children = pcall(function() return { plate:GetChildren() } end)
+	if not ok then return list end
+	for _, c in ipairs(children) do
+		if type(c) == "table" and rawget(c, "Icon") and rawget(c, "lastIcon") ~= nil then list[#list + 1] = c end
+	end
+	return list
+end
+
+function P.AdoptQuestie(p)
+	if not p or not p.unit or not p.plate then return end
+	local any = false
+	if Opt().questieIcons ~= false then
+		local size = (Opt().nameSize or 10) + 6
+		for _, f in ipairs(QuestieFrames(p.plate)) do
+			if f:IsShown() then
+				any = true
+				pcall(f.SetPoint, f, "LEFT", p.quest, "LEFT", 0, 0)
+				pcall(f.SetSize, f, size, size)
+			end
+		end
+	end
+	p.questie = any
+	if any then p.quest:Hide() end
+end
+
+local function AdoptAllQuestie()
+	for _, p in pairs(byUnit) do P.AdoptQuestie(p) end
+end
+
+-- /sanctuary plates soft: what the game says about each soft target, its plate and both icons.
+function P.SoftReport()
+	local function b(v)
+		if v == nil then return "nil" end
+		if Secret(v) then return "secret" end
+		return tostring(v)
+	end
+	local function call(obj, method, ...)
+		if type(obj) ~= "table" or not obj[method] then return "-" end
+		local ok, v = pcall(obj[method], obj, ...)
+		return ok and b(v) or "err"
+	end
+	local cvarOn = (C_CVar and C_CVar.GetCVarBool) or GetCVarBool
+	for _, s in ipairs(SOFT) do
+		local exists = UnitExists(s.token)
+		local plate = C_NamePlate and C_NamePlate.GetNamePlateForUnit(s.token)
+		local forbidden = C_NamePlate and C_NamePlate.GetNamePlateForUnit(s.token, true)
+		local p = plate and objs[plate]
+		local uf = plate and plate.UnitFrame
+		local sf = uf and uf.SoftTargetFrame
+		local cv = cvarOn and select(2, pcall(cvarOn, s.cvar))
+		ns.Print(("%s: exists %s, cvar %s, plate %s%s, ours %s (unit %s)"):format(s.token, b(exists), b(cv),
+			plate and "yes" or "no", (not plate and forbidden) and " (forbidden one)" or "", p and "yes" or "no", p and b(p.unit) or "-"))
+		if uf then
+			ns.Print(("  game plate: shown %s, alpha %s, protected %s"):format(call(uf, "IsShown"), call(uf, "GetAlpha"), call(uf, "IsProtected")))
+		end
+		if sf then
+			ns.Print(("  game icon frame: shown %s, alpha %s, ignores parent alpha %s, icon shown %s"):format(call(sf, "IsShown"), call(sf, "GetAlpha"),
+				call(sf, "IsIgnoringParentAlpha"), call(sf.Icon, "IsShown")))
+		end
+		if p then
+			ns.Print(("  our icon: shown %s, texture %s"):format(call(p.soft, "IsShown"), call(p.soft, "GetTexture")))
+		end
+	end
+end
+
 local function Setup(plate)
 	if objs[plate] then return objs[plate] end
 	local p = NewPlate(plate)
@@ -1270,6 +1452,7 @@ local function Added(unit)
 		p.unit = nil
 		p.root:Hide()
 		HideBlizzard(plate.UnitFrame)
+		FadeSoftTarget(plate, false)
 		return
 	end
 	p.unit = unit
@@ -1284,6 +1467,13 @@ local function Added(unit)
 	p.root:Show()
 	Refresh(p)
 	HideBlizzard(plate.UnitFrame)
+	FadeSoftTarget(plate, true)
+	P.UpdateSoftTargets()
+	-- Questie makes its icon on the same event, before or after us: adopt it next frame.
+	p.questie = nil
+	C_Timer.After(0, function()
+		if p.unit == unit then P.AdoptQuestie(p) end
+	end)
 	if plate.CanChangeHitTestPoints and plate:CanChangeHitTestPoints() then
 		pcall(plate.SetAllHitTestPoints, plate, p.stack)
 	end
@@ -1295,6 +1485,7 @@ local function Removed(unit, quiet)
 	if not quiet and not p.friend and Ask(UnitIsDead, unit) then BurstAt(p) end
 	byUnit[unit] = nil
 	p.unit = nil
+	p.soft:Hide()
 	p.cast.holdUntil = nil
 	p.cast:Hide()
 	SetAuraUnit(p, nil)
@@ -1348,6 +1539,8 @@ local function OnEvent(_, event, unit, ...)
 		Removed(unit)
 	elseif event == "PLAYER_TARGET_CHANGED" then
 		TargetChanged()
+	elseif event == "PLAYER_SOFT_ENEMY_CHANGED" or event == "PLAYER_SOFT_FRIEND_CHANGED" or event == "PLAYER_SOFT_INTERACT_CHANGED" then
+		P.UpdateSoftTargets()
 	elseif event == "RAID_TARGET_UPDATE" then
 		for _, p in pairs(byUnit) do UpdateRaid(p) end
 	elseif event == "QUEST_LOG_UPDATE" then
@@ -1355,6 +1548,7 @@ local function OnEvent(_, event, unit, ...)
 			p.questKnown = nil
 			UpdateQuest(p)
 		end
+		C_Timer.After(0.3, AdoptAllQuestie) -- after Questie has redrawn its icons
 	elseif event == "UNIT_THREAT_SITUATION_UPDATE" or event == "PLAYER_REGEN_ENABLED" or event == "PLAYER_REGEN_DISABLED" then
 		for _, p in pairs(byUnit) do UpdateThreat(p) end
 		if event == "PLAYER_REGEN_ENABLED" then P.FillPool(Opt().pool or 20) end
@@ -1399,9 +1593,21 @@ function P.Init()
 	end
 	for e in pairs(UNIT_EVENTS) do pcall(driver.RegisterEvent, driver, e) end
 	pcall(driver.RegisterEvent, driver, "UNIT_FLAGS")
+	for _, e in ipairs({ "PLAYER_SOFT_ENEMY_CHANGED", "PLAYER_SOFT_FRIEND_CHANGED", "PLAYER_SOFT_INTERACT_CHANGED" }) do
+		pcall(driver.RegisterEvent, driver, e)
+	end
 	driver:SetScript("OnEvent", OnEvent)
 	driver:SetScript("OnUpdate", OnUpdate)
 	P.FillPool(Opt().pool or 20)
+	-- Questie redraws its icons through these (called on its module table, so they can be hooked).
+	if QuestieLoader and QuestieLoader.ImportModule then
+		local ok, QN = pcall(QuestieLoader.ImportModule, QuestieLoader, "QuestieNameplate")
+		if ok and type(QN) == "table" then
+			for _, method in ipairs({ "UpdateNameplate", "RedrawIcons" }) do
+				if type(QN[method]) == "function" then hooksecurefunc(QN, method, AdoptAllQuestie) end
+			end
+		end
+	end
 	-- Plates already up (a reload).
 	for _, plate in ipairs(C_NamePlate.GetNamePlates and C_NamePlate.GetNamePlates() or {}) do
 		local unit = plate.namePlateUnitToken or (plate.UnitFrame and plate.UnitFrame.unit)
@@ -1445,7 +1651,7 @@ end
 local PACK = {
 	{ name = "Defias Pillager", level = 18, rank = "normal", x = -230, y = 70, hp = 0.82, cast = { "Fireball", 2.2, you = true, icon = "Interface\\Icons\\Spell_Fire_FlameBolt" } },
 	{ name = "Defias Overseer", level = 19, rank = "normal", x = 0, y = 95, hp = 0.64, target = true, raid = 8 },
-	{ name = "Defias Henchman", level = 18, rank = "normal", x = 230, y = 70, hp = 0.41, quest = true, threat = "aggro" },
+	{ name = "Young Stranglethorn Tiger", level = 31, rank = "normal", x = 230, y = 70, hp = 0.55, quest = true, threat = "aggro" },
 	{ name = "Defias Taskmaster", level = 19, rank = "normal", x = -230, y = -10, hp = 0.16 },
 	{ name = "Defias Evoker", level = 19, rank = "normal", x = 0, y = -10, hp = 0.9, cast = { "Shadow Bolt", 3, locked = true, icon = "Interface\\Icons\\Spell_Shadow_ShadowBolt" } },
 	{ name = "Defias Watchman", level = 18, rank = "normal", x = 230, y = -10, hp = 0.7, threat = "warn" },
@@ -1560,6 +1766,7 @@ function P.DrawPreview()
 			p.root:Show()
 		else
 		p.name:SetText(d.name)
+		P.FitNameFont(p, d.name)
 		local c = P.NameColor(d.rank, 2)
 		p.name:SetTextColor(c[1], c[2], c[3])
 		if Opt().showLevel == false then

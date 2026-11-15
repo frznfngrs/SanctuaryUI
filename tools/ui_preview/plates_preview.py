@@ -27,8 +27,9 @@ local function Fit(self)
 end
 local extra = {
 	SetStatusBarTexture = function(self, p) self.fill = self.fill or self:CreateTexture(nil, "ARTWORK") self.fill.tex = p Fit(self) end,
-	GetStatusBarTexture = function(self) self.fill = self.fill or self:CreateTexture(nil, "ARTWORK") return self.fill end,
-	SetStatusBarColor = function(self, r, g, b, a) self:GetStatusBarTexture().vcolor = { r, g, b, a or 1 } end,
+	-- As the game: no fill texture until SetStatusBarTexture has given it one.
+	GetStatusBarTexture = function(self) return self.fill end,
+	SetStatusBarColor = function(self, r, g, b, a) if self.fill then self.fill.vcolor = { r, g, b, a or 1 } end end,
 	SetMinMaxValues = function(self, a, b) self.min, self.max = a, b Fit(self) end,
 	GetMinMaxValues = function(self) return self.min, self.max end,
 	SetValue = function(self, v) self.value = v Fit(self) end,
@@ -43,6 +44,11 @@ local extra = {
 	SetAlphaFromBoolean = function(self, b, t, f) self.alpha = b and t or f end,
 	GetAlpha = function(self) return self.alpha or 1 end,
 	IsShown = function(self) return self.shown end,
+	GetChildren = function(self)
+		local list = {}
+		for _, w in ipairs(ALL) do if w.parent == self and w.kind ~= "Texture" and w.kind ~= "FontString" then list[#list + 1] = w end end
+		return unpack(list)
+	end,
 	RegisterUnitEvent = function(self, e) self.ev[e] = true end,
 	GetParent = function(self) return self.parent end,
 	SetParent = function(self, p) self.parent = p end,
@@ -128,14 +134,18 @@ local function PlateFor(u)
 		plate = CreateFrame("Frame", nil, UIParent)
 		plate.isNamePlate = true
 		plate.UnitFrame = CreateFrame("Frame", nil, plate)
+		plate.UnitFrame.SoftTargetFrame = CreateFrame("Frame", nil, plate.UnitFrame)
 		plate.namePlateUnitToken = u
 		plates[u] = plate
 	end
 	return plate
 end
+function SetUnitCursorTexture(t, token) t.tex = "cursor:" .. token return true end
 C_NamePlate = {
 	GetNamePlateForUnit = function(u)
 		if u == "target" then return TARGET and plates[TARGET] end
+		if u == "softenemy" then return SOFTENEMY and plates[SOFTENEMY] end
+		if u == "softfriend" or u == "softinteract" then return nil end
 		return PlateFor(u)
 	end,
 	GetNamePlates = function() return {} end,
@@ -196,7 +206,26 @@ Fire("UNIT_HEALTH", "nameplate3")
 ok(p3.health.alpha == 1, "friend hurt: the strip shows")
 ok(p2.rank == "elite" and math.abs(p2.name.color[3] - 1) < 0.01, "elite: blue name")
 ok(p1.health.value == 800 and p1.health.max == 1000, "health set")
+local soft = plates.nameplate1.UnitFrame.SoftTargetFrame
+ok(soft.alpha == 0, "the game's soft-target icon faded on our plate")
+SOFTENEMY = "nameplate1"
+Fire("PLAYER_SOFT_ENEMY_CHANGED")
+ok(p1.soft.shown and p1.soft.points[1][2] == p1.level and p1.soft.tex == "cursor:softenemy", "our soft-target icon beside the level")
+P.SoftReport() -- runs without erroring
+SOFTENEMY = nil
+Fire("PLAYER_SOFT_ENEMY_CHANGED")
+ok(not p1.soft.shown, "and gone when the soft target moves off")
 ok(p1.quest.shown and not p2.quest.shown, "quest mob marked")
+-- Questie's icon on nameplate2: a child of the game's plate, pinned at Questie's offset
+local qf = CreateFrame("Frame", nil, plates.nameplate2)
+qf.Icon, qf.lastIcon = qf:CreateTexture(), "bag"
+qf:SetPoint("LEFT", -16, -10)
+Fire("NAME_PLATE_UNIT_REMOVED", "nameplate2")
+Fire("NAME_PLATE_UNIT_ADDED", "nameplate2")
+p2 = P.byUnit.nameplate2
+RunTimers()
+ok(qf.points[1][1] == "LEFT" and qf.points[1][2] == p2.quest and #qf.points == 1, "Questie's icon moved to the end of our name row")
+ok(p2.questie and not p2.quest.shown, "our ! steps aside for it")
 -- a cast at you
 CASTS.nameplate1 = { name = "Fireball" }
 Fire("UNIT_SPELLCAST_START", "nameplate1", "g1", 133)

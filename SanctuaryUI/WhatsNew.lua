@@ -14,6 +14,21 @@ local MINE = getMeta and getMeta("SanctuaryUI", "Version") or "?"
 -- Newest first: { version, date, notes = { { heading, text, button label, action }, ... } }.
 local RELEASES = {
 	{
+		version = "0.29.0", date = "15 November 2026",
+		notes = {
+			{
+				"A cast bar of its own",
+				"Your casts can now have a bar of their own instead of (or as well as) the XP rail: D3's Paragon bar with the spell's icon sweeping in its spiked ring, or its boss bar with the ram skull beneath, both filled with D3's lava. Unlock frames to move it. The rail cast is louder too: an ember glow past the rail, a spark trail, and bigger words on dark plates. Its options moved to Combat > Cast bar.",
+				"Options", function() ns.Options.Open("castbar") end,
+			},
+			{
+				"Tidier nameplates",
+				"Long names shrink to fit, the level and quest mark sit at the ends of the name row, the health percent is centred, and Questie's quest icons (a sword to kill, a bag to loot) now sit on the plate instead of off to one side. Friendly NPCs show their title and their level and faction under the name.",
+				"Options", function() ns.Options.Open("plates") end,
+			},
+		},
+	},
+	{
 		version = "0.28.0", date = "15 November 2026",
 		notes = {
 			{
@@ -43,8 +58,8 @@ local RELEASES = {
 		notes = {
 			{
 				"Your casts on the rail",
-				"While you cast, the XP rail above your skills becomes your cast bar: a molten fill runs along it, the spell's name and the time left sit either side of the skull, and the level medallion shows the spell's icon. A cast that lands flares the rail gold, an interrupted one turns red, channels drain in blue. Blizzard's cast bar is off while this is on. Options > XP, Rep & Casts; /sanctuary cast shows a preview.",
-				"Options", function() ns.Options.Open("rail") end,
+				"While you cast, the XP rail above your skills becomes your cast bar: a molten fill runs along it, the spell's name and the time left sit either side of the skull, and the level medallion shows the spell's icon. A cast that lands flares the rail gold, an interrupted one turns red, channels drain in blue. Blizzard's cast bar is off while this is on. Options > Combat > Cast bar; /sanctuary cast shows a preview.",
+				"Options", function() ns.Options.Open("castbar") end,
 			},
 		},
 	},
