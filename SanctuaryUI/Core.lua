@@ -716,7 +716,7 @@ local function Slash(msg)
 	elseif cmd == "search" or cmd == "find" then
 		if ns.Options and ns.Options.Search then ns.Options.Search(rest) end
 	elseif cmd == "help" then
-		ns.Print("/sanctuary opens options. Commands: search <words> (find a setting), lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n> (bars), globes <n>|match, bar 2-9 on|off, bind, pie [1-6] (pie menus), trinkets, swing (preview the swing timer), cast (preview the cast bar on the rail), plates (preview the nameplates), fish [chapter|log|outfit|outfit remember|words] (the angler's journal; log: what the game said while you fished; outfit: fishing gear on or off; anything else searches it), cook [chapter|words] (the Cookbook; anything else searches it), minimap, ring (preview the ally ring; totems: each totem's reach against your distance), map (overlay map; probe|peek for what the client allows; totems to probe group casts), test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, meter [analysis|run [test|banner]|glory|awards|test|reset|probe] (damage meter; run: the Run Report), proc (preview the proc highlight), aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), power [spell|off] (trace the resource globe against your casts), debug on|off, log, report [on|off], request (suggest a feature), updates [on|off] (new version notices over the realm channel)")
+		ns.Print("/sanctuary opens options. Commands: search <words> (find a setting), lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n> (bars), globes <n>|match, bar 2-9 on|off, bind, pie [ring] (pie menus; dismiss: stop the mixed-up macros reminder), trinkets, swing (preview the swing timer), cast (preview the cast bar on the rail), plates (preview the nameplates), fish [chapter|log|outfit|outfit remember|words] (the angler's journal; log: what the game said while you fished; outfit: fishing gear on or off; anything else searches it), cook [chapter|words] (the Cookbook; anything else searches it), minimap, ring (preview the ally ring; totems: each totem's reach against your distance), map (overlay map; probe|peek for what the client allows; totems to probe group casts), test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, meter [analysis|run [test|banner]|glory|awards|test|reset|probe] (damage meter; run: the Run Report), proc (preview the proc highlight), aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), power [spell|off] (trace the resource globe against your casts), debug on|off, log, report [on|off], request (suggest a feature), updates [on|off] (new version notices over the realm channel)")
 	elseif cmd == "grid" then
 		-- grid: toggle; grid on|off; grid <spacing>. The grid only shows while frames are
 		-- unlocked, so showing it unlocks them.
@@ -1012,8 +1012,11 @@ local function Slash(msg)
 		local arg = rest:lower()
 		if ns.UpdateChannel then ns.UpdateChannel(arg == "on" or (arg ~= "off" and nil)) end
 	elseif cmd == "pie" or cmd == "ring" then
-		-- "/sanctuary pie 2" edits ring 2; alone, it opens the rings' options page.
-		if rest ~= "" then
+		-- "/sanctuary pie 2" (or a ring's name) edits that ring; alone, it opens the rings' options
+		-- page; "dismiss" stops the mixed-up macros reminder (PieMenu.lua), unless a ring is so named.
+		if rest:lower() == "dismiss" and not ns.Pie.FindRing(rest) then
+			ns.Pie.DismissLatched()
+		elseif rest ~= "" then
 			ns.Pie.Edit(rest)
 		elseif ns.Options and ns.Options.Open then
 			ns.Options.Open("pie")

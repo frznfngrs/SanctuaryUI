@@ -771,11 +771,13 @@ end
 
 local function PieArgs()
 	local args = {
+		latched = Note(1.5, function() return ns.Pie.LatchedNote() or "" end),
 		intro = Note(1, "A pie menu is a ring of up to 8 skills. Hold its hotkey and it opens at the mouse; move toward a skill and release the key to use it. Release in the middle, or just tap the key, and nothing happens. Give a ring a hotkey, then press Edit skills and drag spells, items or macros onto it."),
 		look = Card(2, "Look", {
 			scale = Range(1, "Ring size", "How big the rings are drawn.", "pie", "scale", 0.6, 1.6, 0.01, true),
 		}),
 	}
+	args.latched.hidden = function() return ns.Pie.LatchedNote() == nil end
 	for n = 1, ns.Pie.MAX_RINGS do
 		args["ring" .. n] = PieRingCard(n)
 	end
