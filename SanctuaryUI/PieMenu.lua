@@ -67,24 +67,52 @@ end
 -- What a slice is
 
 -- A macro slice's index now. Macros are listed by name, so an index moves whenever one is made
--- or deleted, and names can be blank or shared: find it by name and text, then by name alone.
--- Account macros are slots 1-120 and character macros follow. This client keeps the counts in
--- Constants.MacroConsts (120 and 30): the old globals are gone, and the 18 character slots
--- assumed without them lost every character macro past the 18th (#23).
+-- or deleted, and names can be blank or shared. Account macros are slots 1-120 and character
+-- macros follow. This client keeps the counts in Constants.MacroConsts (120 and 30): the old
+-- globals are gone, and the 18 character slots assumed without them lost every character macro
+-- past the 18th (#23).
 local MACRO_CONSTS = Constants and Constants.MacroConsts or {}
 local MACRO_SLOTS = (MACRO_CONSTS.MAX_ACCOUNT_MACROS or MAX_ACCOUNT_MACROS or 120)
 	+ (MACRO_CONSTS.MAX_CHARACTER_MACROS or MAX_CHARACTER_MACROS or 30)
 
-local function MacroIndex(slice)
-	local byName
+local function Named(name)
+	return type(name) == "string" and name:find("%S") ~= nil
+end
+
+local function HasText(body)
+	return type(body) == "string" and body ~= ""
+end
+
+-- Only ever a sure match, never a guess (#23). In order: the same name and text; the same text
+-- under one macro only (renamed); a name only one macro has (its text edited). A blank or
+-- shared name with text that matches nothing is no match: going by that name alone found
+-- the first macro with it, which sorts first in the General tab, and the slice then took that
+-- macro's text, so every such slice ended up as the same macro for good (0.25.2-0.30.0).
+-- Returns the index and how it was found ("exact", "text" or "name").
+local function FindMacro(slice)
+	local byText, texts, byName, names = nil, 0, nil, 0
+	local named, hasText = Named(slice.name), HasText(slice.body)
 	for i = 1, MACRO_SLOTS do
 		local name, _, body = GetMacroInfo(i)
-		if name and name == slice.name then
-			if not slice.body or body == slice.body then return i end
-			byName = byName or i
+		if name then
+			local sameText = hasText and body == slice.body
+			if sameText and name == slice.name then return i, "exact" end
+			if sameText then
+				texts = texts + 1
+				byText = byText or i
+			end
+			if named and name == slice.name then
+				names = names + 1
+				byName = byName or i
+			end
 		end
 	end
-	return byName
+	if texts == 1 then return byText, "text" end
+	if names == 1 then return byName, "name" end
+end
+
+local function MacroIndex(slice)
+	return (FindMacro(slice))
 end
 
 local function MacroSpell(slice)
@@ -124,15 +152,21 @@ local function Action(slice)
 		return "item", "item:" .. slice.id
 	elseif slice.kind == "macro" then
 		-- By index: a blank or shared name can't pick the macro out. One that can't be found
-		-- (deleted, or not loaded yet) runs the text it had when it was put on the ring.
-		local index = MacroIndex(slice)
+		-- (deleted, not loaded yet, or its name is shared and its text changed) runs the text
+		-- it had when it was put on the ring.
+		local index, how = FindMacro(slice)
 		if index then
-			local _, _, body = GetMacroInfo(index)
-			if body then slice.body = body end -- edited: still found by its text next time
+			-- Kept up to date only from a sure match by one side, so the other side still finds
+			-- it next time: an edited macro's text, a renamed macro's name.
+			local name, _, body = GetMacroInfo(index)
+			if how == "name" and HasText(body) then slice.body = body end
+			if how == "text" and name then slice.name = name end
 			return "macro", index
 		end
-		if slice.body and slice.body ~= "" then return "macro", slice.body, "macrotext" end
-		return "macro", slice.name
+		if HasText(slice.body) then return "macro", slice.body, "macrotext" end
+		-- Nothing sure to go by (a profile import keeps names only): a name only one macro has
+		-- would have been found above, so running it by name would only pick some other macro.
+		return nil
 	end
 end
 
@@ -708,5 +742,54 @@ function ns.Pie.Init()
 	events:RegisterEvent("PLAYER_REGEN_ENABLED")
 	events:RegisterEvent("UPDATE_MACROS")
 	events:RegisterEvent("SPELLS_CHANGED")
-	events:SetScript("OnEvent", function() ns.Pie.Apply() end)
+	events:SetScript("OnEvent", function(_, event)
+		ns.Pie.Apply()
+		if event == "UPDATE_MACROS" then ns.Pie.CheckLatched() end
+	end)
+end
+
+-- Rings saved by 0.25.2-0.30.0 may hold macro slices the old lookup turned into one macro (see
+-- FindMacro): their own text was replaced with that macro's, so what they were can't be
+-- worked out again. Two or more macro slices on the rings with the same blank or shared name
+-- and the same text as the first macro of that name are those; say so once per character,
+-- after the macros have loaded, so they can be dragged back on. Nothing is changed.
+function ns.Pie.CheckLatched()
+	local char = ns.db and ns.db.char
+	if not char or char.pieLatchChecked then return end
+	local first, counts = {}, {}
+	local any = false
+	for i = 1, MACRO_SLOTS do
+		local name, _, body = GetMacroInfo(i)
+		if name then
+			any = true
+			counts[name] = (counts[name] or 0) + 1
+			if first[name] == nil then first[name] = body or "" end
+		end
+	end
+	if not any then return end -- not loaded yet
+	char.pieLatchChecked = true
+	local found, rings = {}, {}
+	for n = 1, MAX_RINGS do
+		for _, slice in ipairs(ns.Pie.Ring(n).slices) do
+			local name = slice.kind == "macro" and slice.name
+			if name and (not Named(name) or (counts[name] or 0) > 1) and HasText(slice.body)
+				and slice.body == first[name] then
+				local key = name .. "\n" .. slice.body
+				found[key] = (found[key] or 0) + 1
+				rings[key] = rings[key] or {}
+				rings[key][n] = true
+			end
+		end
+	end
+	for key, count in pairs(found) do
+		if count > 1 then
+			local list = {}
+			for n = 1, MAX_RINGS do
+				if rings[key][n] then list[#list + 1] = ns.Pie.RingName(n) end
+			end
+			local name = key:match("^(.-)\n") or ""
+			ns.Print(("%d macros on your pie menus (%s) all run the same macro%s. An older version mixed up macros that share a name; drag the right macros back on with /sanctuary pie <ring>.")
+				:format(count, table.concat(list, ", "), Named(name) and (" (" .. name .. ")") or " (unnamed)"))
+		end
+	end
 end
