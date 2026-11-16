@@ -134,6 +134,36 @@ end
 ---------------------------------------------------------------------------
 -- Cast bar
 
+-- Embedded (Options > Target > Cast bar place): the cast is a strip along the top of the health
+-- bar, opposite the resource along its bottom, with the spell's name and icon on the bar in
+-- place of the unit's name while it runs. Otherwise it's a bar of its own, off the frame.
+local function Embedded()
+	return Opt().castPlace ~= "bar"
+end
+
+-- Is this text (the "name" or "level" options) written on the health bar, where an embedded
+-- cast's name and icon go?
+local function TextOnBar(prefix)
+	local opt = Opt()
+	local pos = opt[prefix .. "Pos"] or "center"
+	if pos == "above" or pos == "below" then return false end
+	if prefix == "name" then
+		local style = Style()
+		return not (pos == "center" and style and style.nameAt)
+	end
+	return true
+end
+
+-- An embedded cast writes over the bar's left and middle: the name and the level text there
+-- fade out while it runs (the level on a plaque or stud is its own string and stays).
+local function YieldTexts(cast)
+	local plate = cast:GetParent()
+	if not plate.Name then return end
+	local casting = cast.embedded and cast:IsShown()
+	plate.Name:SetAlpha((casting and TextOnBar("name")) and 0 or 1)
+	plate.Level:SetAlpha((casting and TextOnBar("level")) and 0 or 1)
+end
+
 local function StopCast(cast)
 	cast:Hide()
 	cast.startMS, cast.endMS, cast.timer = nil, nil, nil
@@ -277,6 +307,24 @@ end
 -- What rides on the health bar, sized to it.
 local function FitBars(plate, w, h)
 	plate.barW, plate.barH = w, h
+	local cast = plate.Cast
+	if cast and cast.embedded then
+		-- The strip is the resource's height on D3's bar and grows with a taller one. The icon is
+		-- a block as tall as the bar at its left end, and the strip starts beside it.
+		local strip = math.max(4, math.floor(h * 0.22 + 0.5))
+		local size = math.max(8, h - 2)
+		cast.icon:SetSize(size, size)
+		cast.icon:ClearAllPoints()
+		cast.icon:SetPoint("LEFT", cast, "LEFT", 1, 0)
+		cast.bar:ClearAllPoints()
+		cast.bar:SetPoint("TOPLEFT", cast, "TOPLEFT", size + 2, 0)
+		cast.bar:SetPoint("TOPRIGHT", cast, "TOPRIGHT", 0, 0)
+		cast.bar:SetHeight(strip)
+		cast.lock:SetSize(size * 0.7, size * 0.8)
+		cast.spellName:ClearAllPoints()
+		cast.spellName:SetPoint("CENTER", cast, "CENTER", 0, -strip / 2)
+		cast.spellName:SetWidth(math.max(40, w - 2 * (size + 8)))
+	end
 	if plate.HealBand then
 		plate.HealBand:SetWidth(w)
 		plate.HotBand:SetWidth(w)
@@ -677,6 +725,7 @@ end
 
 function LayoutTexts(plate)
 	local opt = Opt()
+	if plate.Cast then YieldTexts(plate.Cast) end
 	for _, fs in ipairs({ plate.Percent, plate.Level, plate.Name }) do
 		SetTextGlow(fs, opt.textGlow ~= false)
 	end
@@ -857,13 +906,29 @@ local function SetHealth(plate, snap)
 	SetPrediction(plate, health, maxHealth)
 end
 
--- Previewing: a hit every 1.2 s, back to full when empty, the next rank every full cycle.
+-- The stand-in monster's cast: 2.4 s, one the boss rank can't have interrupted.
+local function PreviewCast(cast)
+	if not Opt().cast or cast:IsShown() then return end
+	local now = GetTime() * 1000
+	cast.channel, cast.timer = false, nil
+	cast.startMS, cast.endMS = now, now + 2400
+	cast.spellName:SetText("Bone Spear")
+	cast.icon:SetTexture(136197)
+	SetShield(cast, PREVIEW_RANKS[preview.rank] == "boss")
+	cast.bar:SetMinMaxValues(cast.startMS, cast.endMS)
+	cast.bar:SetValue(now)
+	cast:Show()
+end
+
+-- Previewing: a hit every 1.2 s, back to full when empty, the next rank every full cycle, and a
+-- cast partway down each.
 local function PreviewTick(plate, elapsed)
 	if not Previewing() then return end
 	preview.clock = preview.clock + elapsed
 	if preview.clock < 1.2 then return end
 	preview.clock = 0
 	preview.health = preview.health - 0.17
+	if preview.health < 0.7 and preview.health > 0.6 then PreviewCast(plate.Cast) end
 	if preview.health <= 0 then
 		preview.health = 1
 		preview.rank = preview.rank % #PREVIEW_RANKS + 1
@@ -1222,8 +1287,16 @@ end
 
 -- A rendered style's cast bar: in its groove, else on a rail above the frame, riding over any
 -- aura lines that are up there. `over` is the aura container above the frame, if there is one.
+local function PlaceEmbeddedCast(plate)
+	if not Embedded() then return false end
+	plate.Cast:ClearAllPoints()
+	plate.Cast:SetAllPoints(plate.Health)
+	return true
+end
+
 local function PlaceStyleCast(plate, style, over, overMid)
 	local cast = plate.Cast
+	if PlaceEmbeddedCast(plate) then return end
 	cast:ClearAllPoints()
 	if style.castGroove then
 		cast:SetPoint("TOPLEFT", plate, "TOPLEFT", style.castGroove[1], -style.castGroove[2])
@@ -1257,6 +1330,7 @@ local function UpdateAuraIcons(plate)
 		PlaceStyleCast(plate, style, nil)
 		return
 	end
+	if PlaceEmbeddedCast(plate) then return end
 	-- The cast bar goes under whatever aura lines are below, else under the rank line.
 	local castY = SubY() + ((plate.Sub:GetText() or "") ~= "" and 16 or 2)
 	if d.pos == "below" and dH > 0 then
@@ -1535,6 +1609,7 @@ local function UpdateBoxes(plate)
 		return
 	end
 
+	if PlaceEmbeddedCast(plate) then return end
 	-- The cast bar hangs under whichever container is below the bar (it may anchor to one:
 	-- it was made without layout scripts), else under the rank line.
 	local under, mid
@@ -1946,14 +2021,43 @@ end
 
 -- The cast bar's look: the rendered rail or groove (spell inside the bar), or D3's thin bar.
 local function StyleCast(cast, style)
+	local plate = cast:GetParent()
+	local embed = Embedded()
+	cast.embedded = embed or nil
 	for _, slice in ipairs(cast.art.slices or {}) do
-		slice:SetShown(not style)
+		slice:SetShown(not style and not embed)
 	end
-	cast.rail:SetShown(style and not style.castGroove and true or false)
+	cast.rail:SetShown(style and not embed and not style.castGroove and true or false)
 	local name, icon, lock, bar = cast.spellName, cast.icon, cast.lock, cast.bar
 	icon:ClearAllPoints()
 	bar:ClearAllPoints()
 	name:ClearAllPoints()
+	-- Embedded, the strip is level with the resource's (over the health fill, under the glass
+	-- and the frame's art) and the spell's name and icon are over the frame's texts.
+	local level = plate:GetFrameLevel()
+	cast:SetFrameLevel(level + (embed and 2 or 1))
+	bar:SetFrameLevel(level + (embed and 3 or 2))
+	cast.art:SetFrameLevel(level + (embed and 7 or 4))
+	cast.bg:ClearAllPoints()
+	cast.bg:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0)
+	cast.bg:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 0, embed and -1 or 0) -- a dark line parts it from the health
+	ns.Fonts.Set(name, "body", embed and 11 or cast.nameSize, embed and "OUTLINE" or cast.nameFlags)
+	-- D3's cast fill is a glow with dark edges, a hairline in a strip this thin: embedded, the
+	-- fill is the resource strip's, in the cast's orange.
+	local fill = ns.Art.Path(embed and "unitFillWhite" or "castFill")
+	bar:SetStatusBarTexture(fill or "Interface\\Buttons\\WHITE8X8")
+	if embed or not fill then
+		bar:SetStatusBarColor(1, 0.66, 0.2, 1)
+	else
+		bar:SetStatusBarColor(1, 1, 1, 1)
+	end
+	if embed then
+		name:SetJustifyH("CENTER")
+		FitBars(plate, plate.barW or 250, plate.barH or 18)
+		YieldTexts(cast)
+		return
+	end
+	YieldTexts(cast)
 	if not style then
 		local piece = ns.Art.UNIT.cast
 		ns.Art.DrawSliced(cast.art, "cast", piece[3], 1)
@@ -1991,7 +2095,7 @@ end
 -- Switch between D3's frame and a rendered one: what's shown and the portrait's and cast's shape.
 local function ApplyStyle(plate)
 	local style = Style()
-	local key = style and style.key or "d3"
+	local key = (style and style.key or "d3") .. (Embedded() and "+embed" or "")
 	plate.Power:SetShown(Opt().power ~= false)
 	plate.Power.track:SetShown(not style)
 	if plate.styleKey == key then return end
@@ -2050,7 +2154,7 @@ function M.Layout()
 		plate:SetSize(style.size[1], style.size[2])
 		plate:SetHitRectInsets(0, 0, 0, 0)
 		plate.hitStale = nil
-		if style.castBottom then room = math.max(0, 18 - style.castBottom) end
+		if style.castBottom and not Embedded() then room = math.max(0, 18 - style.castBottom) end
 	else
 		-- Wide enough for the widest frame (the boss banner) at this width, plus the portrait.
 		local _, widest = D3WidthRange()
@@ -2674,6 +2778,7 @@ function M.Init()
 	local castBg = cast.bar:CreateTexture(nil, "BACKGROUND")
 	castBg:SetAllPoints()
 	castBg:SetColorTexture(0.02, 0.015, 0.01, 0.95)
+	cast.bg = castBg
 	local castArt = CreateFrame("Frame", nil, cast)
 	castArt:SetAllPoints()
 	castArt:SetFrameLevel(cast.bar:GetFrameLevel() + 2)
@@ -2698,12 +2803,20 @@ function M.Init()
 	cast.rail:SetSize(256, 26)
 	cast.rail:Hide()
 	cast.spellName = castArt:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	do
+		local _, size, flags = cast.spellName:GetFont()
+		cast.nameSize, cast.nameFlags = size or 10, flags or ""
+	end
 	ns.Fonts.Adopt(cast.spellName, "body")
+	cast.spellName:SetShadowColor(0, 0, 0, 0.85)
+	cast.spellName:SetShadowOffset(1, -1)
 	cast.spellName:SetPoint("TOP", cast, "BOTTOM", 0, -1)
 	cast.spellName:SetWidth(piece[3])
 	cast.spellName:SetWordWrap(false)
 	cast.spellName:SetTextColor(1, 0.82, 0.55)
 	cast:Hide()
+	cast:SetScript("OnShow", YieldTexts)
+	cast:SetScript("OnHide", YieldTexts)
 	cast:SetScript("OnUpdate", function(self)
 		if self.timer then
 			-- Stop events end it; this only catches a cast whose end the client knows.

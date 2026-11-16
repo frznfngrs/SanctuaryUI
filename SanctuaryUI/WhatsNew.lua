@@ -14,6 +14,21 @@ local MINE = getMeta and getMeta("SanctuaryUI", "Version") or "?"
 -- Newest first: { version, date, notes = { { heading, text, button label, action }, ... } }.
 local RELEASES = {
 	{
+		version = "0.31.0", date = "16 November 2026",
+		notes = {
+			{
+				"The target's cast, in its health bar",
+				"The target and focus frames now show a cast as a strip along the top of the health bar, opposite the resource along its bottom, in every frame style. While it runs, the spell's name and icon are on the bar in place of the name; it turns grey with a lock when it can't be interrupted. Target > Shows > Cast bar place brings back the bar of its own, and the Preview there now casts.",
+				"Options", function() ns.Options.Open("target") end,
+			},
+			{
+				"Items and people in the books",
+				"Item names in the Angler's journal and the Cookbook show in their quality colour. Common stays a soft white, in the game's own font, and the name is still a link. Alliance and Horde names wear their crest.",
+				"Journal", function() ns.Journal.Open("now") end,
+			},
+		},
+	},
+	{
 		version = "0.30.0", date = "15 November 2026",
 		notes = {
 			{

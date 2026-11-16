@@ -217,6 +217,7 @@ ns.DEFAULTS = {
 			levelX = 0,
 			levelY = 0,
 			cast = true,
+			castPlace = "embed", -- embed: a strip along the top of the health bar | bar: a bar of its own
 			tot = true, -- the target of target: a small monster bar with its portrait, right of the frame
 			totPortrait = true, -- the target of target's portrait ring, left of its bar
 			totLevel = true, -- its level: on a plaque under its portrait, or in its bar's left end

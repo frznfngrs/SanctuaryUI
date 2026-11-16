@@ -2237,6 +2237,11 @@ local function UnitPlatePage(K, M, order, title, intro, placeNote)
 					return option
 				end)(),
 				cast = Toggle(2, "Cast bar", nil, K, "cast"),
+				castPlace = (function()
+					local option = Select(2.5, "Cast bar place", "In the health bar: a strip along the top of the health bar, opposite the resource along its bottom, with the spell's name and icon on the bar in place of the " .. WHO .. "'s name while it casts. A bar of its own: D3's thin bar under the frame (the other styles carry it in a groove or on a rail above).", K, "castPlace", { embed = "In the top of the health bar", bar = "A bar of its own" }, { "embed", "bar" })
+					option.disabled = function() return not DB()[K].cast end
+					return option
+				end)(),
 				power = Toggle(3, "Resource bar", "The " .. WHO .. "'s mana, rage or energy. In the Monster bar it runs along the bottom of the health bar; the other styles have a groove for it.", K, "power"),
 				healPrediction = Toggle(4, "Heal prediction", "Heals on their way to your " .. WHO .. " show in green past the end of its health, damage shields in silver after them, and a silver glow lights the bar's end when the shield is bigger than the health missing.", K, "healPrediction"),
 				raidIcon = Toggle(5, "Raid marker", "The skull, cross or other marker on the " .. WHO .. ", for anyone in your group who set one.", K, "raidIcon"),
