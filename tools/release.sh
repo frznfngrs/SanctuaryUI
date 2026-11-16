@@ -22,6 +22,8 @@ fi
 
 # Syntax-check addon Lua (skip bundled libs).
 find SanctuaryUI -name '*.lua' -not -path '*/libs/*' -print0 | xargs -0 -n1 luac5.1 -p
+# No accidental globals: a global written by addon code taints Blizzard code that reads it.
+tools/check_globals.sh
 
 sed -i "s/^## Version: .*/## Version: $VERSION/" "$TOC"
 

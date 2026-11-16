@@ -398,6 +398,12 @@ local function Build(frame)
 	end
 end
 
+-- Every totem drawn this frame, yours and the group's: [n] = { east, up, reach, element }.
+-- The ally pips ask Covering() which of them reach an ally, by true distance. Declared before
+-- T.Hide, which empties it: declared after, T.Hide wrote a global activeCount instead (an
+-- addon global the game's own code could read tainted) and left the local count stale.
+local active, activeCount = {}, 0
+
 local function HideOne(w)
 	w.holder:Hide()
 	for k = 1, w.segments do w.lines[k]:Hide() end
@@ -479,9 +485,6 @@ local function EndFake(w)
 	return true
 end
 
--- Every totem drawn this frame, yours and the group's: [n] = { east, up, reach, element }.
--- The ally pips ask Covering() which of them reach an ally, by true distance.
-local active, activeCount = {}, 0
 local covered = {}
 
 local function Active(east, up, reach, element)
