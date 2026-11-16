@@ -26,6 +26,15 @@ local RELEASES = {
 				"Item names in the Angler's journal and the Cookbook show in their quality colour. Common stays a soft white, in the game's own font, and the name is still a link. Alliance and Horde names wear their crest.",
 				"Journal", function() ns.Journal.Open("now") end,
 			},
+			{
+				"Pie menus keep their macros",
+				"A ring no longer replaces your macros with the first unnamed one in the General tab. A slice it can't match runs its saved text, or shows Empty until you drag a macro on. Rings already mixed up get one reminder, and /sanctuary pie dismiss turns that off.",
+				"Options", function() ns.Options.Open("pie") end,
+			},
+			{
+				"Blocked actions name the line",
+				"When the game blocks an action in combat, /sanctuary report keeps the call stack and names the SanctuaryUI line that did it.",
+			},
 		},
 	},
 	{
