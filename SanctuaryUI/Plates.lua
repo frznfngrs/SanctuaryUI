@@ -849,7 +849,9 @@ local function StopCast(p)
 end
 
 local function ReadCast(unit, channel)
-	local name, texture, startMS, endMS, notInterruptible, spellID
+	-- _ is local too: assigning the global _ from addon code taints it for any Blizzard code
+	-- that uses _ without declaring it.
+	local _, name, texture, startMS, endMS, notInterruptible, spellID
 	if channel then
 		name, _, texture, startMS, endMS, _, notInterruptible, spellID = UnitChannelInfo(unit)
 	else

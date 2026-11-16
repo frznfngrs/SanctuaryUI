@@ -725,6 +725,27 @@ end
 
 -- Events --------------------------------------------------------------------------------
 
+-- Where a blocked call came from. The game names the function it blocked but not the caller,
+-- and for some it doesn't even name the function ("SanctuaryUI called UNKNOWN()", #26). Its
+-- taintLog doesn't work on this client, so the stack is all there is: the event comes while
+-- the blocked call is still running, so the stack holds the line that made it. Kept with the
+-- entry (and so in reports); the first SanctuaryUI line also goes into the message, so blocked
+-- calls from different places don't merge into one entry.
+local function BlockedStack()
+	if not debugstack then return nil end
+	local ok, stack = pcall(debugstack, 3)
+	if not ok or type(stack) ~= "string" or stack == "" then return nil end
+	return stack
+end
+
+local function OurLine(stack)
+	if not stack then return nil end
+	for line in stack:gmatch("[^\n]+") do
+		local file, at = line:match("AddOns[/\\]SanctuaryUI[/\\]([^%]:]-%.lua)%]?:(%d+)")
+		if file and file ~= "Log.lua" then return file .. ":" .. at end
+	end
+end
+
 local events = CreateFrame("Frame")
 events:RegisterEvent("ADDON_ACTION_BLOCKED")
 events:RegisterEvent("ADDON_ACTION_FORBIDDEN")
@@ -737,7 +758,10 @@ pcall(events.RegisterEvent, events, "LUA_WARNING")
 events:SetScript("OnEvent", function(_, event, a, b)
 	if event == "ADDON_ACTION_BLOCKED" or event == "ADDON_ACTION_FORBIDDEN" or event == "MACRO_ACTION_BLOCKED" then
 		local combat = InCombatLockdown and InCombatLockdown() and " (in combat)" or ""
-		ns.LogError("taint", ("%s: %s called %s%s"):format(event, tostring(a), tostring(b), combat))
+		local stack = BlockedStack()
+		local where = OurLine(stack)
+		ns.LogError("taint", ("%s: %s called %s%s%s"):format(event, tostring(a), tostring(b), combat,
+			where and (" at " .. where) or ""), stack)
 	elseif event == "LUA_WARNING" then
 		ns.LogError("warning", tostring(b or a))
 	elseif event == "PLAYER_LOGIN" then
