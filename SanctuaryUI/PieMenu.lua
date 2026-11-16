@@ -39,6 +39,9 @@ local IsSpellUsable = (C_Spell and C_Spell.IsSpellUsable) or IsUsableSpell
 
 local header, screen, ring, live, editor
 local buttons = {}
+local dead -- [ring][slice] = true for slices that do nothing (Apply)
+local DeadPicked, ScheduleNotice -- defined below
+local NOTICE_DELAY = 5 -- seconds after the macros load before the mixed-up macros reminder
 
 local function Opt()
 	return ns.DB().pie
@@ -56,6 +59,23 @@ end
 function ns.Pie.RingName(n)
 	local name = ns.Pie.Ring(n).name
 	return (name and name ~= "") and name or ("Ring " .. n)
+end
+
+-- "/sanctuary pie <ring>" takes a ring's number, its name or "Ring n", any case, quotes or not.
+function ns.Pie.FindRing(text)
+	text = tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", ""):gsub('^"(.*)"$', "%1"):lower()
+	local n = tonumber(text) or tonumber(text:match("^ring%s*(%d+)$") or "")
+	if n then return n end
+	for i = 1, MAX_RINGS do
+		if ns.Pie.RingName(i):lower() == text then return i end
+	end
+end
+
+-- What to type after /sanctuary pie for ring n: its name when that finds it, else its number.
+function ns.Pie.RingArg(n)
+	local name = ns.Pie.Ring(n).name
+	if name and name ~= "" and ns.Pie.FindRing(name) == n then return name end
+	return tostring(n)
 end
 
 -- The direction of slice i of n: the first is straight up, the rest follow clockwise.
@@ -115,6 +135,12 @@ local function MacroIndex(slice)
 	return (FindMacro(slice))
 end
 
+-- A macro slice with nothing to run: no macro it surely is and no saved text (a profile import
+-- of an unnamed or shared-name macro). It shows as Empty and says so when picked.
+local function Dead(slice)
+	return slice.kind == "macro" and not HasText(slice.body) and not FindMacro(slice)
+end
+
 local function MacroSpell(slice)
 	local index = GetMacroSpell and MacroIndex(slice)
 	if not index then return end
@@ -135,6 +161,7 @@ local function Info(slice)
 		local index = MacroIndex(slice)
 		local name, icon
 		if index then name, icon = GetMacroInfo(index) end
+		if not index and not HasText(slice.body) then return "Empty", QUESTION end -- see Dead
 		name = name or slice.name or ""
 		if not name:find("%S") then name = "Macro" end -- unnamed
 		return name, icon or QUESTION
@@ -476,6 +503,25 @@ local function LiveHover(d)
 	return pick
 end
 
+-- A picked slice that does nothing says so in red, at most every 10 s per slice. Runs after the
+-- secure click (a hook), reads only the live ring's hover and the dead list: nothing secure.
+local DEAD_THROTTLE = 10
+local deadSaid = {}
+
+function DeadPicked(self, _, down)
+	if down then return end
+	local n = tonumber(self:GetAttribute("pieRing"))
+	local pick = live and live.hover
+	if not n or not pick or not (dead[n] and dead[n][pick]) then return end
+	local key = n .. ":" .. pick
+	local now = GetTime()
+	if deadSaid[key] and now - deadSaid[key] < DEAD_THROTTLE then return end
+	deadSaid[key] = now
+	if UIErrorsFrame then
+		UIErrorsFrame:AddMessage("Slice has no macro: /sanctuary pie " .. ns.Pie.RingArg(n), 1, 0.1, 0.1)
+	end
+end
+
 local function LiveIdle(d)
 	return (d.count or 0) > 0 and "Release to cancel" or "Empty: /sanctuary pie"
 end
@@ -498,6 +544,9 @@ local function BuildLive()
 	end)
 end
 
+-- Slices that do nothing (Action gave no type), as last put on the buttons: [ring][slice].
+dead = {}
+
 -- Put the saved rings on the secure buttons. Out of combat only.
 function ns.Pie.Apply()
 	if not ring or InCombatLockdown() then return end
@@ -510,9 +559,11 @@ function ns.Pie.Apply()
 		b:SetAttribute("pieCount", count)
 		b:SetAttribute("pieScale", scale)
 		b:SetAttribute("pieDead", (DEAD * scale) ^ 2)
+		dead[n] = {}
 		for i = 1, count do
 			local a = Angle(i, count)
 			local kind, value, attr = Action(slices[i])
+			dead[n][i] = kind == nil or nil
 			b:SetAttribute("pieUX" .. i, math.cos(a))
 			b:SetAttribute("pieUY" .. i, math.sin(a))
 			b:SetAttribute("pieType" .. i, kind)
@@ -589,7 +640,9 @@ end
 local function SocketTooltip(self)
 	local d = editor.display
 	d.hover = self.index
-	Paint(d, "", self.slice and "Right-click removes" or "Drop a skill here")
+	local hint = "Drop a skill here"
+	if self.slice then hint = Dead(self.slice) and "Drag a macro here" or "Right-click removes" end
+	Paint(d, "", hint)
 	local slice = self.slice
 	if not slice then return end
 	GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -674,9 +727,9 @@ local function BuildEditor()
 end
 
 function ns.Pie.Edit(n)
-	n = tonumber(n)
+	n = ns.Pie.FindRing(n)
 	if not n or n < 1 or n > MAX_RINGS or n % 1 ~= 0 then
-		ns.Print(("rings are numbered 1 to %d"):format(MAX_RINGS))
+		ns.Print(("rings are numbered 1 to %d, or go by their names"):format(MAX_RINGS))
 		return
 	end
 	if InCombatLockdown() then
@@ -733,6 +786,7 @@ function ns.Pie.Init()
 		SecureHandlerSetFrameRef(b, "ring", ring)
 		SecureHandlerSetFrameRef(b, "screen", screen)
 		header:WrapScript(b, "OnClick", PRE)
+		b:HookScript("OnClick", DeadPicked)
 		buttons[n] = b
 	end
 	BuildLive()
@@ -744,18 +798,16 @@ function ns.Pie.Init()
 	events:RegisterEvent("SPELLS_CHANGED")
 	events:SetScript("OnEvent", function(_, event)
 		ns.Pie.Apply()
-		if event == "UPDATE_MACROS" then ns.Pie.CheckLatched() end
+		if event == "UPDATE_MACROS" then ScheduleNotice() end
 	end)
 end
 
 -- Rings saved by 0.25.2-0.30.0 may hold macro slices the old lookup turned into one macro (see
 -- FindMacro): their own text was replaced with that macro's, so what they were can't be
 -- worked out again. Two or more macro slices on the rings with the same blank or shared name
--- and the same text as the first macro of that name are those; say so once per character,
--- after the macros have loaded, so they can be dragged back on. Nothing is changed.
-function ns.Pie.CheckLatched()
-	local char = ns.db and ns.db.char
-	if not char or char.pieLatchChecked then return end
+-- and the same text as the first macro of that name are those. Returns { { count, name,
+-- rings = { n, ... } }, ... } (empty when there are none), or nil before the macros load.
+function ns.Pie.Latched()
 	local first, counts = {}, {}
 	local any = false
 	for i = 1, MACRO_SLOTS do
@@ -766,30 +818,84 @@ function ns.Pie.CheckLatched()
 			if first[name] == nil then first[name] = body or "" end
 		end
 	end
-	if not any then return end -- not loaded yet
-	char.pieLatchChecked = true
-	local found, rings = {}, {}
+	if not any then return nil end
+	local groups, byKey = {}, {}
 	for n = 1, MAX_RINGS do
 		for _, slice in ipairs(ns.Pie.Ring(n).slices) do
 			local name = slice.kind == "macro" and slice.name
 			if name and (not Named(name) or (counts[name] or 0) > 1) and HasText(slice.body)
 				and slice.body == first[name] then
 				local key = name .. "\n" .. slice.body
-				found[key] = (found[key] or 0) + 1
-				rings[key] = rings[key] or {}
-				rings[key][n] = true
+				local g = byKey[key]
+				if not g then
+					g = { count = 0, name = name, rings = {}, seen = {} }
+					byKey[key] = g
+				end
+				g.count = g.count + 1
+				if not g.seen[n] then
+					g.seen[n] = true
+					g.rings[#g.rings + 1] = n
+				end
 			end
 		end
 	end
-	for key, count in pairs(found) do
-		if count > 1 then
-			local list = {}
-			for n = 1, MAX_RINGS do
-				if rings[key][n] then list[#list + 1] = ns.Pie.RingName(n) end
-			end
-			local name = key:match("^(.-)\n") or ""
-			ns.Print(("%d macros on your pie menus (%s) all run the same macro%s. An older version mixed up macros that share a name; drag the right macros back on with /sanctuary pie <ring>.")
-				:format(count, table.concat(list, ", "), Named(name) and (" (" .. name .. ")") or " (unnamed)"))
-		end
+	for _, g in pairs(byKey) do
+		if g.count > 1 then groups[#groups + 1] = g end
 	end
+	table.sort(groups, function(a, b) return a.rings[1] < b.rings[1] end)
+	return groups
+end
+
+local function RingNames(rings)
+	local names = {}
+	for i, n in ipairs(rings) do names[i] = ns.Pie.RingName(n) end
+	return table.concat(names, ", ")
+end
+
+local function MacroWords(name)
+	return Named(name) and ('macro "' .. name .. '"') or "unnamed macro"
+end
+
+-- The reminder: "An old bug set 3 pie slices (Totems, Ring 2) to the same unnamed macro. Drag
+-- the right ones back on with /sanctuary pie Totems". One line per group of mixed-up slices.
+function ns.Pie.LatchedLines(groups)
+	local lines = {}
+	for i, g in ipairs(groups or {}) do
+		lines[i] = ("An old bug set %d pie slices (%s) to the same %s. Drag the right ones back on with /sanctuary pie %s")
+			:format(g.count, RingNames(g.rings), MacroWords(g.name), ns.Pie.RingArg(g.rings[1]))
+	end
+	return lines
+end
+
+-- For the rings' options page: the same, and that the old macros can't be brought back.
+function ns.Pie.LatchedNote()
+	local groups = ns.Pie.Latched()
+	if not groups or #groups == 0 then return nil end
+	local parts = {}
+	for i, g in ipairs(groups) do
+		parts[i] = ("%d slices on %s are set to the same %s."):format(g.count, RingNames(g.rings), MacroWords(g.name))
+	end
+	return table.concat(parts, " ") .. " An old bug did that, and the macros they held before can't be restored: drag the right macros back on with Edit skills. /sanctuary pie dismiss stops the reminder at login."
+end
+
+-- Said once a session, a few seconds after the macros load, while any are still mixed up,
+-- unless dismissed for this character (/sanctuary pie dismiss).
+local noticeScheduled = false
+
+function ScheduleNotice()
+	if noticeScheduled then return end
+	local char = ns.db and ns.db.char
+	if not char or char.pieLatchDismissed or not C_Timer then return end
+	if not ns.Pie.Latched() then return end -- macros not loaded yet: the next UPDATE_MACROS
+	noticeScheduled = true
+	C_Timer.After(NOTICE_DELAY, function()
+		for _, line in ipairs(ns.Pie.LatchedLines(ns.Pie.Latched())) do ns.Print(line) end
+	end)
+end
+
+function ns.Pie.DismissLatched()
+	local char = ns.db and ns.db.char
+	if not char then return end
+	char.pieLatchDismissed = true
+	ns.Print("pie slice reminder off for this character.")
 end
