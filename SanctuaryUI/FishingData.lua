@@ -231,6 +231,14 @@ D.TRAINERS = {
 	{ "Katoom the Angler", "The Hinterlands", "Revantusk Village", 80.3, 81.4, "H" },
 }
 
+-- People the pages name who aren't trainers. A and H wear their crest in the text; neutral
+-- people (Old Man Heming, Nat Pagle, Jang) stay plain.
+D.FOLK = {
+	{ "Narret Shadowgrove", "A" },
+	{ "Gubber Blump", "A" },
+	{ "Kulwia", "H" },
+}
+
 -- Ranks: cap, what opens it.
 D.RANKS = {
 	{ "Apprentice", 75, "Any fishing trainer. No level needed." },

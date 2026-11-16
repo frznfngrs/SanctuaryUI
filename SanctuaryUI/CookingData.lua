@@ -161,6 +161,14 @@ D.RANKS = {
 	{ "Artisan", 300, "The quest Clamlette Surprise from Dirge Quikcleave in the Gadgetzan inn, Tanaris (52.6, 28.1), at Cooking 225 and level 35. Bring 12 Giant Egg, 10 Zesty Clam Meat and 20 Alterac Swiss. He is a goblin butcher with opinions about cheese; don't argue." },
 }
 
+-- People the pages name who aren't in the recipe database. A and H wear their crest.
+D.FOLK = {
+	{ "Ben Trias", "A" },
+	{ "Innkeeper Sikewa", "H" },
+	{ "Quartermaster Zigris", "H" },
+	{ "Zigris", "H" },
+}
+
 -- The Artisan quest's shopping list.
 D.CLAMLETTE = {
 	{ "Giant Egg", 12, "Rocs in Tanaris." },

@@ -9,8 +9,10 @@ local Book = ns.Book
 -- A book is a D3 window (the inventory's header with the book's own medallion, the stone body)
 -- holding a parchment page, with D3's red side tabs for chapters and a search box in the footer.
 -- Each chapter is a function that adds blocks top to bottom (book.B); widgets are pooled. Item
--- names on a page become links in their rarity's colour. Each book keeps a per-character diary
--- that writes itself; a new line slides in on one shared pop-up (D3's "new lore" notice).
+-- names on a page become links in their rarity's colour: dark inks, except common, a soft
+-- white in Friz Quadrata (the game's item face) with a light edge. Alliance and Horde names
+-- wear their crest. Each book keeps a per-character diary that writes itself; a new line slides
+-- in on one shared pop-up (D3's "new lore" notice).
 --
 -- Art: journal.png (tools/build_journal_art.py): the page 640x640 at 0,160, the pop-up's two
 -- cells, and the journal's own header and tabs. A book names the atlas holding its header
@@ -66,10 +68,22 @@ local AMBER = { 0.58, 0.34, 0.03 }
 local GOLD = { 0.62, 0.42, 0.06 }
 Book.INK, Book.RED, Book.MUTED, Book.GREEN, Book.AMBER, Book.GOLD = INK, RED, MUTED, GREEN, AMBER, GOLD
 
--- Item rarities on parchment (darkened, so common white reads as ink) and their words.
+-- Item rarities on parchment (journal.png's page is about #D8BE8D). Dark inks for poor,
+-- uncommon, rare and epic. Common stays a neutral white, WoW's own quality, eased a step
+-- off pure lamp-white (#F7F4EC) so it still reads as a white item without glaring. The
+-- letters are Friz Quadrata, the face the game draws item links in, which is heavier than
+-- the page's serif, so they don't need a hard outline to stand out. A light edge only.
+local COMMON_INK = { 247 / 255, 244 / 255, 236 / 255 }
+local EDGE = { 0.18, 0.10, 0.04, 0.28 }
 local QUALITY_INK = {
-	[0] = { 0.42, 0.40, 0.37 }, [1] = INK, [2] = { 0.10, 0.44, 0.02 }, [3] = { 0.00, 0.32, 0.68 },
-	[4] = { 0.47, 0.16, 0.72 }, [5] = { 0.76, 0.38, 0.00 }, [6] = { 0.62, 0.48, 0.20 }, [7] = { 0.00, 0.50, 0.70 },
+	[0] = { 0.32, 0.30, 0.27 }, [1] = COMMON_INK, [2] = { 0.09, 0.33, 0.04 }, [3] = { 0.04, 0.24, 0.56 },
+	[4] = { 0.35, 0.12, 0.55 }, [5] = { 0.76, 0.38, 0.00 }, [6] = { 0.62, 0.48, 0.20 }, [7] = { 0.00, 0.50, 0.70 },
+}
+-- Faction crests in the page text. The emblem sits in the texture's top-left (the same crop
+-- the nameplates use). A trailing space keeps the name off the icon.
+local FACTION_MARK = {
+	A = "|TInterface\\TargetingFrame\\UI-PVP-Alliance:14:14:0:-1:64:64:0:42:0:42|t ",
+	H = "|TInterface\\TargetingFrame\\UI-PVP-Horde:14:14:0:-1:64:64:0:42:0:42|t ",
 }
 local RARITY = { [2] = "Uncommon", [3] = "Rare", [4] = "Epic", [5] = "Legendary" }
 Book.QUALITY_INK, Book.RARITY = QUALITY_INK, RARITY
@@ -119,6 +133,34 @@ function Book.MySide()
 end
 
 Book.SIDE_NAME = { A = "Alliance", H = "Horde", N = "both" }
+
+-- Alliance and Horde people either book names, longest names first. Neutral people are
+-- left plain. Trainers, the cookbook's people, and the few the prose names besides.
+function Book.FactionFolk()
+	if Book.folk then return Book.folk end
+	local seen, list = {}, {}
+	local function Add(name, side)
+		if type(name) ~= "string" or name == "" or (side ~= "A" and side ~= "H") or seen[name] then return end
+		seen[name] = true
+		list[#list + 1] = { name, side }
+	end
+	local fish = ns.FishingData
+	if fish then
+		for _, t in ipairs(fish.TRAINERS or {}) do Add(t[1], t[6]) end
+		for _, t in ipairs(fish.FOLK or {}) do Add(t[1], t[2]) end
+	end
+	local cook = ns.CookingData
+	if cook then
+		for _, n in pairs(cook.NPC or {}) do Add(n[1], n[5]) end
+		for _, t in ipairs(cook.FOLK or {}) do Add(t[1], t[2]) end
+	end
+	table.sort(list, function(a, b)
+		if #a[1] ~= #b[1] then return #a[1] > #b[1] end
+		return a[1] < b[1]
+	end)
+	Book.folk = list
+	return list
+end
 
 -- Is this the other faction's (A or H, not yours, and you have one)?
 function Book.Enemy(side)
@@ -186,6 +228,7 @@ local GetInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
 local function Hex(c)
 	return ("%02x%02x%02x"):format(c[1] * 255, c[2] * 255, c[3] * 255)
 end
+local COMMON_HEX = Hex(COMMON_INK)
 
 local function ItemIcon(id)
 	local icon = C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(id)
@@ -335,24 +378,174 @@ function Book.New(spec)
 
 	local Linkify -- item names to links (defined with the rows, below)
 
-	local function Text(which, size, color, text, x, w, justify, dy)
+	-- WoW's item face. Heavier than the page serif, which is what makes a link look like a link.
+	local function ItemFace(fs, size)
+		local path = ns.Fonts and ns.Fonts.Path and ns.Fonts.Path("body", "friz") or "Fonts\\FRIZQT__.TTF"
+		size = size * ((Shared().textScale) or 1)
+		if type(path) ~= "string" or fs:SetFont(path, size, "") == false or not fs:GetFont() then
+			fs:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", size, "")
+			fontRetry = true
+		end
+	end
+
+	local function Strand(which, size)
 		local fs = Take("text", function()
 			local s = child:CreateFontString(nil, "OVERLAY")
 			s:SetWordWrap(true)
 			s:SetNonSpaceWrap(false)
 			return s
 		end)
-		Face(fs, which, size)
 		fs:SetAlpha(1)
-		fs:SetTextColor(color[1], color[2], color[3], 1)
-		fs:SetJustifyH(justify or "LEFT")
 		fs:SetJustifyV("TOP")
-		fs:SetSpacing(which == "hand" and 3 or 2)
-		fs:ClearAllPoints()
-		fs:SetPoint("TOPLEFT", child, "TOPLEFT", x, -(cursor + (dy or 0)))
-		fs:SetWidth(w)
-		fs:SetText(which == "title" and text or Linkify(text))
-		return fs, fs:GetStringHeight() or size
+		fs:SetShadowColor(0, 0, 0, 0)
+		fs:SetShadowOffset(0, 0)
+		fs.lines = nil
+		return fs
+	end
+
+	-- Linkify's string, split into plain runs and item links. An item keeps its colour and id
+	-- so each word of the name can be its own link in the game's font.
+	local function Runs(s)
+		local out, i, n = {}, 1, #s
+		while i <= n do
+			if s:sub(i, i + 1) == "|T" then
+				local _, b = s:find("|t", i, true)
+				if not b then
+					out[#out + 1] = { text = s:sub(i) }
+					break
+				end
+				out[#out + 1] = { text = s:sub(i, b) }
+				i = b + 1
+			else
+				local a, b, hex, id, name = s:find("|cff(%x%x%x%x%x%x)|Hitem:(%d+)|h|cff%x%x%x%x%x%x(.-)|r|h|r", i)
+				if a == i then
+					out[#out + 1] = { item = true, hex = hex, id = id, name = name }
+					i = b + 1
+				else
+					local c, d = s:find("|cff%x%x%x%x%x%x.-|r", i)
+					if c == i then
+						out[#out + 1] = { text = s:sub(c, d) }
+						i = d + 1
+					else
+						local k = s:find("|", i, true)
+						if k == i then
+							out[#out + 1] = { text = "|" }
+							i = i + 1
+						else
+							out[#out + 1] = { text = s:sub(i, (k or n + 1) - 1) }
+							i = k or (n + 1)
+						end
+					end
+				end
+			end
+		end
+		return out
+	end
+
+	-- Words of a run, spaces kept as their own tokens so a line can break between them.
+	local function Tokens(runs)
+		local words = {}
+		local function Push(text, item, hex, id)
+			local pos = 1
+			while pos <= #text do
+				local sp, se = text:find("^%s+", pos)
+				local chunk, nxt
+				if sp then
+					chunk, nxt = text:sub(sp, se), se + 1
+				else
+					local we = (text:find("%s", pos) or (#text + 1))
+					chunk, nxt = text:sub(pos, we - 1), we
+				end
+				pos = nxt
+				if chunk ~= "" then
+					if item and chunk:find("%S") then
+						words[#words + 1] = {
+							text = ("|cff%s|Hitem:%s|h|cff%s%s|r|h|r"):format(hex, id, hex, chunk),
+							item = true, hex = hex,
+						}
+					else
+						words[#words + 1] = { text = chunk }
+					end
+				end
+			end
+		end
+		for _, r in ipairs(runs) do
+			if r.item then Push(r.name, true, r.hex, r.id) else Push(r.text) end
+		end
+		return words
+	end
+
+	local function Text(which, size, color, text, x, w, justify, dy)
+		local body = which == "title" and text or Linkify(text)
+		local spacing = which == "hand" and 3 or 2
+		local top = cursor + (dy or 0)
+		-- No item in the line: one string, and the engine wraps it. Ink, no edge.
+		if type(body) ~= "string" or not body:find("|Hitem:", 1, true) then
+			local fs = Strand(which, size)
+			Face(fs, which, size)
+			fs:SetTextColor(color[1], color[2], color[3], 1)
+			fs:SetJustifyH(justify or "LEFT")
+			fs:SetSpacing(spacing)
+			fs:SetWordWrap(true)
+			fs:ClearAllPoints()
+			fs:SetPoint("TOPLEFT", child, "TOPLEFT", x, -top)
+			fs:SetWidth(w)
+			fs:SetText(body or "")
+			return fs, fs:GetStringHeight() or size
+		end
+		-- Item names in Friz, flowed with the rest of the sentence. Only a white (common)
+		-- name takes the light edge; the other rarities are already dark enough.
+		local lineX, lineY, lineH = 0, 0, 0
+		local first, group = nil, {}
+		for _, word in ipairs(Tokens(Runs(body))) do
+			local show = word.text
+			if lineX == 0 then show = (show:gsub("^%s+", "")) end
+			if show ~= "" then
+				local fs = Strand(which, size)
+				if word.item then
+					ItemFace(fs, size)
+					fs:SetTextColor(1, 1, 1, 1)
+					if word.hex == COMMON_HEX then
+						fs:SetShadowColor(EDGE[1], EDGE[2], EDGE[3], EDGE[4])
+						fs:SetShadowOffset(1, -1)
+					end
+				else
+					Face(fs, which, size)
+					fs:SetTextColor(color[1], color[2], color[3], 1)
+				end
+				fs:SetJustifyH("LEFT")
+				fs:SetSpacing(0)
+				fs:SetWordWrap(false)
+				fs:SetText(show)
+				local ww = fs:GetStringWidth() or 0
+				if lineX > 0 and lineX + ww > w then
+					lineY = lineY + lineH + spacing
+					lineX, lineH = 0, 0
+					show = (show:gsub("^%s+", ""))
+					fs:SetText(show)
+					ww = fs:GetStringWidth() or 0
+				end
+				if show ~= "" then
+					fs:ClearAllPoints()
+					fs:SetPoint("TOPLEFT", child, "TOPLEFT", x + lineX, -(top + lineY))
+					fs:SetWidth(math.max(1, ww))
+					lineH = math.max(lineH, fs:GetStringHeight() or size)
+					lineX = lineX + ww
+					group[#group + 1] = fs
+					first = first or fs
+				else
+					fs:Hide()
+				end
+			end
+		end
+		if not first then
+			local fs = Strand(which, size)
+			Face(fs, which, size)
+			fs:SetText("")
+			return fs, size
+		end
+		first.lines = group
+		return first, lineY + lineH
 	end
 
 	-- A row's tooltip: its item's card, and/or a line saying what a click does.
@@ -394,8 +587,10 @@ function Book.New(spec)
 	end
 
 	-- Item names on the page: linked (hover for the card, shift-click to link) and in their
-	-- rarity's colour. Names come from the book (spec.names) and from the log (log.names). An
-	-- item the client hasn't loaded yet is asked for, and the page redrawn when it arrives.
+	-- rarity's colour. The colour sits inside the link, or the line's own ink paints over it.
+	-- Names come from the book (spec.names) and from the log (log.names). An item the client
+	-- hasn't loaded yet is asked for, and the page redrawn when it arrives. Alliance and Horde
+	-- names (Book.FactionFolk) wear their crest.
 	local asked = {} -- item IDs requested from the client
 
 	local function Quality(id)
@@ -460,11 +655,32 @@ function Book.New(spec)
 		return list
 	end
 
+	-- Alliance and Horde names, indexed the same way as the items.
+	local PPL, PPL_WORD, PPL_LOOSE
+	local function People()
+		if PPL then return PPL end
+		local list = Book.FactionFolk()
+		PPL_WORD, PPL_LOOSE = {}, {}
+		for rank, pair in ipairs(list) do
+			pair.rank = rank
+			local word = pair[1]:match("^%u[%a']*")
+			if word then
+				PPL_WORD[word] = PPL_WORD[word] or {}
+				table.insert(PPL_WORD[word], pair)
+			else
+				PPL_LOOSE[#PPL_LOOSE + 1] = pair
+			end
+		end
+		PPL = list
+		return list
+	end
+
 	-- text with every item name it holds coloured, and linked unless dark (a frame that can't
-	-- take hyperlinks).
+	-- take hyperlinks), and every Alliance or Horde name wearing its crest.
 	function Linkify(text, dark)
 		if type(text) ~= "string" or not text:find("%u") then return text end
 		Names()
+		People()
 		local hits = {}
 		local function Free(a, b)
 			for _, h in ipairs(hits) do
@@ -472,42 +688,53 @@ function Book.New(spec)
 			end
 			return true
 		end
-		local function Try(name, id)
+		-- id for an item, side ("A" or "H") for a person. Items are tried first, so a name
+		-- that is also inside an item stays part of the link.
+		local function Try(name, id, side)
 			local from = 1
 			while true do
 				local a, b = text:find(name, from, true)
 				if not a then return end
 				local before, after = text:sub(a - 1, a - 1), text:sub(b + 1, b + 1)
 				if not before:find("[%w]") and not after:find("[%w]") and Free(a, b) then
-					hits[#hits + 1] = { a, b, id }
+					hits[#hits + 1] = { a, b, id, side }
 				end
 				from = b + 1
 			end
 		end
-		local tried, candidates = {}, {}
-		for word in text:gmatch("%u[%a']*") do
-			if not tried[word] then
-				tried[word] = true
-				for _, pair in ipairs(BY_WORD[word] or {}) do candidates[#candidates + 1] = pair end
+		local function Collect(byWord, loose)
+			local tried, candidates = {}, {}
+			for word in text:gmatch("%u[%a']*") do
+				if not tried[word] then
+					tried[word] = true
+					for _, pair in ipairs(byWord[word] or {}) do candidates[#candidates + 1] = pair end
+				end
 			end
+			for _, pair in ipairs(loose) do candidates[#candidates + 1] = pair end
+			table.sort(candidates, function(a, b) return a.rank < b.rank end)
+			return candidates
 		end
-		for _, pair in ipairs(LOOSE) do candidates[#candidates + 1] = pair end
-		table.sort(candidates, function(a, b) return a.rank < b.rank end)
-		for _, n in ipairs(candidates) do Try(n[1], n[2]) end
+		for _, n in ipairs(Collect(BY_WORD, LOOSE)) do Try(n[1], n[2]) end
 		local log = Log()
 		for id, name in pairs(log and log.names or {}) do
 			if type(name) == "string" and #name > 3 then Try(name, id) end
 		end
+		for _, n in ipairs(Collect(PPL_WORD, PPL_LOOSE)) do Try(n[1], nil, n[2]) end
 		if #hits == 0 then return text end
 		table.sort(hits, function(x, y) return x[1] < y[1] end)
 		local out, at = {}, 1
 		for _, h in ipairs(hits) do
 			out[#out + 1] = text:sub(at, h[1] - 1)
 			local name = text:sub(h[1], h[2])
-			if dark then
+			if h[4] then
+				out[#out + 1] = (FACTION_MARK[h[4]] or "") .. name
+			elseif dark then
 				out[#out + 1] = ("|cff%s%s|r"):format(ItemHex(h[3], true), name)
 			else
-				out[#out + 1] = ("|cff%s|Hitem:%d|h%s|h|r"):format(ItemHex(h[3]), h[3], name)
+				-- The colour has to sit inside the link. Outside it, the line's own ink wins
+				-- and the name reads as ordinary text that happens to have a tooltip.
+				local hex = ItemHex(h[3])
+				out[#out + 1] = ("|cff%s|Hitem:%d|h|cff%s%s|r|h|r"):format(hex, h[3], hex, name)
 			end
 			at = h[2] + 1
 		end
@@ -631,7 +858,11 @@ function Book.New(spec)
 			local size = o.head and 10.5 or (i == 1 and 13 or 12.5)
 			if text and text ~= "" then
 				local fs, th = Text(which, size, color, text, cx, cw)
-				if o.dim then fs:SetAlpha(0.7) else fs:SetAlpha(1) end
+				local alpha = o.dim and 0.7 or 1
+				fs:SetAlpha(alpha)
+				if fs.lines then
+					for _, s in ipairs(fs.lines) do s:SetAlpha(alpha) end
+				end
 				h = math.max(h, th)
 			end
 			x = x + w
