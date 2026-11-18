@@ -173,7 +173,7 @@ D.FOLK = {
 D.CLAMLETTE = {
 	{ "Giant Egg", 12, "Rocs in Tanaris." },
 	{ "Zesty Clam Meat", 10, "Big-mouth Clams, off Steeljaw Snappers and Surf Gliders on Tanaris' coast." },
-	{ "Alterac Swiss", 20, { { "Ben Trias in Stormwind's Trade District", "A" }, { "Innkeeper Sikewa in Shadowprey Village", "H" } } },
+	{ "Alterac Swiss", 20, { { "Ben Trias in Stormwind's Trade District", "A" }, { "Innkeeper Sikewa in Shadowprey Village", "H" } }, "\"You can't buy Alterac Swiss in Darnassus you know.\" - Anonymous" },
 }
 
 -- The road from 1 to 300: skill range, with a pole (fish), with a blade (meat), tip.

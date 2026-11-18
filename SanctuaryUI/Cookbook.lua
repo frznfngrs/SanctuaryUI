@@ -659,7 +659,10 @@ function BUILD.route()
 	})
 	B.h("Clamlette Surprise: the shopping list")
 	for _, c in ipairs(d.CLAMLETTE) do
-		B.row({ ("%d %s"):format(c[2], c[1]), Parts(c[3]) }, { 0.36, 0.64 }, { pad = 4 })
+		B.row({ ("%d %s"):format(c[2], c[1]), Parts(c[3]) }, { 0.36, 0.64 }, { pad = 4, anchor = c[4] and ("clam:" .. c[1]) or nil })
+		if c[4] then
+			B.row({ "", c[4] }, { 0.0, 1.0 }, { colors = { MUTED, MUTED }, cont = true })
+		end
 	end
 	B.h("Trainers who'll teach you")
 	local other = 0
@@ -953,6 +956,9 @@ spec.index = function(Add)
 	end
 	for i, r in ipairs(d.RANKS) do Add("route", "rank:" .. i, r[1] .. " Cooking", r[3], r.item) end
 	for i, step in ipairs(d.ROUTE) do Add("route", "route:" .. i, "Route " .. step[1], step[2] .. " " .. step[3] .. " " .. step[4]) end
+	for _, c in ipairs(d.CLAMLETTE) do
+		if c[4] then Add("route", "clam:" .. c[1], c[1], Parts(c[3]) .. " " .. c[4]) end
+	end
 	for _, id in ipairs(d.TRAINERS) do
 		local n = d.NPC[id]
 		if n and not Enemy(n[5]) then Add("route", "trainer:" .. n[1], n[1] .. " (trainer)", Person(id)) end
