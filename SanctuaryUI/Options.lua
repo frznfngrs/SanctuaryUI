@@ -1145,7 +1145,7 @@ local function PlatesArgs()
 		enabled = T(1, "Enabled", nil, "enabled"),
 		preview = Width({
 			type = "toggle", order = 2, name = "Preview",
-			desc = "A made-up pull in the middle of the screen: casts, your target, aggro, a quest mob, execute range, an elite, a rare and a boss, taking hits. Turns off when this window closes. /sanctuary plates does the same.",
+			desc = "A made-up pull in the middle of the screen: casts, your target, aggro, a quest mob, execute range, an elite, a rare, a boss and a Searing Totem, taking hits. Turns off when this window closes. /sanctuary plates does the same.",
 			get = function() return ns.Plates and ns.Plates.preview end,
 			set = ns.Plates and OwningFlag("plates", ns.Plates, function(_, value) ns.Plates.SetPreview(value) end) or function() end,
 			disabled = function() return not ns.Plates end,
@@ -1169,6 +1169,14 @@ local function PlatesArgs()
 				end,
 			}, THIRD),
 			classFill = T(10, "Enemy players in class colours", nil, "classFill"),
+		}),
+		totems = Tab(3.2, "Totems", {
+			note = Note(0, "Enemy totems. A small icon, the name and a short health bar in the element's colour (earth, fire, water, air), instead of a full player plate. The made-up pull includes a Searing Totem."),
+			showTotems = T(1, "Show enemy totems", "Off hides them. On, they use the sizes below.", "showTotems"),
+			totemWidth = Range(2, "Width", nil, "plates", "totemWidth", 40, 160, 1),
+			totemBar = Range(3, "Bar height", nil, "plates", "totemBar", 2, 12, 1),
+			totemIcon = Range(4, "Icon size", nil, "plates", "totemIcon", 8, 32, 1),
+			totemName = Range(5, "Name size", nil, "plates", "totemName", 7, 16, 1),
 		}),
 		text = Tab(3.5, "Enemy text", {
 			note = Note(0, "Enemy plates. Friendly names have their own settings on the Friendly tab."),

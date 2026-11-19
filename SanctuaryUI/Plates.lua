@@ -32,6 +32,16 @@ local FILL = {
 	tapped = { 0.55, 0.55, 0.55 },
 	hostile = { 0.86, 0.16, 0.1 },
 }
+-- Same element colours as the ally ring: earth, fire, water, air. Stone when the element is hidden.
+local TOTEM_COLORS = {
+	{ 0.55, 0.85, 0.35 },
+	{ 1, 0.5, 0.15 },
+	{ 0.35, 0.65, 1 },
+	{ 0.85, 0.9, 1 },
+}
+local TOTEM_STONE = { 0.62, 0.58, 0.5 }
+local TOTEM_NAME = { 0.95, 0.93, 0.86 }
+local TOTEM_ICON = "Interface\\Icons\\Spell_Nature_StoneClawTotem"
 local THREAT = {
 	aggro = { 1, 0.15, 0.05 }, -- you have it (not tanking)
 	warn = { 1, 0.55, 0.05 }, -- about to pull, or (as the tank) loose on someone else
@@ -134,6 +144,10 @@ end
 
 local function Fonts(p)
 	local o = Opt()
+	if p.totem then
+		Style(p.name, "title", o.totemName or 9, o.nameOutline, o.nameFont)
+		return
+	end
 	if p.friend then
 		-- Friendly plates have their own (Options > Nameplates > Friendly).
 		Style(p.name, "title", o.friendlyNameSize or 10, o.friendlyOutline, o.friendlyFont)
@@ -240,6 +254,9 @@ local function NewPlate(parent)
 	p.quest = over:CreateTexture(nil, "OVERLAY")
 	p.quest:SetTexture("Interface\\GossipFrame\\AvailableQuestIcon")
 	p.quest:Hide()
+	p.icon = over:CreateTexture(nil, "OVERLAY")
+	p.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	p.icon:Hide()
 	p.left = Diamond(over, 5)
 	p.right = Diamond(over, 5)
 
@@ -341,7 +358,55 @@ local function FriendLayout(p)
 	Fonts(p)
 end
 
+-- A totem: icon, name, short bar. No Diablo frame, so it cannot be mistaken for the shaman.
+local function TotemLayout(p)
+	local o = Opt()
+	local width = o.totemWidth or 72
+	local barH = o.totemBar or 4
+	local icon = o.totemIcon or 16
+	local nameSize = o.totemName or 9
+	local gap = 3
+	local barW = math.max(20, width - icon - gap)
+	p.root:SetSize(width, nameSize + 3 + math.max(icon, barH))
+	p.art:Hide()
+	p.thinEdge:Hide()
+	p.tick:Hide()
+	p.trail:Hide()
+	p.execute:Hide()
+	p.execute:SetAlpha(0)
+	p.flash:SetAlpha(0)
+	p.threat:SetAlpha(0)
+	p.pct:SetText("")
+	p.level:SetText("")
+	p.quest:Hide()
+	p.cast:Hide()
+	p.guild:Hide()
+	p.raid:Hide()
+	if p.left then p.left:Hide() if p.left.edge then p.left.edge:Hide() end end
+	if p.right then p.right:Hide() if p.right.edge then p.right.edge:Hide() end end
+	p.icon:ClearAllPoints()
+	p.icon:SetPoint("BOTTOMLEFT", p.root, "BOTTOMLEFT", 0, 0)
+	p.icon:SetSize(icon, icon)
+	p.icon:Show()
+	local bx = icon + gap
+	for _, region in ipairs({ p.slot, p.health }) do
+		region:ClearAllPoints()
+		region:SetPoint("BOTTOMLEFT", p.root, "BOTTOMLEFT", bx, math.max(0, (icon - barH) / 2))
+		region:SetSize(barW, barH)
+	end
+	p.name:ClearAllPoints()
+	p.name:SetPoint("BOTTOMLEFT", p.root, "BOTTOMLEFT", bx, math.max(icon, barH) + 1)
+	p.name:SetWidth(barW)
+	p.name:SetJustifyH("LEFT")
+	p.name:SetWordWrap(false)
+	p.nameRoom = nil
+	p.nameFitW = barW
+	Fonts(p)
+end
+
 local function Layout(p)
+	if p.totem and not p.friend then return TotemLayout(p) end
+	if p.icon then p.icon:Hide() end
 	if p.friend then return FriendLayout(p) end
 	p.art:Show()
 	p.trail:Show()
@@ -563,15 +628,94 @@ local function ClassChannels(unit)
 	end
 end
 
+-- English fallback names from the totem bar, plus whatever the client calls them. A rank
+-- ("Searing Totem III") strips down to the base name.
+local totemByName
+local function TotemCatalog()
+	if totemByName then return totemByName end
+	totemByName = {}
+	local elements = ns.Totem and ns.Totem.ELEMENTS
+	if elements then
+		for i, element in ipairs(elements) do
+			for _, totem in ipairs(element.totems or {}) do
+				if totem[2] then totemByName[totem[2]] = { element = i, id = totem[1] } end
+			end
+		end
+	end
+	return totemByName
+end
+
+function P.TotemOf(name)
+	if not Plain(name) or type(name) ~= "string" then return nil end
+	local base = name:gsub("%s+[IVX]+$", "")
+	local cat = TotemCatalog()
+	return cat[name] or cat[base]
+end
+
+local function NameIsTotem(name)
+	if not Plain(name) or type(name) ~= "string" then return false end
+	return name:find("Totem$", 1) ~= nil or name:find("Totem%s+[IVX]+$", 1) ~= nil
+end
+
+-- A totem often comes back as a player (the shaman's class). Creature type is the sure sign;
+-- a readable name ending in Totem covers the rest. A secret name with no creature type stays
+-- a player plate, because we cannot tell them apart.
+function P.IsTotem(unit, name)
+	if unit and UnitCreatureType then
+		local ok, kind = pcall(UnitCreatureType, unit)
+		if ok and Plain(kind) and kind == "Totem" then return true end
+	end
+	if P.TotemOf(name) then return true end
+	return NameIsTotem(name)
+end
+
+local function TotemTexture(info)
+	if info and info.id then
+		local get = (C_Spell and C_Spell.GetSpellTexture) or GetSpellTexture
+		if get then
+			local ok, tex = pcall(get, info.id)
+			if ok and tex then return tex end
+		end
+	end
+	return TOTEM_ICON
+end
+
 ---------------------------------------------------------------------------
 -- Updates (real units)
+
+local function MarkTotem(p)
+	if not p.unit or p.friend then
+		p.totem = false
+		return
+	end
+	local name
+	local ok, n = pcall(UnitName, p.unit)
+	if ok then name = n end
+	local totem = P.IsTotem(p.unit, name) and true or false
+	local was = p.totem and true or false
+	p.totem = totem
+	if totem then p.threatState = nil end
+	if was ~= totem then Layout(p) end
+	if totem and Opt().showTotems == false then
+		p.root:Hide()
+	elseif totem and p.unit then
+		p.root:Show()
+	end
+end
 
 local function UpdateName(p)
 	local unit = p.unit
 	local o = Opt()
+	MarkTotem(p)
+	if p.totem and o.showTotems == false then return end
 	local name = UnitName(unit)
 	if not pcall(p.name.SetText, p.name, name) then p.name:SetText("") end
 	P.FitNameFont(p, name)
+	if p.totem then
+		p.name:SetTextColor(TOTEM_NAME[1], TOTEM_NAME[2], TOTEM_NAME[3])
+		p.level:SetText("")
+		return
+	end
 	local c = P.NameColor(p.rank, Ask(UnitReaction, unit, "player"))
 	if Ask(UnitIsPlayer, unit) then
 		local r, g, b = ClassChannels(unit)
@@ -608,8 +752,12 @@ local function UpdateFill(p)
 	local unit = p.unit
 	local tex = ns.Art.Path("unitFill")
 	local tint
-	local threatTint = P.ThreatTint(p)
-	if Ask(UnitIsTapDenied, unit) then
+	local threatTint = p.totem and nil or P.ThreatTint(p)
+	if p.totem then
+		local info = P.TotemOf(UnitName(unit))
+		tint = (info and TOTEM_COLORS[info.element]) or TOTEM_STONE
+		if p.icon then p.icon:SetTexture(TotemTexture(info)) end
+	elseif Ask(UnitIsTapDenied, unit) then
 		tint = FILL.tapped
 	elseif threatTint then
 		tint = threatTint
@@ -665,7 +813,7 @@ end
 -- the name's length, not by measuring the plate, which the game doesn't allow; Exocet runs about
 -- two thirds of its size per letter, other faces a little less. A secret name keeps the size.
 function P.FitNameFont(p, name)
-	if p.friend then return end
+	if p.friend or p.totem then return end
 	local o = Opt()
 	local size = o.nameSize or 10
 	local room = p.nameRoom and p.nameFitInside or p.nameFitW
@@ -678,7 +826,7 @@ function P.FitNameFont(p, name)
 end
 
 local function UpdatePercent(p)
-	if not p.unit or p.friend then return end -- the preview writes its own; friends show none
+	if not p.unit or p.friend or p.totem then return end -- the preview writes its own; friends and totems show none
 	if not ShowPercent(p) then
 		p.pct:SetText("")
 		return
@@ -698,6 +846,10 @@ end
 
 local function UpdateExecute(p)
 	local o = Opt()
+	if p.totem then
+		p.execute:SetAlpha(0)
+		return
+	end
 	if o.execute == false then
 		p.execute:SetAlpha(0)
 		return
@@ -767,7 +919,7 @@ end
 -- Quest mobs, from the unit's tooltip: an objective still open. Out of combat (lines can be
 -- secret in it), so a plate that appears mid-fight keeps what it had.
 local function UpdateQuest(p)
-	if p.friend or p.questie or Opt().quest == false or not (C_TooltipInfo and C_TooltipInfo.GetUnit) then
+	if p.friend or p.totem or p.questie or Opt().quest == false or not (C_TooltipInfo and C_TooltipInfo.GetUnit) then
 		p.quest:Hide()
 		return
 	end
@@ -799,7 +951,7 @@ local function IsTank()
 end
 
 local function UpdateThreat(p)
-	if p.friend then return end
+	if p.friend or p.totem then return end
 	local o = Opt()
 	local status = Ask(UnitThreatSituation, "player", p.unit)
 	local state -- safe | warn | danger, nil out of a fight
@@ -838,7 +990,7 @@ end
 
 local function ApplyTarget(p)
 	local o = Opt()
-	local on = p.isTarget and o.targetMark ~= false
+	local on = p.isTarget and o.targetMark ~= false and not p.totem
 	p.targetGlow:SetAlpha(on and 0.55 or 0)
 	p.left:SetShown(on)
 	p.left.edge:SetShown(on)
@@ -878,7 +1030,7 @@ end
 local function StartCast(p, channel)
 	local o = Opt()
 	local cast, unit = p.cast, p.unit
-	if o.cast == false then
+	if p.totem or o.cast == false then
 		cast:Hide()
 		return
 	end
@@ -1506,11 +1658,21 @@ local function Added(unit)
 	p.friend = not enemy
 	byUnit[unit] = p
 	p.rank = enemy and Classification(unit) or "normal"
+	local plateName
+	local okName, n = pcall(UnitName, unit)
+	if okName then plateName = n end
+	p.totem = enemy and P.IsTotem(unit, plateName) or false
 	p.questKnown = nil
 	p.isTarget = TargetPlate() == plate
-	if enemy then TakeContainer(p) end
+	if p.totem and Opt().showTotems == false then
+		p.root:Hide()
+		HideBlizzard(plate.UnitFrame)
+		FadeSoftTarget(plate, true)
+		return
+	end
+	if enemy and not p.totem then TakeContainer(p) end
 	Layout(p)
-	SetAuraUnit(p, enemy and unit or nil)
+	SetAuraUnit(p, (enemy and not p.totem) and unit or nil)
 	p.root:Show()
 	Refresh(p)
 	HideBlizzard(plate.UnitFrame)
@@ -1532,6 +1694,7 @@ local function Removed(unit, quiet)
 	if not quiet and not p.friend and Ask(UnitIsDead, unit) then BurstAt(p) end
 	byUnit[unit] = nil
 	p.unit = nil
+	p.totem = nil
 	p.soft:Hide()
 	p.cast.holdUntil = nil
 	p.cast:Hide()
@@ -1717,6 +1880,7 @@ local PACK = {
 	{ name = "Edwin VanCleef", level = -1, rank = "boss", x = 0, y = -165, hp = 0.62 },
 	{ name = "Wu Shen", friend = true, guild = "Warrior Trainer", detail = "Level 60 · Stormwind", x = -380, y = -165, hp = 1 },
 	{ name = "Brakka", friend = true, class = "WARRIOR", guild = "The Rethiadians", x = 380, y = -165, hp = 0.6 },
+	{ name = "Searing Totem III", totem = true, element = 2, icon = "Interface\\Icons\\Spell_Fire_SearingTotem", x = 0, y = 175, hp = 0.7 },
 }
 
 local holder
@@ -1724,7 +1888,7 @@ local function PreviewTick(_, elapsed)
 	preview.t = (preview.t or 0) + elapsed
 	for i, p in ipairs(preview.plates) do
 		local d = PACK[i]
-		if not d.friend then
+		if d and not d.friend and not d.totem then
 		if p.demoThreat and Opt().threatPulse ~= false then
 			local k = 0.72 + 0.28 * math.sin(preview.t * 6.5)
 			p.health:SetStatusBarColor(p.demoThreat[1] * k, p.demoThreat[2] * k, p.demoThreat[3] * k, 1)
@@ -1802,11 +1966,32 @@ function P.DrawPreview()
 		end
 		p.rank = d.rank
 		p.friend = d.friend or false
+		p.totem = d.totem or false
 		p.isTarget = d.target or false
 		Layout(p)
 		p.root:ClearAllPoints()
 		p.root:SetPoint("CENTER", holder, "CENTER", d.x, d.y)
-		if d.friend then
+		if d.totem then
+			if Opt().showTotems == false then
+				p.root:Hide()
+			else
+				p.name:SetText(d.name)
+				p.name:SetTextColor(TOTEM_NAME[1], TOTEM_NAME[2], TOTEM_NAME[3])
+				p.level:SetText("")
+				p.icon:SetTexture(d.icon or TOTEM_ICON)
+				p.health:SetStatusBarTexture(ns.Art.Path("unitFillWhite") or "Interface\\Buttons\\WHITE8X8")
+				local f = TOTEM_COLORS[d.element] or TOTEM_STONE
+				p.health:SetStatusBarColor(f[1], f[2], f[3], 1)
+				p.health:SetMinMaxValues(0, 1)
+				p.health:SetValue(d.hp)
+				p.health:SetAlpha(1)
+				p.slot:SetAlpha(1)
+				p.raid:Hide()
+				p.cast:Hide()
+				p.pct:SetText("")
+				p.root:Show()
+			end
+		elseif d.friend then
 			p.name:SetText(d.name)
 			local cc = d.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[d.class]
 			local c = cc and { cc.r, cc.g, cc.b } or FRIEND_NAME

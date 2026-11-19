@@ -14,6 +14,16 @@ local MINE = getMeta and getMeta("SanctuaryUI", "Version") or "?"
 -- Newest first: { version, date, notes = { { heading, text, button label, action }, ... } }.
 local RELEASES = {
 	{
+		version = "0.31.2", date = "18 November 2026",
+		notes = {
+			{
+				"Enemy totems, small",
+				"An enemy totem is no longer a full player plate. It shows its icon, its name and a short health bar in its element's colour: earth, fire, water or air. Size them under Nameplates > Totems. The nameplate preview includes a Searing Totem.",
+				"Options", function() ns.Options.Open("plates") end,
+			},
+		},
+	},
+	{
 		version = "0.31.1", date = "18 November 2026",
 		notes = {
 			{
