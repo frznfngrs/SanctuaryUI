@@ -546,6 +546,23 @@ local function IsEnemy(unit)
 	return ok and Plain(attack) and attack or false
 end
 
+-- Class colour channels. UnitClass's token is often secret on a nameplate, and
+-- RAID_CLASS_COLORS can't be indexed with that. C_ClassColor turns the token
+-- into channels the bar and the name can take, secret or not.
+local function ClassChannels(unit)
+	local _, class = UnitClass(unit)
+	if class == nil then return nil end
+	if not Secret(class) then
+		local cc = RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+		if not cc then return nil end
+		return cc.r, cc.g, cc.b
+	end
+	if C_ClassColor and C_ClassColor.GetClassColor then
+		local ok, color = pcall(C_ClassColor.GetClassColor, class)
+		if ok and color then return color.r, color.g, color.b end
+	end
+end
+
 ---------------------------------------------------------------------------
 -- Updates (real units)
 
@@ -557,9 +574,8 @@ local function UpdateName(p)
 	P.FitNameFont(p, name)
 	local c = P.NameColor(p.rank, Ask(UnitReaction, unit, "player"))
 	if Ask(UnitIsPlayer, unit) then
-		local _, class = UnitClass(unit)
-		local cc = Plain(class) and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
-		if cc then c = { cc.r, cc.g, cc.b } end
+		local r, g, b = ClassChannels(unit)
+		if r ~= nil then c = { r, g, b } end
 	end
 	p.name:SetTextColor(c[1], c[2], c[3])
 	-- Level, coloured by how hard it is for you; ?? in red past reach.
@@ -598,9 +614,8 @@ local function UpdateFill(p)
 	elseif threatTint then
 		tint = threatTint
 	elseif Ask(UnitIsPlayer, unit) and Opt().classFill ~= false then
-		local _, class = UnitClass(unit)
-		local cc = Plain(class) and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
-		if cc then tint = { cc.r, cc.g, cc.b } end
+		local r, g, b = ClassChannels(unit)
+		if r ~= nil then tint = { r, g, b } end
 	elseif Ask(UnitReaction, unit, "player") == 4 then
 		tint = FILL.neutral
 	else
@@ -1229,9 +1244,8 @@ local function UpdateFriend(p)
 	local fill = FRIEND_FILL
 	local isPlayer = Ask(UnitIsPlayer, unit)
 	if isPlayer then
-		local _, class = UnitClass(unit)
-		local cc = Plain(class) and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
-		if cc then c, fill = { cc.r, cc.g, cc.b }, { cc.r, cc.g, cc.b } end
+		local r, g, b = ClassChannels(unit)
+		if r ~= nil then c, fill = { r, g, b }, { r, g, b } end
 	end
 	if not isPlayer and Opt().friendlyColor == "white" then c = { 0.95, 0.93, 0.9 } end
 	if not isPlayer and Opt().friendlyColor == "green" then c = { 0.45, 0.9, 0.4 } end

@@ -14,6 +14,16 @@ local MINE = getMeta and getMeta("SanctuaryUI", "Version") or "?"
 -- Newest first: { version, date, notes = { { heading, text, button label, action }, ... } }.
 local RELEASES = {
 	{
+		version = "0.31.1", date = "18 November 2026",
+		notes = {
+			{
+				"Enemy players in their class colour",
+				"An enemy player's health bar and name now show their class colour. They had stayed Diablo red, because in combat the game hides the class and the bar could not read it.",
+				"Options", function() ns.Options.Open("plates") end,
+			},
+		},
+	},
+	{
 		version = "0.31.0", date = "16 November 2026",
 		notes = {
 			{
