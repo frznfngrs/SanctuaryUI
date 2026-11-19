@@ -607,18 +607,19 @@ function F.OutfitText()
 	return "Your outfit: " .. table.concat(names, ", ") .. "."
 end
 
--- Attacked with the pole in your hands: your weapons come back (the game lets weapons change in
--- combat; armour waits).
+-- Attacked with the pole in your hands: your weapons come back. PLAYER_REGEN_DISABLED fires a
+-- moment before combat lockdown starts, and that moment is the only one an addon gets, so both
+-- hands go at once (like a two-line /equip macro). An off-hand sent later, from a timer, was
+-- blocked in combat (#26, #29-#31).
 local function WeaponsBack()
 	local g = Gear()
 	if not Opt().combatWeapons or not g or not PoleEquipped() or not EquipItemByName then return end
+	if InCombatLockdown() then return end
 	local main, off = g.normal[16], g.normal[17]
 	if not main or main == 0 then return end
 	Trace("attacked with the pole on: weapons back")
 	pcall(EquipItemByName, main, 16)
-	if off and off ~= 0 then
-		C_Timer.After(0.4, function() pcall(EquipItemByName, off, 17) end)
-	end
+	if off and off ~= 0 then pcall(EquipItemByName, off, 17) end
 end
 
 ---------------------------------------------------------------------------
