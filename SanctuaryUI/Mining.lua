@@ -417,6 +417,17 @@ end
 
 -- One vein mined: vein (a D.VEINS row, or { key = "other:Name", name = "Name" } for one the
 -- book doesn't know), loot { { id, name, n, q } }, map/x/y where it stood (nil if unknown).
+-- An everyday line list at your depth (MiningData.lua's surface / middle / deep), with its own
+-- no-repeat deck: list, deck name. Lists without depths come back as they are.
+local function Lines(name)
+	local list = D().LINES[name]
+	if not list.surface then return list, name end
+	local rank = M.Skill() or 1
+	local tier = rank >= 225 and "deep" or rank >= 125 and "middle" or "surface"
+	return list[tier], name .. ":" .. tier
+end
+M.Lines = Lines
+
 -- One mining swing (a vein usually takes two or three) writes at most one memoir line: the
 -- most worth telling. Candidates, best first: your first vein, a rare gem (blue and up), a new
 -- kind of vein, an uncommon gem (once per gem a day), a vein the maps don't have, then the
@@ -463,7 +474,7 @@ local function OnMined(vein, loot, map, x, y)
 	if before == 0 then
 		Offer("first", function() return Fill(lines.first[1], fields) end)
 	elseif fresh then
-		Offer("vein", function() return Fill(lines.special[vein.key] or Pick(lines.vein, "vein"), fields) end)
+		Offer("vein", function() return Fill(lines.special[vein.key] or Pick(Lines("vein")), fields) end)
 	end
 	-- Gems: all go in the trophy case; the best one may get the line.
 	local today = Today()
@@ -476,10 +487,10 @@ local function OnMined(vein, loot, map, x, y)
 		while #log.trophies > MAX_TROPHIES do table.remove(log.trophies, 1) end
 		local f = { vein = fields.vein, zone = zone, gem = name, ore = fields.ore }
 		if q >= 3 then
-			Offer("rare", function() return Fill(Pick(lines.rare, "rare"), f) end, q)
+			Offer("rare", function() return Fill(Pick(Lines("rare")), f) end, q)
 		elseif not log.gemsToday[item[1]] then
 			local id = item[1]
-			Offer("gem", function() return Fill(Pick(lines.gem, "gem"), f) end, q, function() log.gemsToday[id] = true end)
+			Offer("gem", function() return Fill(Pick(Lines("gem")), f) end, q, function() log.gemsToday[id] = true end)
 		end
 	end
 	-- A vein the maps don't have: kept and shared every time, told once a day.
@@ -489,19 +500,19 @@ local function OnMined(vein, loot, map, x, y)
 		if ns.MiningMap and ns.MiningMap.Forget then ns.MiningMap.Forget(map) end
 		if ns.MiningShare and ns.MiningShare.Shout then ns.MiningShare.Shout(log.finds[#log.finds]) end
 		if log.findDay ~= today then
-			Offer("find", function() return Fill(Pick(lines.find, "find"), fields) end, nil, function() log.findDay = today end)
+			Offer("find", function() return Fill(Pick(Lines("find")), fields) end, nil, function() log.findDay = today end)
 		end
 	end
 	-- Mining for the habit: one line a day once a vein teaches you nothing.
 	local colour = BY_KEY[vein.key] and Colour(vein, (M.Skill()))
 	if colour == "grey" and not fresh and log.greyDay ~= today then
-		Offer("grey", function() return Fill(Pick(lines.grey, "grey"), fields) end, nil, function() log.greyDay = today end)
+		Offer("grey", function() return Fill(Pick(Lines("grey")), fields) end, nil, function() log.greyDay = today end)
 	end
 	-- Stone piling up: once a day, past forty.
 	if log.stoneDay ~= today then log.stoneDay, log.stoneToday, log.stoneTold = today, 0, nil end
 	log.stoneToday = (log.stoneToday or 0) + stone
 	if log.stoneToday >= 40 and not log.stoneTold then
-		Offer("stone", function() return Fill(Pick(lines.stone, "stone"), { n = log.stoneToday, zone = zone }) end, nil, function() log.stoneTold = true end)
+		Offer("stone", function() return Fill(Pick(Lines("stone")), { n = log.stoneToday, zone = zone }) end, nil, function() log.stoneTold = true end)
 	end
 	for mark, line in pairs(lines.total) do
 		if before < mark and log.total >= mark then Offer("total", function() return line end) end
@@ -537,7 +548,7 @@ local function OnSmelted(s)
 	if fresh then
 		local name = ItemName(s.item)
 		local lines = D().LINES
-		book.Write(Fill(lines.smeltSpecial[name] or Pick(lines.smelt, "smelt"), { bar = name }))
+		book.Write(Fill(lines.smeltSpecial[name] or Pick(Lines("smelt")), { bar = name }))
 	end
 	book.Refresh()
 end
@@ -624,7 +635,7 @@ local function CheckSmelts(announce)
 			log.known[s.spell] = true
 			if log.scanned and announce ~= false and written < 2 then
 				written = written + 1
-				book.Write(Fill(Pick(D().LINES.learned, "learned"), { bar = ItemName(s.item) }))
+				book.Write(Fill(Pick(Lines("learned")), { bar = ItemName(s.item) }))
 			end
 		end
 	end
@@ -1225,7 +1236,7 @@ function M.OreIcon(key)
 end
 
 function M.PreviewToast()
-	local lines = D().LINES.vein
+	local lines = (Lines("vein"))
 	local log = Log()
 	Book.Toast(book, Fill(lines[math.random(#lines)], { vein = "Tin Vein", ore = "Tin Ore", zone = "Redridge Mountains" }), log and log.dayCount or 1)
 end
