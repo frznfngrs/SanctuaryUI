@@ -1016,6 +1016,10 @@ local function JournalArgs()
 			pageFont = Select(4, "Page font", "The guide's text and tables. Diablo Serif by default.", "journal", "pageFont", TEXT_FONTS, TEXT_FONT_ORDER),
 			flyout = Width(Toggle(5, "Fish in the console menu's flyout", "A fish plate among the Spellbook & Panels flyout's buttons. Takes effect after a /reload.", "journal", "flyout"), 0.666),
 		}),
+		dock = Card(4.5, "Beside the Fishing window", {
+			dock = Toggle(1, "Open beside the Fishing window", "When the game's Fishing window opens, the journal opens on Camp, docked to its right edge and sized to match. It closes with the window, and can't be dragged away while docked.", "journal", "dock"),
+			skin = Toggle(2, "Dress it in D3 stone", "While Fishing is open, the window wears the book's stone, with a bobber in its medallion, so the two read as one spread. Its buttons, lists and crafting are the game's own; any other profession looks as Blizzard made it.", "journal", "skin"),
+		}),
 		place = PositionCard(5, "Left of centre by default. Drag the window by its stone or header to move it.", function() J().ResetPosition() end, function() return not DB().journal.moved end),
 	}
 end
@@ -1055,6 +1059,10 @@ local function CookbookArgs()
 			scale = Range(1, "Scale", nil, "cookbook", "scale", 0.5, 1.6, 0.01, true),
 			flyout = Width(Toggle(2, "Cauldron in the console menu's flyout", "A cauldron plate among the Spellbook & Panels flyout's buttons. Takes effect after a /reload.", "cookbook", "flyout"), 0.666),
 			shared = Note(3, "The two books share their page: text size, the diary hand, the page font, and the pop-up's size, sound, time and place are set once, under Fishing journal."),
+		}),
+		dock = Card(4.5, "Beside the Cooking window", {
+			dock = Toggle(1, "Open beside the Cooking window", "When the game's Cooking window opens, the Cookbook opens on The Larder, docked to its right edge and sized to match. It closes with the window, and can't be dragged away while docked.", "cookbook", "dock"),
+			skin = Toggle(2, "Dress it in D3 stone", "While Cooking is open, the window wears the book's stone, with an egg in a pan in its medallion, so the two read as one spread. Its buttons, lists and crafting are the game's own; any other profession looks as Blizzard made it.", "cookbook", "skin"),
 		}),
 		place = PositionCard(5, "Right of centre by default, so both books can lie open. Drag the window by its stone or header to move it.", function() if C() then C().ResetPosition() end end, function() return not DB().cookbook.moved end),
 	}
@@ -1098,11 +1106,15 @@ local function MiningArgs()
 			flyout = Width(Toggle(2, "Pick in the console menu's flyout", "A pick plate among the Spellbook & Panels flyout's buttons. Takes effect after a /reload.", "mining", "flyout"), 0.666),
 			shared = Note(3, "The books share their page: text size, the diary hand, the page font, and the pop-up's size, sound, time and place are set once, under Fishing journal."),
 		}),
+		dock = Card(4.5, "Beside the Mining window", {
+			dock = Toggle(1, "Open beside the Mining window", "When the game's Mining window shows its smelting, Rock Bottom opens on The Smelter, docked to its right edge and sized to match. It closes with the window, and can't be dragged away while docked.", "mining", "dock"),
+			skin = Toggle(2, "Dress it in D3 stone", "While Mining is open, the window wears the book's stone, with ingots over a forge in its medallion, so the two read as one spread. Its buttons, lists and smelting are the game's own; any other profession looks as Blizzard made it.", "mining", "skin"),
+		}),
 		pins = Card(5, "Vein pins", {
 			world = Toggle(1, "On the world map", "A pin on every known spot of the veins you want on a zone's map; on a continent, one pin per zone with the count.", "mining.pins", "world"),
 			minimap = Toggle(2, "On the minimap", "The same veins within the minimap's reach. They turn with \"rotate minimap\".", "mining.pins", "minimap"),
-			show = Select(3, "Which veins", "Veins that still teach you skill (orange, yellow, green), every vein you can mine, or every vein. The book's \"Show on the world map\" links always show the vein they name.", "mining.pins", "show",
-				{ teach = "Still teach you", mine = "You can mine", all = "Every vein" }, { "teach", "mine", "all" }),
+			show = Select(3, "Which veins", "Every vein you can mine (the ones you've outgrown drawn dim), only those that still teach you skill, or every vein. The book's \"Show on the world map\" links always show the vein they name.", "mining.pins", "show",
+				{ mine = "You can mine", teach = "Still teach you", all = "Every vein" }, { "mine", "teach", "all" }),
 			near = Select(4, "Close to you", "The game's Find Minerals shows a live vein as a yellow dot. Pins this close fade so that dot shows through; a faded pin with no dot is a vein somebody got to first.", "mining.pins", "near",
 				{ fade = "Fade", hide = "Hide", full = "Leave as they are" }, { "fade", "hide", "full" }),
 			nearYards = Range(5, "Close means (yards)", nil, "mining.pins", "nearYards", 20, 200, 5),

@@ -177,15 +177,76 @@ D.CLAMLETTE = {
 }
 
 -- The road from 1 to 300: skill range, with a pole (fish), with a blade (meat), tip.
-D.ROUTE = {
-	{ "1-50", "Brilliant Smallfish, or Slitherskin Mackerel on a coast: about 55.", "Roasted Boar Meat or Charred Wolf Meat (you know them already), or Herb Baked Egg.", "Buy spices from a cooking supplier, never the auction house." },
-	{ "50-100", "Longjaw Mud Snapper or Rainbow Fin Albacore: about 55.", "Coyote Steak or Boiled Clams, both from the trainer.", "Learn Journeyman at 50." },
-	{ "100-175", "Bristle Whisker Catfish. It turns green at 160: about 90 gets you there, or switch.", "Dry Pork Ribs to 130, then Curiously Tasty Omelet or Goblin Deviled Clams.", "The Expert Cookbook can be read at 125. Buy it before you cap at 150." },
-	{ "175-225", "Mithril Head Trout or Rockscale Cod: about 55.", "Roast Raptor, or Forever's Plain Ol' Paletusk (185) and Spider Sausage (200).", "Kelsey Yance in Booty Bay sells the Trout and Redgill recipes." },
-	{ "225", "Clamlette Surprise.", "Clamlette Surprise.", "Level 35. Dirge, Gadgetzan. Eggs, clams, cheese." },
-	{ "225-250", "Spotted Yellowtail or Filet of Redgill.", "Monster Omelet or Tender Wolf Steak.", "Gikkix at Steamwheedle Port sells Yellowtail, Nightfin Soup and Poached Sunscale Salmon." },
-	{ "250-300", "Nightfin Soup, or keep cooking Yellowtail to 290 or so.", "Tender Wolf Steak and Monster Omelet to 285, Runn Tum Tuber Surprise after.", "Older guides end on Poached Sunscale Salmon or Mightfish Steak. Both need an Iron Oven now." },
+-- The levelling guide (The Road to 300): each step { from, to, N = text (or A/H for one side),
+-- need = { { itemID, count, name } } (counted against your bags), lines = { text, or { text,
+-- side = "A"|"H" } } }. The step you're on is marked on the page. Facts:
+-- wow-professions.com/forever/cooking-leveling-guide and its fishing-and-cooking guide,
+-- warcrafttavern.com/forever/guides/cooking-leveling, wow.gg's recipe data (November 2026).
+D.GUIDE = {
+	intro = {
+		"Fish is usually cheaper than meat at the auction house, and it bites wherever you're levelling anyway. Buy spices from a cooking supplier, never at the auction house.",
+		"The counts are estimates: a green recipe only sometimes gives a point, so bring a few spare.",
+	},
+	steps = {
+		{ 1, 50, N = "Brilliant Smallfish or Slitherskin Mackerel, about 55 of whichever fish is cheaper. Both recipes are 40c from fishing suppliers.",
+			need = { { 6291, 55, "Raw Brilliant Smallfish" } },
+			lines = {
+				"No fish? Charred Wolf Meat or Roasted Boar Meat from the trainer, about 55.",
+				{ "Or Crispy Bat Wing (Abigail Shiel in Brill) or Scorpid Surprise (Grimtak in Razor Hill).", side = "H" },
+				{ "Or Kaldorei Spider Kabob, from Zarrin's quest in Dolanaar.", side = "A" },
+				"Train Journeyman at 50. Skip it and nothing past 75 counts.",
+			} },
+		{ 50, 100, N = "Longjaw Mud Snapper or Rainbow Fin Albacore, about 55. Recipes 4s from fishing suppliers.",
+			need = { { 6289, 55, "Raw Longjaw Mud Snapper" } },
+			lines = {
+				{ "Or Smoked Bear Meat from Drac Roughcut in Loch Modan: it turns yellow early, so make 65 to 75.", side = "A" },
+				{ "Or Smoked Bear Meat from Andrew Hilbert in Silverpine (it turns yellow early, so make 65 to 75), or Strider Stew from Tari'qa at the Crossroads.", side = "H" },
+			} },
+		{ 100, 130, N = "Bristle Whisker Catfish, 30. Buy about 55: you'll want 25 more after this step. Recipe 12s from fishing suppliers.",
+			need = { { 6308, 55, "Raw Bristle Whisker Catfish" } },
+			lines = {
+				{ "Or Cooked Crab Claw, 35, from Kendor Kabonka in Stormwind.", side = "A" },
+				"At 125, read the Expert Cookbook. Without it nothing past 150 counts.",
+			} },
+		{ 130, 150, N = "Bristle Whisker Catfish 25 more, or Goblin Deviled Clams 25 (trainer), or Curiously Tasty Omelet 20.",
+			need = { { 6308, 25, "Raw Bristle Whisker Catfish" } },
+			lines = {
+				{ "Or Hot Lion Chops, 25, from Zargh at the Crossroads.", side = "H" },
+			} },
+		{ 150, 175, N = "Goblin Deviled Clams or Curiously Tasty Omelet, about 30, each with Hot Spices.",
+			need = { { 5504, 30, "Tangy Clam Meat" }, { 2692, 30, "Hot Spices" } },
+			lines = {
+				{ "The Omelet recipe: Kendor Kabonka in Stormwind, or Ormer Ironbraid's quest in the Wetlands. Raptor Eggs drop in Arathi, Stranglethorn and the Wetlands.", side = "A" },
+				{ "The Omelet recipe: Keena at Hammerfall or Nerrist at Grom'gol. Raptor Eggs drop in Arathi, Stranglethorn and the Wetlands.", side = "H" },
+				"Catfish works here too, but it turns green at 160: about 90 for these 25 points.",
+			} },
+		{ 175, 225, N = "Roast Raptor, about 55, usually the cheapest: Raptor Flesh and Hot Spices.",
+			need = { { 12184, 55, "Raptor Flesh" }, { 2692, 55, "Hot Spices" } },
+			lines = {
+				{ "The Roast Raptor recipe (50s, soulbound): Hammon Karwn at Refuge Pointe or Helenia Olden in Theramore.", side = "A" },
+				{ "The Roast Raptor recipe (50s, soulbound): Keena at Hammerfall or Ogg'marr at Brackenwall.", side = "H" },
+				"Or Mithril Head Trout (22s from fishing suppliers, Kelsey Yance in Booty Bay for both sides), or Soothing Turtle Bisque from the Hillsbrad quest.",
+			} },
+		{ 225, 225, N = "Artisan: the quest Clamlette Surprise from Dirge Quikcleave, at the back of the Gadgetzan inn. Level 35.",
+			need = { { 12207, 12, "Giant Egg" }, { 7974, 10, "Zesty Clam Meat" }, { 8932, 20, "Alterac Swiss" } },
+			lines = {
+				"Gather it all before you travel; an alt can mail you what's missing. Above his level Dirge shows no \"!\" unless low-level quests are tracked.",
+				"While you're in Tanaris, buy the Spotted Yellowtail and Nightfin Soup recipes from Gikkix at Steamwheedle Port.",
+			} },
+		{ 225, 285, N = "Spotted Yellowtail or Filet of Redgill, 72 of whichever fish is cheaper.",
+			need = { { 4603, 72, "Raw Spotted Yellowtail" } },
+			lines = {
+				"Yellowtail's recipe: Gikkix at Steamwheedle Port, 1g60s. Redgill's: Kelsey Yance in Booty Bay.",
+				"Many 240-300 dishes (Poached Sunscale Salmon, Baked Salmon, Lobster Stew, Mightfish Steak) need an Iron Oven, which you can only build at 300. Use them only at a camp where someone has one.",
+			} },
+		{ 285, 300, N = "Nightfin Soup, 18: Raw Nightfin Snapper and Refreshing Spring Water. The fish turn green at 285; the soup stays orange to 290.",
+			need = { { 13759, 18, "Raw Nightfin Snapper" }, { 159, 18, "Refreshing Spring Water" } },
+			lines = {
+				"The recipe: Gikkix at Steamwheedle Port, 2g. Nightfin Snapper don't bite from noon to six, game time; short a few, finish on leftover Redgill.",
+			} },
+	},
 }
+
 
 -- Fishing and cooking together, as one trip.
 D.TOGETHER = {

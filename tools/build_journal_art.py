@@ -23,7 +23,11 @@
 
   rockbottom.png 1024x1024 (Rock Bottom, Mining.lua): its own header (a pick over a lump of ore
     in lamp-lit umber glass) and tabs, in the same places; `build_journal_art.py rockbottom`
-    makes only this one.
+    makes only this one. Its slim header is in book-headers.png.
+
+  book-headers.png 1024x1024: the books' slim headers (600x72, rows of 80): the journal, the
+    Fishing window's (a bobber), the Cookbook, the Cooking window's (an egg in a pan over a fire),
+    Rock Bottom, the Mining window's (ingots over a forge). `build_journal_art.py headers`.
 
   run-report.png 1024x1024 (the damage meter's Run Report, RunReport.lua): its own header (two
     crossed swords in ember glass, the meter's mark) and its pages' tabs, in the same places;
@@ -654,6 +658,13 @@ def mine_header() -> Image.Image:
     for sx, sy, sr in ((R - 22, R - 2, 2.6), (R - 27, R - 9, 1.9), (R - 17, R - 12, 1.6)):
         d.ellipse(((sx - sr) * ss, (sy - sr) * ss, (sx + sr) * ss, (sy + sr) * ss), outline=lead, width=int(0.9 * ss),
                   fill=(255, 214, 120, 255))
+    return seat_glass(head, canvas, R)
+
+
+def seat_glass(head: Image.Image, canvas: Image.Image, R: int) -> Image.Image:
+    """Lead a supersampled glass canvas (2R px across, scaled down here) into the header's
+    medallion, under the gargoyle's chin, with a soft rim."""
+    size = 2 * R
     small = canvas.resize((size, size), Image.LANCZOS)
     hx, hy = MEDAL
     hp = np.asarray(head).astype(np.float32)
@@ -670,6 +681,258 @@ def mine_header() -> Image.Image:
             k = min(1.0, GLASS_R + 0.6 - dr)  # soft rim
             hp[Y, X, :3] = hp[Y, X, :3] * (1 - k) + sp[y, x, :3] * k
     return Image.fromarray(hp.clip(0, 255).astype(np.uint8), "RGBA")
+
+
+def ingot_shapes(w: float, h: float):
+    """Polygons in a w x h box: three ingots (two below, one across them), each a top face and
+    a front face, and the forge's flames licking up beneath."""
+    def P(x, y):
+        return (x * w, y * h)
+
+    def ingot(cx, cy, half, depth, tall):
+        # A trapezoid bar seen from the front and a little above: the top face narrower.
+        top = [P(cx - half * 0.78, cy - depth), P(cx + half * 0.78, cy - depth), P(cx + half, cy), P(cx - half, cy)]
+        front = [P(cx - half, cy), P(cx + half, cy), P(cx + half * 0.92, cy + tall), P(cx - half * 0.92, cy + tall)]
+        return top, front
+
+    bars = [ingot(0.33, 0.52, 0.19, 0.07, 0.11), ingot(0.67, 0.52, 0.19, 0.07, 0.11), ingot(0.50, 0.35, 0.21, 0.07, 0.11)]
+    flames = []
+    # Tongues of fire, tall and leaning, overlapping, licking up under the bars.
+    for cx, top, half, lean in ((0.20, 0.58, 0.10, -0.05), (0.36, 0.50, 0.11, 0.03), (0.52, 0.54, 0.12, -0.03),
+                                (0.68, 0.49, 0.11, 0.05), (0.82, 0.60, 0.09, 0.04)):
+        flame = [P(cx + lean, top)]
+        for a in np.linspace(-0.25, math.pi + 0.25, 14):
+            flame.append(P(cx + half * math.cos(a), 0.84 + 0.08 * math.sin(a)))
+        flames.append(flame)
+    return bars, flames
+
+
+def smelt_header() -> Image.Image:
+    """The same header with ingots over a forge fire in the glass: Rock Bottom's dress for the
+    Mining window (MiningDock.lua), the left page of the spread."""
+    head = Image.open(OUT / "bag-frame.png").convert("RGBA").crop((0, 0, 600, 155))
+    ss = 6
+    R = int(GLASS_R + 2)
+    S = 2 * R * ss
+    yy, xx = np.mgrid[0:S, 0:S].astype(np.float32) / ss - R
+    mott = noise((S, S), 2.5 * ss, 41) * 0.5 + noise((S, S), 0.8 * ss, 42) * 0.25
+    # Forge glass: umber, glowing orange from the fire below.
+    heat = np.clip((yy + R * 0.2) / (1.2 * R), 0, 1)[..., None] ** 1.5
+    base = np.stack([44 + 0 * yy, 26 + 0 * yy, 16 + 0 * yy], -1) * (1 - 0.3 * heat) + np.array([210, 92, 18]) * heat * 0.8
+    glass = base * (1 + mott[..., None] * 0.35)
+    canvas = Image.fromarray(glass.clip(0, 255).astype(np.uint8), "RGB").convert("RGBA")
+    d = ImageDraw.Draw(canvas)
+    lead = (22, 16, 12, 255)
+    for a in (-2.6, -1.9, -1.2, -0.5):
+        d.line([((R + 16 * math.cos(a)) * ss, (R + 16 * math.sin(a)) * ss),
+                ((R + 44 * math.cos(a)) * ss, (R + 44 * math.sin(a)) * ss)], fill=lead, width=int(1.4 * ss))
+    pw, ph = int(60 * ss), int(60 * ss)
+    bars, flames = ingot_shapes(pw, ph)
+    art = Image.new("RGBA", (pw, ph), (0, 0, 0, 0))
+    ad = ImageDraw.Draw(art)
+    fy, fx = np.mgrid[0:ph, 0:pw].astype(np.float32)
+    fn = noise((ph, pw), 1.6 * ss, 43)
+    shine = np.clip(1 - np.hypot((fx - pw * 0.40) / (pw * 0.55), (fy - ph * 0.30) / (ph * 0.5)), 0, 1)[..., None]
+
+    def fill(polys, color_fn):
+        m = Image.new("L", (pw, ph), 0)
+        md = ImageDraw.Draw(m)
+        for poly in polys:
+            md.polygon(poly, fill=255)
+        mask = np.asarray(m, np.float32) / 255
+        art.alpha_composite(rgba(color_fn() * (1 + fn[..., None] * 0.12), mask))
+
+    glow = np.clip(1 - np.hypot((fx - pw * 0.5) / (pw * 0.4), (fy - ph * 0.95) / (ph * 0.3)), 0, 1)[..., None]
+    fill(flames, lambda: np.concatenate([232 + 23 * glow, 120 + 110 * glow, 20 + 70 * glow ** 2], -1))
+    for poly in flames:  # leaded before the bars, so the bars sit in front of the fire
+        ad.line(poly + [poly[0]], fill=lead, width=int(1.2 * ss), joint="curve")
+    # Bars: gold-bronze, the top faces bright where the fire and the lamp catch them.
+    for top, front in bars:
+        fill([front], lambda: np.concatenate([150 + 60 * shine, 98 + 46 * shine, 36 + 22 * shine], -1))
+        fill([top], lambda: np.concatenate([226 + 29 * shine, 176 + 60 * shine, 82 + 50 * shine], -1))
+        for poly in (front, top):
+            ad.line(poly + [poly[0]], fill=lead, width=int(1.3 * ss), joint="curve")
+    canvas.alpha_composite(art, (int((R - 30) * ss), int((R - 27) * ss)))
+    for sx, sy, sr in ((R - 12, R - 26, 2.2), (R + 9, R - 30, 1.8), (R + 1, R - 34, 1.5)):
+        d.ellipse(((sx - sr) * ss, (sy - sr) * ss, (sx + sr) * ss, (sy + sr) * ss), outline=lead, width=int(0.9 * ss),
+                  fill=(255, 206, 110, 255))
+    return seat_glass(head, canvas, R)
+
+
+
+# Slim headers (the user, 2026-11-21: the full ones "take up too much visual area"): the frame's
+# top edge, a sliver of glass between the two red rails, the bottom edge, and the medallion
+# redrawn smaller in the middle. 600 x SLIM_H, in book-headers.png.
+SLIM_H = 72
+SLIM_ROWS = ((16, 40), (107, 155))  # rows of the full header kept, top to bottom
+SLIM_CLOSE = (562, 8, 30)  # x, y, size of the close mark in the slim header
+
+
+def slim_header(full: Image.Image) -> Image.Image:
+    """A full 600x155 medallion header made slim."""
+    strip = Image.new("RGBA", (600, SLIM_H), (0, 0, 0, 0))
+    y = 0
+    for a, b in SLIM_ROWS:
+        strip.alpha_composite(full.crop((0, a, 600, b)), (0, y))
+        y += b - a
+    # The big medallion's ring is cut through in these rows: cover its columns with glass from
+    # the left panel (the rails run straight across, so they meet), and the close mark's with
+    # the frame beside it.
+    strip.alpha_composite(strip.crop((75, 0, 225, SLIM_H)), (225, 0))
+    strip.alpha_composite(strip.crop((505, 0, 548, SLIM_H)), (550, 0))
+    # The medallion, ring and glass, circle-cut and shrunk to the strip's height.
+    hx, hy = MEDAL
+    r = 63
+    box = (int(hx - r), int(hy - r), int(hx + r), int(hy + r))
+    med = full.crop(box)
+    ss = 4
+    mask = Image.new("L", (med.width * ss, med.height * ss), 0)
+    ImageDraw.Draw(mask).ellipse((0, 0, med.width * ss - 1, med.height * ss - 1), fill=255)
+    mask = mask.resize(med.size, Image.LANCZOS)
+    med.putalpha(Image.fromarray(np.minimum(np.asarray(med.getchannel("A")), np.asarray(mask))))
+    size = SLIM_H
+    med = med.resize((size, size), Image.LANCZOS)
+    strip.alpha_composite(med, (int(round(hx - size / 2)), 0))
+    # The close mark, smaller, at the top right.
+    x, yy, s = SLIM_CLOSE
+    mark = full.crop((553, 6, 592, 45)).resize((s, s), Image.LANCZOS)
+    strip.alpha_composite(mark, (x, yy))
+    return strip
+
+
+def glass_header(glass, draw, seed: int, under=None) -> Image.Image:
+    """A medallion header with art leaded into the glass. glass(yy, xx, R) -> HxWx3 colours (yy,
+    xx in px from the centre); draw(fill, lead_line, P, shine, fx, fy, pw, ph) puts the picture on
+    a 60 px square layer."""
+    head = Image.open(OUT / "bag-frame.png").convert("RGBA").crop((0, 0, 600, 155))
+    ss = 6
+    R = int(GLASS_R + 2)
+    S = 2 * R * ss
+    yy, xx = np.mgrid[0:S, 0:S].astype(np.float32) / ss - R
+    mott = noise((S, S), 2.5 * ss, seed) * 0.5 + noise((S, S), 0.8 * ss, seed + 1) * 0.25
+    canvas = Image.fromarray((glass(yy, xx, R) * (1 + mott[..., None] * 0.35)).clip(0, 255).astype(np.uint8), "RGB").convert("RGBA")
+    d = ImageDraw.Draw(canvas)
+    lead = (22, 16, 12, 255)
+    for a in (-2.6, -1.9, -1.2, -0.5):
+        d.line([((R + 16 * math.cos(a)) * ss, (R + 16 * math.sin(a)) * ss),
+                ((R + 44 * math.cos(a)) * ss, (R + 44 * math.sin(a)) * ss)], fill=lead, width=int(1.4 * ss))
+    if under:
+        under(d, R, ss, lead)  # leading drawn straight on the glass, edge to edge
+    pw = ph = int(60 * ss)
+    art = Image.new("RGBA", (pw, ph), (0, 0, 0, 0))
+    ad = ImageDraw.Draw(art)
+    fy, fx = np.mgrid[0:ph, 0:pw].astype(np.float32)
+    fn = noise((ph, pw), 1.6 * ss, seed + 2)
+    shine = np.clip(1 - np.hypot((fx - pw * 0.35) / (pw * 0.55), (fy - ph * 0.30) / (ph * 0.5)), 0, 1)[..., None]
+
+    def P(x, y):
+        return (x * pw, y * ph)
+
+    def fill(polys, color_fn):
+        m = Image.new("L", (pw, ph), 0)
+        md = ImageDraw.Draw(m)
+        for poly in polys:
+            md.polygon(poly, fill=255)
+        mask = np.asarray(m, np.float32) / 255
+        art.alpha_composite(rgba(color_fn() * (1 + fn[..., None] * 0.12), mask))
+
+    def lead_line(poly, width=1.3, closed=True):
+        ad.line(poly + ([poly[0]] if closed else []), fill=lead, width=int(width * ss), joint="curve")
+
+    draw(fill, lead_line, P, shine, fx, fy, pw, ph)
+    canvas.alpha_composite(art, (int((R - 30) * ss), int((R - 28) * ss)))
+    return seat_glass(head, canvas, R)
+
+
+def ellipse(P, cx, cy, rx, ry, a0=0.0, a1=2 * math.pi, n=40):
+    return [P(cx + rx * math.cos(a), cy + ry * math.sin(a)) for a in np.linspace(a0, a1, n)]
+
+
+def bobber_header() -> Image.Image:
+    """The Fishing window's dress (BookDock.lua): a red and white bobber riding blue water."""
+    HORIZON = 8  # px below the glass's centre
+
+    def wave(x, R):
+        return HORIZON + 1.6 * math.sin(x / R * 5.0)
+
+    def glass(yy, xx, R):
+        # Dusk sky above, water below a wavy horizon, lighter where it meets the sky.
+        below = yy > (HORIZON + 1.6 * np.sin(xx / R * 5.0))
+        sky = np.stack([24 + 0 * yy, 52 + 0 * yy, 96 + 0 * yy], -1)
+        depth = np.clip((yy - HORIZON) / R, 0, 1)[..., None]
+        water = np.stack([46 + 0 * yy, 120 + 0 * yy, 160 + 0 * yy], -1) * (1.1 - 0.5 * depth)
+        return np.where(below[..., None], water, sky)
+
+    def under(d, R, ss, lead):
+        line = [((R + x) * ss, (R + wave(x, R)) * ss) for x in np.linspace(-R, R, 60)]
+        d.line(line, fill=lead, width=int(1.4 * ss), joint="curve")
+        for y, half in ((15, 14), (22, 20)):  # ripples round the bobber
+            d.arc(((R - half) * ss, (R + y - 2.5) * ss, (R + half) * ss, (R + y + 2.5) * ss), 0, 360, fill=lead, width=int(0.9 * ss))
+
+    def draw(fill, lead_line, P, shine, fx, fy, pw, ph):
+        top = ellipse(P, 0.5, 0.48, 0.17, 0.17, math.pi, 2 * math.pi) + [P(0.33, 0.48)]
+        bottom = ellipse(P, 0.5, 0.48, 0.17, 0.17, 0, math.pi)
+        stick = [P(0.485, 0.14), P(0.515, 0.14), P(0.515, 0.32), P(0.485, 0.32)]
+        fill([bottom], lambda: np.concatenate([226 + 29 * shine, 220 + 30 * shine, 206 + 30 * shine], -1))
+        fill([top], lambda: np.concatenate([196 + 50 * shine, 36 + 30 * shine, 28 + 20 * shine], -1))
+        fill([stick], lambda: np.concatenate([210 + 40 * shine, 170 + 40 * shine, 90 + 40 * shine], -1))
+        for poly in (bottom, top, stick):
+            lead_line(poly)
+        lead_line([P(0.5, 0.14), P(0.62, 0.02)], 0.8, closed=False)  # the line, up to the rod
+
+    return glass_header(glass, draw, 51, under)
+
+
+def pan_header() -> Image.Image:
+    """The Cooking window's dress (BookDock.lua): an egg in a pan over a fire, in kitchen glass."""
+    def glass(yy, xx, R):
+        heat = np.clip((yy + R) / (2 * R), 0, 1)[..., None] ** 2
+        return np.stack([16 + 0 * yy, 84 + 0 * yy, 58 + 0 * yy], -1) * (1.1 - 0.35 * heat) + np.array([110, 44, 0]) * heat * 0.6
+
+    def draw(fill, lead_line, P, shine, fx, fy, pw, ph):
+        glow = np.clip(1 - np.hypot((fx - pw * 0.45) / (pw * 0.35), (fy - ph * 0.95) / (ph * 0.3)), 0, 1)[..., None]
+        flames = []
+        for cx, top, half in ((0.24, 0.60, 0.09), (0.40, 0.55, 0.10), (0.56, 0.58, 0.10), (0.70, 0.62, 0.08)):
+            flame = [P(cx + 0.02, top)]
+            for a in np.linspace(-0.25, math.pi + 0.25, 14):
+                flame.append(P(cx + half * math.cos(a), 0.86 + 0.07 * math.sin(a)))
+            flames.append(flame)
+        fill(flames, lambda: np.concatenate([232 + 23 * glow, 120 + 110 * glow, 20 + 70 * glow ** 2], -1))
+        for f in flames:
+            lead_line(f, 1.1)
+        handle = [P(0.66, 0.47), P(0.97, 0.36), P(0.99, 0.41), P(0.68, 0.53)]
+        pan = ellipse(P, 0.42, 0.52, 0.30, 0.14)
+        inner = ellipse(P, 0.42, 0.50, 0.24, 0.10)
+        white = [P(0.30, 0.50), P(0.34, 0.44), P(0.44, 0.43), P(0.52, 0.47), P(0.50, 0.55), P(0.38, 0.56)]
+        yolk = ellipse(P, 0.42, 0.49, 0.045, 0.035)
+        iron = lambda: np.concatenate([58 + 70 * shine, 64 + 74 * shine, 76 + 80 * shine], -1)
+        fill([handle], iron)
+        fill([pan], iron)
+        fill([inner], lambda: np.concatenate([36 + 40 * shine, 38 + 40 * shine, 44 + 40 * shine], -1))
+        fill([white], lambda: np.concatenate([236 + 19 * shine, 230 + 20 * shine, 214 + 20 * shine], -1))
+        fill([yolk], lambda: np.concatenate([246 + 9 * shine, 176 + 50 * shine, 30 + 30 * shine], -1))
+        for poly in (handle, pan, inner, white, yolk):
+            lead_line(poly)
+
+    return glass_header(glass, draw, 61)
+
+
+# book-headers.png: every book's slim header and its profession window's, 600 x SLIM_H each, in
+# rows of 80 (Lua: the books' spec.header, BookDock.lua's DOCKS).
+HEADER_ROWS = ["journal", "fishing", "cookbook", "cooking", "rockbottom", "smelting"]
+
+
+def book_headers() -> None:
+    full = {
+        "journal": header(), "fishing": bobber_header(),
+        "cookbook": cook_header(), "cooking": pan_header(),
+        "rockbottom": mine_header(), "smelting": smelt_header(),
+    }
+    atlas = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
+    for i, key in enumerate(HEADER_ROWS):
+        atlas.alpha_composite(slim_header(full[key]), (0, i * 80))
+    atlas.save(OUT / "book-headers.png")
+    print("wrote", OUT / "book-headers.png")
 
 
 def rockbottom() -> None:
@@ -799,6 +1062,9 @@ def main() -> None:
     if "rockbottom" in sys.argv[1:]:  # only Rock Bottom's atlas
         rockbottom()
         return
+    if "headers" in sys.argv[1:]:  # only the slim headers
+        book_headers()
+        return
     atlas = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
     atlas.alpha_composite(header(), (0, 0))
     atlas.alpha_composite(page(), (0, PAGE_Y))
@@ -810,6 +1076,7 @@ def main() -> None:
     cookbook()
     run_report()
     rockbottom()
+    book_headers()
 
 
 if __name__ == "__main__":

@@ -102,39 +102,102 @@ D.ZONE_SIDE = {
 ---------------------------------------------------------------------------
 -- The trade: ranks, the road to 300.
 
--- name, cap, what it takes.
+-- name, cap, what it takes. Mining's ranks ask no character level (the trainers' own data).
 D.RANKS = {
-	{ "Apprentice", 75, "Any mining trainer. The junior trainers in the starting areas teach only this, and no smelting." },
-	{ "Journeyman", 150, "From skill 50 and level 10, 5s at a trainer." },
-	{ "Expert", 225, "From skill 125 and level 20, 50s." },
-	{ "Artisan", 300, "From skill 200 and level 35, 5g. You can't pass 225 without it. 300 is Forever's cap." },
+	{ "Apprentice", 75, "Any mining trainer, 10c. The junior trainers in the starting areas teach only this, and no smelting." },
+	{ "Journeyman", 150, "From skill 50, 5s at a full trainer." },
+	{ "Expert", 225, "From skill 125, 50s." },
+	{ "Artisan", 300, "From skill 200, 5g. You can't pass 225 without it. 300 is Forever's cap." },
 }
 
--- skill band, then A, H (or N for both) and a note.
-D.ROUTE = {
-	{ "1-65",
-		A = "Copper in Elwynn (smelt at Goldshire) or Dun Morogh (smelt at Kharanos; the caves grow back fast). Night elves can start on Teldrassil's amber, to 20; the nearest forge is the Warrior's Terrace in Darnassus.",
-		H = "Copper in Durotar: one cave holds five veins and grows back fast (smelt at Razor Hill). Or Mulgore's loop and cave (forge at Bael'dun Digsite), or Tirisfal (Brill).",
-		note = "Poor Copper Veins in every starting area teach to 20. Zephras Isle works for both sides; smelt at Shen'dar Village." },
-	{ "65-125",
-		A = "Tin and Silver. The Wetlands, by a distance: Tin outside, Incendicite in Thelgen Rock. Westfall and Redridge will do.",
-		H = "Tin and Silver. Silverpine's cave (three veins, back in about two minutes) or Hillsbrad; the Barrens, Ashenvale and Stonetalon too.",
-		note = "Journeyman at 50. The mobs come back fast in Forever, so out-level them first." },
-	{ "125-175",
-		N = "Iron and Gold. Thousand Needles is the safest; Arathi (south of Hammerfall), Desolace, Stranglethorn, Alterac and Hillsbrad.",
-		note = "Expert at 125. Smelting Iron to 135, and Gold from 155 to 170, saves walking." },
-	{ "175-245",
-		N = "Mithril, then Truesilver from 230: the Hinterlands, Tanaris, the Badlands, Searing Gorge, Feralas. Dark Iron from 230 in Searing Gorge and the Burning Steppes.",
-		note = "Artisan at 200." },
-	{ "245-275",
-		A = "Small Thorium: Un'Goro's caves, Felwood's Jaedenar cave, the Blasted Lands (not inside the Garrison Armory mine: Alliance can't mine there), Winterspring, the Plaguelands, Silithus.",
-		H = "Small Thorium: Un'Goro's caves, the Blasted Lands, Felwood's Jaedenar cave, Winterspring, the Plaguelands, Silithus." },
-	{ "275-300",
-		N = "Rich Thorium in Un'Goro, the Eastern Plaguelands, Winterspring and the Burning Steppes. It's rare, so smelt Azerothium (from 275) between veins.",
-		note = "At 300, Heavy Thorium in Mount Hyjal." },
-	{ "Shortcut",
-		N = "To about 105 without a swing: buy some 140 Copper Ore and 70 Tin Ore and smelt the lot.",
-		note = "From 120, +5 Mining gear lets you start on Iron early." },
+-- The levelling guide (The Way Down): two roads. Each step: { from, to, A = text, H = text (or
+-- N for both sides), need = { { itemID, count } } (counted against your bags), lines = { text, or
+-- { text, side = "A"|"H" } for one side only } }. The step you're on is marked on the page.
+-- Facts: wow-professions.com/forever/mining-leveling-guide (routes, caves, smelting), its
+-- mining-changes and mining-trainers pages, warcrafttavern.com/forever/guides/mining (November
+-- 2026). Cave positions are read off those guides' maps: near enough to find the mouth.
+D.GUIDE = {
+	smelt = {
+		title = "The shortcut: smelting to 105",
+		upto = 120, -- shown until you're past it
+		intro = {
+			"Gold instead of time: buy ore at the auction house and smelt your way past the first hundred. Bars often sell for about what the ore cost, so you lose less than it looks.",
+			"Smelting runs mostly yellow and green, so bring a few spare ore in case luck is against you.",
+		},
+		after = "You're past the smelting shortcut. Smelting still pays later: Iron to 135, Gold from 155 to 170, Azerothium from 275.",
+		steps = {
+			{ 1, 65, N = "Smelt Copper, 120 to 140 times. Keep 70 of the bars: Bronze wants them.",
+				need = { { 2770, 140 } } },
+			{ 65, 75, N = "Train Journeyman, Smelt Tin and Smelt Bronze. Then smelt 70 Tin Bars, all of them, even after Tin turns grey at 75: Bronze needs every one.",
+				need = { { 2771, 70 } } },
+			{ 75, 105, N = "Smelt Bronze from your Copper and Tin Bars, 70 times. You'll land between 100 and 110.",
+				need = { { 2840, 70 }, { 3576, 70 } } },
+			{ 105, 120, N = "Smelt Silver, 35 to 45 times, if Silver Ore is cheap enough. Look at the prices first: this step can cost.",
+				need = { { 2775, 45 } },
+				lines = { "The last five points to 125 eat about 50 more Silver Ore. From 120, go mining: with +5 from gear you can already take Iron." } },
+		},
+	},
+	mine = {
+		title = "The long way down: mining 1 to 300",
+		intro = {
+			"Veins grow back faster when more people are about, and in Forever the mobs do too: out-level a zone before you strip it, or they'll be back on top of you.",
+			"Gear that adds Mining (Pick & Kit) is never needed, but +5 bridges a gap: Iron at 120 instead of 125.",
+		},
+		steps = {
+			{ 1, 65,
+				A = "Elwynn Forest: back and forth across the south, from Forest's Edge east to the Duskwood border. Fargodeep Mine (about 39, 81) grows back fast enough to stay inside. Smelt at Goldshire.",
+				H = "Durotar: two laps, an S through the hills west of Razor Hill, then the east coast up toward Orgrimmar. Smelt at Razor Hill.",
+				lines = {
+					{ "Or Dun Morogh: loops round Brewnall Village and the hills west of Kharanos; smelt at Kharanos.", side = "A" },
+					{ "Or Teldrassil's two caves, Ban'ethil Barrow Den (about 43, 58) and Fel Rock (about 54, 52): they grow back almost as you watch. The nearest forge is the Warrior's Terrace in Darnassus.", side = "A" },
+					{ "Or Mulgore's cave on the west cliffs (about 34, 69): five Copper Veins, back fast enough to stay inside. The forge is at Bael'dun Digsite just north, among hostile dwarves.", side = "H" },
+					{ "Or Tirisfal: a loop round Agamand Mills west of Brill, or the quieter hills near the Scarlet Monastery; smelt at Brill.", side = "H" },
+					"Zephras Isle suits both sides: a small loop by the lake south of Shen'dar Village. Harvesting Windstones in Thendal Village rewards Mining for Dummies, which teaches you Mining.",
+					"Poor Copper Veins in the starting areas, and Teldrassil's amber, teach only to 20. Buy a Mining Pick before you start.",
+				} },
+			{ 65, 125,
+				A = "The Wetlands: Thelgen Rock (about 53, 63) is full of Tin and Incendicite and grows back fast. The mobs are around level 20.",
+				H = "Silverpine Forest: the cave south of Ambermill (about 60, 72). Three veins, back in about two minutes: mine, wait, mine. The mobs are 21 to 22.",
+				lines = {
+					{ "Or Westfall's Gold Coast Quarry (about 31, 45): plenty of Tin inside and out, mobs 13 to 15.", side = "A" },
+					{ "Or a lap of the Hillsbrad Foothills round Tarren Mill (busy), the Barrens north of Razorfen Kraul (mobs 22 to 26), Ashenvale, or Stonetalon Peak, where nobody goes and an Iron Deposit sometimes turns up.", side = "H" },
+					"Train Journeyman at 50: the junior trainers can't. Smelt leftover Copper and Tin into Bronze first; it stops teaching around 105.",
+				} },
+			{ 125, 175,
+				N = "Iron and Gold. Thousand Needles is the safest, around level 30: loops round the western needles and Freewind Post.",
+				lines = {
+					"Higher, or mounted: the Arathi Highlands, with four caves, about 35, 44 and 53, 77, Witherbark Village (69, 76), and east of Hammerfall (82, 35). Go to the end of each; at a low level, leave them all.",
+					{ "Low-level Alliance in Arathi: swing south of Hammerfall.", side = "A" },
+					"Or Desolace: one long route by Thunder Axe Fortress, the Kodo Graveyard and Gelkis, no caves.",
+					"Train Expert at 125. Smelting about 20 Iron Ore takes you to 135; from 155, about 22 Gold Ore takes you to 175, a point a bar until 170.",
+				} },
+			{ 175, 245,
+				N = "Mithril, then Truesilver from 230: a loop through the south and middle of the Hinterlands, with a cave at about 58, 40.",
+				lines = {
+					"The Hinterlands' north, round Seradane, has level 62 elites: leave it until you can.",
+					"Or Tanaris: a loop round the Abyssal Sands from Gadgetzan, with four caves (about 35, 43; 34, 48; 55, 69; 54, 76). Below level 60, skip the caves.",
+					"Train Artisan at 200: past 225 needs it. From 230, Dark Iron in Searing Gorge and the Burning Steppes is good to about 245.",
+				} },
+			{ 245, 275,
+				N = "Small Thorium: all of Un'Goro Crater, Fire Plume Ridge too. Its caves east of Marshal's Refuge (about 64, 17) and in the south (about 50, 80) hold two or three veins each.",
+				lines = {
+					"Or the Blasted Lands, from Dreadmaul Hold down to the Dark Portal. Both caves, the Garrison Armory (about 58, 14) and another at about 66, 33, are crowded: be 60, well geared, or stealthy.",
+					{ "Alliance can't mine inside the Garrison Armory.", side = "A" },
+					"Or Felwood, from the Emerald Sanctuary north to Winterspring's edge. The Irontree cave (about 56, 17) is small, quiet and usually holds two veins. Skip the Jaedenar caves, Shadow Hold worst of all, without stealth.",
+				} },
+			{ 275, 300,
+				N = "Rich Thorium joins the Small: Un'Goro again, or the Eastern Plaguelands by Corin's Crossing and the north. It's rare, so smelt Azerothium between veins (2 Pitchblende and a Coal, from 275).",
+				lines = {
+					"Tyr's Hand in the Eastern Plaguelands has level 57 to 58 elites: skip it in poor gear.",
+					"Or Winterspring, from Frostsaber Rock past Starfall and Everlook, then south. The cave east of Everlook (about 68, 41) is easy; the one south-west (about 57, 50) mostly; the gorge at about 60, 65 has patrolling elites. Leave Darkwhisper Gorge alone.",
+					"Or the Burning Steppes, snaking east from Blackrock Mountain; the Dreadmaul Rock caves (about 77, 48 and 83, 39) are full of level 50 mobs.",
+					"Guides disagree on Rich Thorium: one mines it from 275, another says it only turns up often enough from 295.",
+				} },
+			{ 300, 300,
+				N = "Heavy Thorium: a rare vein in Mount Hyjal, a Rich Thorium wrapped in green fel smoke. Smelt it at a Molten Foundry, not a forge.",
+				lines = { "The Molten Foundry is a camp blueprint (Pick & Kit)." } },
+		},
+	},
 }
 
 D.OTHER_TRAINERS = "And {n} {side} trainers, who would sooner teach a kobold the trade."

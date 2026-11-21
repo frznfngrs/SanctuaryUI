@@ -51,6 +51,8 @@ local spec = {
 	frameName = "SanctuaryUICookbook",
 	title = "The Cookbook",
 	art = "cookbook",
+	-- The slim header (book-headers.png; tools/build_journal_art.py headers).
+	header = { art = "bookHeaders", y = 160, h = 72, close = { x = 562, y = 8, w = 30, h = 30 } },
 	opt = Opt,
 	log = Log,
 	chapters = C.CHAPTERS,
@@ -495,6 +497,14 @@ function BUILD.larder()
 		B.p(("Cooking %d of %d."):format(rank, cap))
 		local step, color = NextStep(rank, cap)
 		if step then B.p(step, color, 12.5) end
+		-- The guide's step you're on, a click from the whole guide.
+		local s, i = Book.CurrentStep(d.GUIDE.steps, rank)
+		if s then
+			B.row({ "Next", (Book.StepText(s)) }, { 0.14, 0.86 }, {
+				colors = { GOLD, INK }, tip = "The whole step, with what to bring, in The Road to 300",
+				onClick = function() book.Jump("route", "route:" .. i) end,
+			})
+		end
 	end
 	if rank and not tell then
 		B.note("The book can't see which recipes you know yet, so it lists everything your skill allows. Open your Cooking window once and it should catch up.")
@@ -638,17 +648,9 @@ function BUILD.route()
 	for i, r in ipairs(d.RANKS) do
 		B.row({ ("%s (to %d)"):format(r[1], r[2]), r[3] }, { 0.3, 0.7 }, { item = r.item, anchor = "rank:" .. i })
 	end
-	B.h("The route")
-	B.note("Two roads: one for anglers, one for hunters. They cross whenever you like.")
-	for i, step in ipairs(d.ROUTE) do
-		if step[2] == step[3] then
-			B.row({ step[1], step[2] }, { 0.2, 0.8 }, { colors = { RED, INK }, pad = 2, anchor = "route:" .. i })
-		else
-			B.row({ step[1], "With a pole: " .. step[2] }, { 0.2, 0.8 }, { colors = { RED, INK }, pad = 2, anchor = "route:" .. i })
-			B.row({ "", "With a blade: " .. step[3] }, { 0.2, 0.8 }, { colors = { RED, INK }, pad = 2, cont = true })
-		end
-		B.row({ "", step[4] }, { 0.2, 0.8 }, { colors = { MUTED, MUTED }, cont = true })
-	end
+	B.h("The road, step by step", nil, "guide")
+	for _, line in ipairs(d.GUIDE.intro) do B.note(line) end
+	B.steps(d.GUIDE.steps, (C.Skill()), "route:", Have)
 	B.h("Fishing and cooking, one trip")
 	for i, line in ipairs(d.TOGETHER) do
 		B.row({ tostring(i), line }, { 0.06, 0.94 }, { colors = { RED, INK }, pad = 4 })
@@ -955,7 +957,12 @@ spec.index = function(Add)
 		Add("pantry", "item:" .. id, ItemName(id), Source(id), id)
 	end
 	for i, r in ipairs(d.RANKS) do Add("route", "rank:" .. i, r[1] .. " Cooking", r[3], r.item) end
-	for i, step in ipairs(d.ROUTE) do Add("route", "route:" .. i, "Route " .. step[1], step[2] .. " " .. step[3] .. " " .. step[4]) end
+	for i, s in ipairs(d.GUIDE.steps) do
+		local text, lines = Book.StepText(s)
+		local extra = {}
+		for _, l in ipairs(lines) do extra[#extra + 1] = type(l) == "table" and l[1] or l end
+		Add("route", "route:" .. i, ("Cooking %d-%d"):format(s[1], s[2]), text .. " " .. table.concat(extra, " "))
+	end
 	for _, c in ipairs(d.CLAMLETTE) do
 		if c[4] then Add("route", "clam:" .. c[1], c[1], Parts(c[3]) .. " " .. c[4]) end
 	end

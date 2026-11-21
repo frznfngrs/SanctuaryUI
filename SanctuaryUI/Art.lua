@@ -47,6 +47,8 @@ ns.Art.slots = {
 	cookbook = { file = "cookbook.png", lazy = true },
 	-- Rock Bottom's own header and tabs (Mining.lua); its page and pop-up are the journal's.
 	rockbottom = { file = "rockbottom.png", lazy = true },
+	-- The books' slim headers and their profession windows' (Book.lua, BookDock.lua).
+	bookHeaders = { file = "book-headers.png", lazy = true },
 	-- The damage meter's Run Report (RunReport.lua): its header (crossed swords) and page tabs.
 	runReport = { file = "run-report.png", lazy = true },
 	mapMaskTorn = { file = "map-mask-torn.png", lazy = true },

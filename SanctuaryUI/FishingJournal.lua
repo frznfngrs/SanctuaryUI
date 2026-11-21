@@ -59,6 +59,8 @@ local spec = {
 	frameName = "SanctuaryUIFishingJournal",
 	title = "Angler's journal",
 	art = "journal",
+	-- The slim header (book-headers.png; tools/build_journal_art.py headers).
+	header = { art = "bookHeaders", y = 0, h = 72, close = { x = 562, y = 8, w = 30, h = 30 } },
 	opt = Opt,
 	log = Log,
 	chapters = J.CHAPTERS,

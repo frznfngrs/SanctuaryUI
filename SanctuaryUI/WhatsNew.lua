@@ -14,6 +14,26 @@ local MINE = getMeta and getMeta("SanctuaryUI", "Version") or "?"
 -- Newest first: { version, date, notes = { { heading, text, button label, action }, ... } }.
 local RELEASES = {
 	{
+		version = "0.33.0", date = "21 November 2026",
+		notes = {
+			{
+				"The books beside your professions",
+				"Open Mining, Cooking or Fishing at a fire or forge and its book opens beside the window: Rock Bottom on The Smelter, the Cookbook on The Larder, the Angler's journal on Camp. The window wears the book's stone, with a forge, a pan or a bobber in its medallion. Both can be turned off on each book's page.",
+				"Options", function() ns.Options.Open("mining") end,
+			},
+			{
+				"Real levelling guides",
+				"Rock Bottom's The Way Down and the Cookbook's The Road to 300 now go step by step: what to make or mine and how many, where, when to train, your side's choices. The step you're on is marked, with what's already in your bags.",
+				"Options", function() ns.Options.Open("cookbook") end,
+			},
+			{
+				"Slimmer books, quieter memoir",
+				"All three books have slim headers, so more of the page shows. Vein pins no longer hide under the map where you've just explored, and outgrown veins show dimmed. Mining a vein now writes at most one memoir line.",
+				"Options", function() ns.Options.Open("mining") end,
+			},
+		},
+	},
+	{
 		version = "0.32.0", date = "21 November 2026",
 		notes = {
 			{

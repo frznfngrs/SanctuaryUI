@@ -667,6 +667,9 @@ ns.DEFAULTS = {
 			toastTime = 7, -- seconds it rests before fading (long lines stay longer)
 			toastPos = { moved = false, mx = 0, my = 0 }, -- its mover (ns.MakeMover)
 			flyout = true, -- a fish plate in the console menu's flyout (needs a /reload)
+			-- BookDock.lua: beside the game's Fishing window (its camp crafting)
+			dock = true, -- open on Camp, docked to the window's right edge
+			skin = true, -- dress the window in the book's stone, with a bobber header
 			diaryFont = "d3script", -- the diary's hand
 			pageFont = "d3serif", -- the guide's print
 			textScale = 1,
@@ -684,6 +687,9 @@ ns.DEFAULTS = {
 			chat = false, -- and print each new entry in chat
 			toast = true, -- and show it in the diary pop-up
 			flyout = true, -- a cauldron plate in the console menu's flyout (needs a /reload)
+			-- BookDock.lua: beside the game's Cooking window
+			dock = true, -- open on The Larder, docked to the window's right edge
+			skin = true, -- dress the window in the book's stone, with an egg-in-a-pan header
 		},
 		-- Rock Bottom (Mining.lua), the miner's memoir. Its page fonts, text size and the diary
 		-- pop-up's look are the journal's above: the books share them.
@@ -698,11 +704,14 @@ ns.DEFAULTS = {
 			chat = false, -- and print each new entry in chat
 			toast = true, -- and show it in the diary pop-up
 			flyout = true, -- a pick plate in the console menu's flyout (needs a /reload)
+			-- BookDock.lua: beside the game's Mining window
+			dock = true, -- open on The Smelter, docked to the window's right edge
+			skin = true, -- dress the window in the book's stone, with a forge header
 			-- MiningMap.lua: vein pins
 			pins = {
 				world = true, -- on the world map: every spot on a zone's map, a count per zone on a continent
 				minimap = true, -- on the minimap, within its reach
-				show = "teach", -- teach (veins that still teach you) | mine (every vein you can mine) | all
+				show = "mine", -- mine (every vein you can mine; outgrown ones dimmed) | teach (only those that still teach you) | all
 				finds = true, -- your own finds, ringed in gold
 				worldSize = 14,
 				miniSize = 12,
@@ -974,6 +983,7 @@ function ns.Refresh()
 	Run("cookbook", ns.Cookbook and ns.Cookbook.ApplySettings)
 	Run("rock bottom", ns.Mining and ns.Mining.ApplySettings)
 	Run("rock bottom pins", ns.MiningMap and ns.MiningMap.ApplySettings)
+	Run("book dock", ns.BookDock and ns.BookDock.ApplySettings)
 	Run("fishing tools", ns.Fishing and ns.Fishing.ApplySettings)
 	Run("stance", ns.Stance and ns.Stance.ApplySettings)
 	Run("totems", ns.Totem and ns.Totem.ApplySettings)

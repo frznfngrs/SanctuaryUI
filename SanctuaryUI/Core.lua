@@ -794,6 +794,10 @@ local function Slash(msg)
 			return
 		end
 		local want = rest:lower()
+		if want == "pins" then
+			if ns.MiningMap and ns.MiningMap.Diagnose then ns.MiningMap.Diagnose() end
+			return
+		end
 		local key
 		for _, c in ipairs(ns.Mining.CHAPTERS) do
 			if want ~= "" and (c.key == want or c.title:lower():find(want, 1, true)) then key = c.key break end
@@ -1248,6 +1252,7 @@ loader:SetScript("OnEvent", function(_, event)
 		Safe("rock bottom", ns.Mining and ns.Mining.Init)
 		Safe("rock bottom pins", ns.MiningMap and ns.MiningMap.Init)
 		Safe("rock bottom sharing", ns.MiningShare and ns.MiningShare.Init)
+		Safe("book dock", ns.BookDock and ns.BookDock.Init)
 		Safe("fishing tools", ns.Fishing and ns.Fishing.Init)
 		Safe("layout", ns.Layout)
 		Safe("position", ns.ApplyPosition)

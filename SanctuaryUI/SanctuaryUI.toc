@@ -91,6 +91,7 @@ MiningData.lua
 Mining.lua
 MiningMap.lua
 MiningShare.lua
+BookDock.lua
 Options.lua
 Minimap.lua
 VersionCheck.lua

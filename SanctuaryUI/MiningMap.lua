@@ -89,8 +89,14 @@ local function MakePin(parent)
 end
 
 -- find: true for your own finds (gold), "heard" for other miners' (blue).
+-- A vein you've outgrown is drawn dim, so the ones that still teach you stand out.
+local OUTGROWN = 0.5
+
 local function Dress(pin, v, rank, size, find)
-	local ring = find == "heard" and RING.heard or find and RING.find or RingOf(v, rank)
+	local ring, colour = RingOf(v, rank)
+	if find == "heard" then ring = RING.heard elseif find then ring = RING.find end
+	pin.dim = colour == "grey" and OUTGROWN or 1
+	pin:SetAlpha(pin.dim)
 	pin:SetSize(size, size)
 	pin.disc:SetVertexColor(ring[1], ring[2], ring[3], 1)
 	pin.icon:SetTexture(M().OreIcon(v.key))
@@ -189,54 +195,107 @@ local function Banner()
 	return banner
 end
 
--- A zone's own map: a pin on each spot.
+-- Positions: every spot in world yards, so a pin can go on any map, and on the minimap.
+local WORLD = {} -- map -> { { key, north, west, find, extra } }, the spots in world yards (find: true for
+-- yours, extra its time; "heard" for another miner's, extra its row)
+local BOX = {} -- map -> { continent, north1, north2, west1, west2 }, its corners in world yards
+
+local function ToWorld(map, x, y)
+	local ok, cont, pos = pcall(C_Map.GetWorldPosFromMapPos, map, CreateVector2D(x, y))
+	if not ok or not pos or not pos.GetXY then return end
+	local north, west = pos:GetXY()
+	if Readable(north) and Readable(west) then return north, west, cont end
+end
+
+-- A map's extent in world yards, from two corners: cheap, so every map can be asked.
+local function Box(map)
+	local b = BOX[map]
+	if b ~= nil then return b end
+	BOX[map] = false
+	if not (C_Map and C_Map.GetWorldPosFromMapPos and CreateVector2D) then return false end
+	local n1, w1, cont = ToWorld(map, 0, 0)
+	local n2, w2 = ToWorld(map, 1, 1)
+	if not n1 or not n2 then return false end
+	b = { cont, math.min(n1, n2), math.max(n1, n2), math.min(w1, w2), math.max(w1, w2) }
+	BOX[map] = b
+	return b
+end
+
+-- Every spot on a map, in world yards (north, west), worked out the first time you're near it.
+local function World(map)
+	local w = WORLD[map]
+	if w then return w end
+	local list = {}
+	local function Add(key, x, y, find, extra)
+		local north, west = ToWorld(map, x, y)
+		if north then list[#list + 1] = { key, north, west, find, extra } end
+	end
+	for _, v in ipairs(D().VEINS) do
+		if not D().GHOST[v.key] then
+			for _, s in ipairs(M().Spots(v.key, map)) do Add(v.key, s[1], s[2]) end
+		end
+	end
+	local log = Log()
+	for _, f in ipairs(log and log.finds or {}) do
+		if f[2] == map then Add(f[1], f[3], f[4], true, f[5]) end
+	end
+	for _, h in ipairs(HeardList()) do
+		if h[2] == map then Add(h[1], h[3], h[4], "heard", h) end
+	end
+	WORLD[map] = list
+	return list
+end
+
+-- Any map below a continent (a zone, a city, a cave, a sub-zone): every spot of every zone
+-- that overlaps it, moved into its coordinates through world position, the way the minimap
+-- places them. So a mine's own map, a city and a zone's borders show their veins too.
+local lastDraw = {} -- what the last world map draw did, for /sanctuary mine pins
+
 local function DrawZone(shownID, rank)
 	local d = D()
-	local size = Opt().worldSize
-	local zone = d.MAPS[shownID]
-	for _, v in ipairs(d.VEINS) do
-		if Wanted(v, rank) then
-			for _, spot in ipairs(M().Spots(v.key, shownID)) do
-				local pin = Pin()
-				Dress(pin, v, rank, size)
-				placed[used] = spot
-				pin.tip = function(self)
-					Tip(self, v, rank, "Known spot in " .. zone .. ".")
-					GameTooltip:Show()
+	local opt = Opt()
+	local size = opt.worldSize
+	local box = Box(shownID)
+	local n0, w0 = ToWorld(shownID, 0, 0)
+	local n1, w1 = ToWorld(shownID, 1, 1)
+	lastDraw.corners = n0 and n1 and ("%.0f,%.0f to %.0f,%.0f"):format(n0, w0, n1, w1) or "none"
+	if not box or not n0 or not n1 or n1 == n0 or w1 == w0 then
+		lastDraw.why = "no world position for the shown map"
+		return
+	end
+	local maps, seen = 0, 0
+	for map, zone in pairs(d.MAPS) do
+		local b = Box(map)
+		if b and (b[1] == nil or box[1] == nil or b[1] == box[1])
+			and b[2] <= box[3] and b[3] >= box[2] and b[4] <= box[5] and b[5] >= box[4] then
+			maps = maps + 1
+			seen = seen + #World(map)
+			for _, s in ipairs(World(map)) do
+				local x, y = (s[3] - w0) / (w1 - w0), (s[2] - n0) / (n1 - n0)
+				local v = x >= 0 and x <= 1 and y >= 0 and y <= 1 and M().Vein(s[1])
+				local find = s[4]
+				local show = v and (Wanted(v, rank) or (find and not focus))
+				if find == true and not opt.finds then show = false end
+				if show then
+					local pin = Pin()
+					Dress(pin, v, rank, find and size + 2 or size, find)
+					placed[used] = { x, y }
+					local extra = s[5]
+					pin.tip = function(self)
+						local line = find == "heard" and HeardLine(extra)
+							or find and ("Your find, %s. The maps didn't have it."):format(date("%d %b", extra or time()))
+							or ("Known spot in %s."):format(zone)
+						Tip(self, v, rank, line)
+						GameTooltip:Show()
+					end
+					if not find then
+						pin:SetScript("OnClick", function() M().Open("veins") M().Jump("veins", "vein:" .. v.key) end)
+					end
 				end
-				pin:SetScript("OnClick", function() M().Open("veins") M().Jump("veins", "vein:" .. v.key) end)
 			end
 		end
 	end
-	-- Your own finds, ringed in gold.
-	local log = Log()
-	if Opt().finds and log then
-		for _, f in ipairs(log.finds) do
-			local v = f[2] == shownID and M().Vein(f[1])
-			if v and (Wanted(v, rank) or not focus) then
-				local pin = Pin()
-				Dress(pin, v, rank, size + 2, true)
-				placed[used] = { f[3], f[4] }
-				pin.tip = function(self)
-					Tip(self, v, rank, ("Your find, %s. The maps didn't have it."):format(date("%d %b", f[5])))
-					GameTooltip:Show()
-				end
-			end
-		end
-	end
-	-- Other miners' finds, ringed in blue.
-	for _, h in ipairs(HeardList()) do
-		local v = h[2] == shownID and M().Vein(h[1])
-		if v and (Wanted(v, rank) or not focus) then
-			local pin = Pin()
-			Dress(pin, v, rank, size + 2, "heard")
-			placed[used] = { h[3], h[4] }
-			pin.tip = function(self)
-				Tip(self, v, rank, HeardLine(h))
-				GameTooltip:Show()
-			end
-		end
-	end
+	lastDraw.why = ("%d overlapping zones, %d spots looked at"):format(maps, seen)
 end
 
 -- A continent: one pin per zone, at the middle of its spots, with the count.
@@ -284,6 +343,8 @@ Draw = function()
 	for i = 1, used do pins[i]:Hide() end
 	used = 0
 	wipe(placed)
+	wipe(lastDraw)
+	lastDraw.at = GetTime()
 	local on = Opt().world or focus or peek
 	if not on or not WorldMapFrame or not WorldMapFrame:IsShown() then
 		if banner then banner:Hide() end
@@ -293,7 +354,11 @@ Draw = function()
 	local canvas = Canvas()
 	local shownID = WorldMapFrame:GetMapID()
 	local info = shownID and C_Map.GetMapInfo(shownID)
-	if not canvas or not info then return end
+	lastDraw.map = shownID
+	if not canvas or not info then
+		lastDraw.why = "no canvas or map info"
+		return
+	end
 	if not overlay then
 		overlay = CreateFrame("Frame", nil, canvas)
 		overlay:SetAllPoints(canvas)
@@ -302,7 +367,9 @@ Draw = function()
 			if c and (c:GetWidth() ~= lastW or c:GetHeight() ~= lastH or c:GetScale() ~= lastScale) then Place() end
 		end)
 	end
-	overlay:SetFrameLevel(canvas:GetFrameLevel() + 1400)
+	-- Above every layer the map draws (its explored-area art included, which once covered pins
+	-- where you'd just walked); frame levels stop at 10000, and the pins sit up to 402 above.
+	overlay:SetFrameLevel(math.max(canvas:GetFrameLevel() + 1400, 9000))
 	overlay:Show()
 	local rank = M().Skill()
 	if focus then
@@ -314,13 +381,16 @@ Draw = function()
 	elseif banner then
 		banner:Hide()
 	end
-	if D().MAPS[shownID] then
-		DrawZone(shownID, rank)
-	elseif info.mapType == CONTINENT then
+	if info.mapType == CONTINENT then
 		DrawContinent(shownID, rank)
+	elseif info.mapType > CONTINENT then
+		DrawZone(shownID, rank)
 	end
 	for i = 1, used do pins[i]:SetFrameLevel(overlay:GetFrameLevel() + 2 + (i % 400)) end
 	Place()
+	lastDraw.pins = used
+	lastDraw.canvas = ("%.0fx%.0f at scale %.2f, overlay %s level %d"):format(canvas:GetWidth(), canvas:GetHeight(), canvas:GetScale(),
+		overlay:IsShown() and "shown" or "hidden", overlay:GetFrameLevel())
 end
 
 local function Hook()
@@ -362,6 +432,79 @@ function MM.Show(key, map)
 	end
 end
 
+-- /sanctuary mine pins: what the pins see where you stand, for chasing a missing pin. Prints
+-- the map you're on, the world map shown and what it drew, and the nearest known spots with
+-- why each would or wouldn't be drawn there.
+function MM.Diagnose()
+	local P = ns.Print
+	local rank = M().Skill()
+	local best = C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+	local north, west, _, instance = UnitPosition("player")
+	P(("pins: Mining %s, show %s, world %s, minimap %s, focus %s"):format(tostring(rank), Opt().show, tostring(Opt().world), tostring(Opt().minimap), tostring(focus)))
+	P(("pins: you are on map %s (%s), world %s, %s, continent %s"):format(tostring(best), best and C_Map.GetMapInfo(best) and C_Map.GetMapInfo(best).name or "?",
+		Readable(north) and ("%.0f"):format(north) or "hidden", Readable(west) and ("%.0f"):format(west) or "hidden", tostring(instance)))
+	local shown = WorldMapFrame and WorldMapFrame:IsShown() and WorldMapFrame:GetMapID()
+	if shown then
+		local info = C_Map.GetMapInfo(shown)
+		local box = Box(shown)
+		P(("pins: world map shows %s (%s, type %s), box %s, %d pins up now"):format(tostring(shown), info and info.name or "?", info and tostring(info.mapType) or "?",
+			box and ("cont %s"):format(tostring(box[1])) or "NONE (no world position for this map)", used))
+		P(("pins: last draw %.1f s ago, of map %s: %s pins; %s; corners %s; %s"):format(GetTime() - (lastDraw.at or 0), tostring(lastDraw.map),
+			tostring(lastDraw.pins), tostring(lastDraw.why), tostring(lastDraw.corners), tostring(lastDraw.canvas)))
+		local shownPins, firstAt = 0, nil
+		for i = 1, used do
+			if pins[i]:IsShown() then
+				shownPins = shownPins + 1
+				if not firstAt then
+					local _, _, _, x, y = pins[i]:GetPoint(1)
+					firstAt = ("%.0f,%.0f alpha %.2f size %.0f"):format(tonumber((x)) or 0, tonumber((y)) or 0, tonumber((pins[i]:GetAlpha())) or 1, tonumber((pins[i]:GetWidth())) or 0)
+				end
+			end
+		end
+		P(("pins: %d pins shown on the map; the first at %s"):format(shownPins, tostring(firstAt)))
+		-- Anything the map draws at or above the pins' layer can cover them.
+		local canvas = Canvas()
+		if canvas and overlay and canvas.GetChildren then
+			local above, names = 0, {}
+			for _, child in ipairs({ canvas:GetChildren() }) do
+				if child ~= overlay and child.IsShown and child:IsShown() and (tonumber((child:GetFrameLevel())) or 0) >= (tonumber((overlay:GetFrameLevel())) or 0) then
+					above = above + 1
+					if #names < 4 then names[#names + 1] = ("%s@%s"):format(tostring(child.GetName and child:GetName() or child.pinTemplate or "?"), tostring(child:GetFrameLevel())) end
+				end
+			end
+			P(("pins: overlay at level %s; %d map layers at or above it %s"):format(tostring(overlay:GetFrameLevel()), above, table.concat(names, ", ")))
+		end
+	else
+		P("pins: open the world map and run this again to check it too")
+	end
+	if not (Readable(north) and Readable(west)) then return end
+	local near = {}
+	for map in pairs(D().MAPS) do
+		local b = Box(map)
+		if b and (b[1] == nil or instance == nil or b[1] == instance) then
+			for _, s in ipairs(World(map)) do
+				local d2 = (s[2] - north) ^ 2 + (s[3] - west) ^ 2
+				if d2 < 300 * 300 then near[#near + 1] = { s, map, math.sqrt(d2) } end
+			end
+		end
+	end
+	table.sort(near, function(a, b) return a[3] < b[3] end)
+	P(("pins: %d known spots within 300 yards"):format(#near))
+	local n0, w0 = shown and ToWorld(shown, 0, 0)
+	local n1, w1 = shown and ToWorld(shown, 1, 1)
+	for i = 1, math.min(6, #near) do
+		local s, map, yards = near[i][1], near[i][2], near[i][3]
+		local v = M().Vein(s[1])
+		local why = Wanted(v, rank) and "wanted" or ("filtered (%s)"):format(tostring(M().Colour(v, rank)))
+		local onMap = ""
+		if n0 and n1 and w1 ~= w0 and n1 ~= n0 then
+			local x, y = (s[3] - w0) / (w1 - w0), (s[2] - n0) / (n1 - n0)
+			onMap = (x >= 0 and x <= 1 and y >= 0 and y <= 1) and (" -> shown map at %.3f, %.3f"):format(x, y) or (" -> off the shown map (%.2f, %.2f)"):format(x, y)
+		end
+		P(("pins:  %s %.0f yd, filed under map %d (%s), %s%s"):format(v and v.name or s[1], yards, map, D().MAPS[map], why, onMap))
+	end
+end
+
 function MM.Clear()
 	focus, peek = nil, nil
 	Draw()
@@ -375,56 +518,7 @@ end
 -- The minimap.
 
 local mini, miniPins, miniUsed = nil, {}, 0
-local WORLD = {} -- map -> { { key, north, west, find } }, the spots in world yards
-local BOX = {} -- map -> { continent, north1, north2, west1, west2 }, its corners in world yards
 local elapsed, lastNorth, lastWest, lastFacing, lastRadius, lastKey = 0, nil, nil, nil, nil, nil
-
-local function ToWorld(map, x, y)
-	local ok, cont, pos = pcall(C_Map.GetWorldPosFromMapPos, map, CreateVector2D(x, y))
-	if not ok or not pos or not pos.GetXY then return end
-	local north, west = pos:GetXY()
-	if Readable(north) and Readable(west) then return north, west, cont end
-end
-
--- A map's extent in world yards, from two corners: cheap, so every map can be asked.
-local function Box(map)
-	local b = BOX[map]
-	if b ~= nil then return b end
-	BOX[map] = false
-	if not (C_Map and C_Map.GetWorldPosFromMapPos and CreateVector2D) then return false end
-	local n1, w1, cont = ToWorld(map, 0, 0)
-	local n2, w2 = ToWorld(map, 1, 1)
-	if not n1 or not n2 then return false end
-	b = { cont, math.min(n1, n2), math.max(n1, n2), math.min(w1, w2), math.max(w1, w2) }
-	BOX[map] = b
-	return b
-end
-
--- Every spot on a map, in world yards (north, west), worked out the first time you're near it.
-local function World(map)
-	local w = WORLD[map]
-	if w then return w end
-	local list = {}
-	local function Add(key, x, y, find)
-		local north, west = ToWorld(map, x, y)
-		if north then list[#list + 1] = { key, north, west, find } end
-	end
-	for _, v in ipairs(D().VEINS) do
-		if not D().GHOST[v.key] then
-			for _, s in ipairs(M().Spots(v.key, map)) do Add(v.key, s[1], s[2]) end
-		end
-	end
-	local log = Log()
-	for _, f in ipairs(log and log.finds or {}) do
-		if f[2] == map then Add(f[1], f[3], f[4], true) end
-	end
-	for _, h in ipairs(HeardList()) do
-		if h[2] == map then Add(h[1], h[3], h[4], "heard") end
-	end
-	WORLD[map] = list
-	return list
-end
-
 -- A new find goes onto the minimap at once.
 function MM.Forget(map)
 	if map then WORLD[map] = nil else wipe(WORLD) end
@@ -471,7 +565,7 @@ local function DrawMini()
 	if not Readable(facing) then facing = 0 end
 	local turn = GetCVar and GetCVar("rotateMinimap") == "1"
 	-- Only when something moved: you, the way you face (if the map turns), the zoom.
-	local key = ("%d:%d:%.2f:%d:%s"):format(north, west, turn and facing or 0, radius, opt.show)
+	local key = ("%d:%d:%.2f:%d:%s:%s"):format(north, west, turn and facing or 0, radius, opt.show, tostring(M().Skill()))
 	if key == lastKey then return end
 	lastKey = key
 	miniUsed = 0
@@ -518,7 +612,7 @@ local function DrawMini()
 				Dress(pin, f[1], rank, size, f[4])
 				pin.v, pin.rank, pin.find, pin.yards = f[1], rank, f[4], math.sqrt(d2)
 				local faded = opt.near == "fade" and d2 < near2
-				pin:SetAlpha(faded and 0.3 or 1)
+				pin:SetAlpha((faded and 0.3 or 1) * pin.dim)
 				-- A faded pin lets the mouse through to the game's own dot under it.
 				pin:EnableMouse(not faded)
 				pin:ClearAllPoints()

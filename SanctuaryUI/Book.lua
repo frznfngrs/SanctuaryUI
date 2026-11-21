@@ -229,6 +229,44 @@ function Book.Skill(line, spell, fallback)
 	end
 end
 
+-- Levelling guides (The Way Down, The Road to 300). A step is { from, to, A = text, H = text (or
+-- N for both sides), need = { { itemID, count, name } }, lines = { text, or { text, side = "A"|"H" } } }.
+
+-- A step's state at your skill: "done", "now" or "next".
+function Book.StepState(from, to, rank)
+	if not rank then return "next" end
+	if rank >= to and to < 300 then return "done" end
+	if rank >= from then return "now" end
+	return "next"
+end
+
+-- The step you're on in a list, and its index; nil when none.
+function Book.CurrentStep(list, rank)
+	for i, s in ipairs(list or {}) do
+		if Book.StepState(s[1], s[2], rank) == "now" then return s, i end
+	end
+end
+
+-- What a step says to you: your side's text (both sides' until the book knows yours), and the
+-- lines meant for you.
+function Book.StepText(s)
+	local mine = Book.MySide()
+	local text = (mine and s[mine]) or s.N or s.A or s.H or ""
+	local lines = {}
+	if not mine and s.A and s.H and s.A ~= s.H then
+		text = "Alliance: " .. s.A
+		lines[#lines + 1] = { "Horde: " .. s.H, INK }
+	end
+	for _, l in ipairs(s.lines or {}) do
+		if type(l) == "string" then
+			lines[#lines + 1] = l
+		elseif not (l.side and Book.Enemy(l.side)) then
+			lines[#lines + 1] = l[1]
+		end
+	end
+	return text, lines
+end
+
 local GetInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
 
 local function Hex(c)
@@ -260,6 +298,11 @@ function Book.New(spec)
 	local fontRetry = false
 	local B = {}
 	book.B = B
+	-- The header: the full one (HEADER_H tall at the top of the book's atlas), or a slim one,
+	-- spec.header = { art, y, h, close = { x, y, w, h } } (book-headers.png). A slim atlas the
+	-- client hasn't loaded yet (a new file needs a restart) falls back to the full header.
+	local FULL = { y = 0, h = HEADER_H, close = CLOSE }
+	local head = spec.header or FULL
 
 	local function Opt() return spec.opt() end
 	local function Log() return spec.log and spec.log() end
@@ -822,6 +865,52 @@ function Book.New(spec)
 	end
 
 	-- A small heading with no rule: a tale's title, a recipe's name inside a section.
+	-- A step of a levelling guide. o = { range ("65-75"), text (what to do), state ("done", "now"
+	-- or "next"), status (a line for the step you're on), need = { { itemID, count, have } },
+	-- lines = { text or { text, color } }, anchor }. The step you're on is washed in gold; done
+	-- ones are ticked and faded.
+	local TICK = "|TInterface\\RaidFrame\\ReadyCheck-Ready:13:13:0:-1|t "
+	function B.step(o)
+		local now, done = o.state == "now", o.state == "done"
+		local mark = now and GOLD or nil
+		local cols = { 0.17, 0.83 }
+		B.row({ (done and TICK or "") .. o.range, o.text }, cols,
+			{ colors = { done and MUTED or now and GOLD or RED, done and MUTED or INK }, mark = mark, anchor = o.anchor, pad = 3 })
+		if now and o.status then
+			B.row({ "", o.status }, cols, { colors = { GOLD, GOLD }, mark = mark, cont = true, pad = 3 })
+		end
+		for _, n in ipairs(o.need or {}) do
+			local have = n[3] or 0
+			local text = ("%s: %d"):format(n[4] or ("item " .. n[1]), n[2])
+			if have > 0 then text = text .. ("  (%d in your bags)"):format(have) end
+			B.row({ "", text }, cols, { item = n[1], colors = { MUTED, have >= n[2] and GREEN or MUTED }, mark = mark, cont = true, pad = 3, dim = done })
+		end
+		for _, line in ipairs(o.lines or {}) do
+			local text, color = line, MUTED
+			if type(line) == "table" then text, color = line[1], line[2] end
+			B.row({ "", text }, cols, { colors = { MUTED, color }, mark = mark, cont = true, pad = 3, dim = done })
+		end
+		cursor = cursor + 4
+	end
+
+	-- A whole guide list: each step with its state at rank, your side's words, and what it needs
+	-- against your bags (have(itemID) -> count; name(itemID) for items the step doesn't name).
+	function B.steps(list, rank, prefix, have, name)
+		for i, s in ipairs(list) do
+			local text, lines = Book.StepText(s)
+			local need = {}
+			for _, n in ipairs(s.need or {}) do
+				need[#need + 1] = { n[1], n[2], have and have(n[1]) or 0, n[3] or (name and name(n[1])) }
+			end
+			local range = s[1] == s[2] and tostring(s[1]) or (s[1] .. "-" .. s[2])
+			B.step({
+				range = range, text = text, lines = lines, need = need, anchor = prefix .. i,
+				state = Book.StepState(s[1], s[2], rank),
+				status = rank and (s[2] > rank and ("You're at %d: %d to go in this step."):format(rank, s[2] - rank) or ("You're at %d."):format(rank)),
+			})
+		end
+	end
+
 	function B.sub(text, anchor, color)
 		local _, h = Text("title", 10.5, color or RED, text:upper(), 0, width)
 		if anchor then anchors[anchor] = { top = cursor, h = h } end
@@ -896,6 +985,10 @@ function Book.New(spec)
 		if o.head then
 			Line(top + h + 2, 0, width, RED, 0.3)
 			stripe = 0
+		elseif o.mark then
+			-- A marked row (the step you're on): a warm wash in place of the stripe.
+			Band(top - 3, h + pad, o.mark, 0.16)
+			if not o.cont and stripe > 1 then Line(top - 3, 0, width, INK, 0.13) end
 		else
 			if stripe % 2 == 0 then Band(top - 3, h + pad) end
 			if not o.cont and stripe > 1 then Line(top - 3, 0, width, INK, 0.13) end
@@ -1211,7 +1304,7 @@ function Book.New(spec)
 		local opt = Opt()
 		local k = WIDTH / ART_W
 		local side = SIDE * k
-		local headerH = HEADER_H * k
+		local headerH = head.h * k
 		local footerH = FOOTER.h * k * FOOTER_SQUASH
 		local height = headerH + BODY_H + footerH
 		frame:SetSize(WIDTH, height)
@@ -1226,8 +1319,9 @@ function Book.New(spec)
 		art.bodyL:SetPoint("TOPLEFT", 0, -headerH)
 		art.bodyR:SetPoint("TOPRIGHT", 0, -headerH)
 		frame.close:ClearAllPoints()
-		frame.close:SetPoint("TOPLEFT", CLOSE.x * k, -CLOSE.y * k)
-		frame.close:SetSize(CLOSE.w * k, CLOSE.h * k)
+		local close = head.close or CLOSE
+		frame.close:SetPoint("TOPLEFT", close.x * k, -close.y * k)
+		frame.close:SetSize(close.w * k, close.h * k)
 		-- The page fills the body, its torn edge on the stone.
 		frame.page:ClearAllPoints()
 		frame.page:SetPoint("TOPLEFT", side + 2, -(headerH - 4))
@@ -1262,10 +1356,36 @@ function Book.New(spec)
 			tab:SetPoint("TOPLEFT", frame, "TOPRIGHT", -TAB_TUCK, -(headerH + 2 + (i - 1) * step))
 			tab:SetSize(TAB_SIZE[1], TAB_SIZE[2])
 		end
-		frame:SetScale(opt.scale or 1)
 		frame:ClearAllPoints()
+		local dock = book.dock
+		if dock then
+			-- Docked beside a profession window (BookDock.lua): its scale and place, not yours.
+			frame:SetScale(dock.scale or opt.scale or 1)
+			frame:SetPoint("TOPLEFT", dock.frame, "TOPRIGHT", dock.x or 0, dock.y or 0)
+			return
+		end
+		frame:SetScale(opt.scale or 1)
 		local home = spec.place or { "LEFT", 60, 0 }
 		frame:SetPoint(opt.point or home[1], UIParent, opt.point or home[1], opt.x or home[2], opt.y or home[3])
+	end
+
+	-- The window's size at scale 1: width, height, header height, footer height.
+	function book.Metrics()
+		local k = WIDTH / ART_W
+		local h = head
+		if h.art then
+			ns.Art.Require(h.art)
+			if not ns.Art.Path(h.art) then h = FULL end
+		end
+		local headerH, footerH = h.h * k, FOOTER.h * k * FOOTER_SQUASH
+		return WIDTH, headerH + BODY_H + footerH, headerH, footerH
+	end
+
+	-- Dock the window: its top left at anchor's top right, offset x, y (in the book's own
+	-- scale), at scale. Undock with nil. While docked it can't be dragged away.
+	function book.Dock(anchor, x, y, scale)
+		book.dock = anchor and { frame = anchor, x = x, y = y, scale = scale } or nil
+		if frame then Layout() end
 	end
 
 	local function Piece(slot, x0, y0, x1, y1, layer, sub)
@@ -1294,8 +1414,9 @@ function Book.New(spec)
 		frame:SetMovable(true)
 		frame:EnableMouse(true)
 		frame:RegisterForDrag("LeftButton")
-		frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
+		frame:SetScript("OnDragStart", function(self) if not book.dock then self:StartMoving() end end)
 		frame:SetScript("OnDragStop", function(self)
+			if book.dock then return end
 			self:StopMovingOrSizing()
 			self:SetUserPlaced(false)
 			local opt = Opt()
@@ -1306,8 +1427,12 @@ function Book.New(spec)
 		tinsert(UISpecialFrames, frame:GetName())
 
 		local headerArt = ns.Art.Path(own) and own or "bagFrame"
+		if head.art then
+			ns.Art.Require(head.art)
+			if ns.Art.Path(head.art) then headerArt = head.art else head = FULL end
+		end
 		frame.art = {
-			header = Piece(headerArt, 0, 0, ART_W, HEADER_H, "ARTWORK"),
+			header = Piece(headerArt, 0, head.y, ART_W, head.y + head.h, "ARTWORK"),
 			bodyL = Piece("bagFrame", 0, BODY.y, SIDE, BODY.y + BODY.h),
 			bodyM = Piece("bagFrame", SIDE, BODY.y, ART_W - SIDE, BODY.y + BODY.h),
 			bodyR = Piece("bagFrame", ART_W - SIDE, BODY.y, ART_W, BODY.y + BODY.h),
@@ -1342,7 +1467,7 @@ function Book.New(spec)
 		child:EnableMouse(true)
 		child:EnableMouseWheel(true)
 		child:RegisterForDrag("LeftButton")
-		child:SetScript("OnDragStart", function() frame:StartMoving() end)
+		child:SetScript("OnDragStart", function() if not book.dock then frame:StartMoving() end end)
 		child:SetScript("OnDragStop", function() frame:GetScript("OnDragStop")(frame) end)
 		child:SetScript("OnMouseWheel", function(_, delta) scroll:GetScript("OnMouseWheel")(scroll, delta) end)
 		child:SetScript("OnHyperlinkEnter", function(self, link)

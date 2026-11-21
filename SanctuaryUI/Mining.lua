@@ -60,6 +60,8 @@ local spec = {
 	frameName = "SanctuaryUIRockBottom",
 	title = "Rock Bottom",
 	art = "rockbottom",
+	-- The slim header (book-headers.png; tools/build_journal_art.py headers).
+	header = { art = "bookHeaders", y = 320, h = 72, close = { x = 562, y = 8, w = 30, h = 30 } },
 	opt = Opt,
 	log = Log,
 	chapters = M.CHAPTERS,
@@ -104,6 +106,8 @@ local function Tables()
 		end
 	end
 	for _, g in ipairs(d.GEMS or {}) do GEM[g.id] = g end
+	-- The scarce materials (Pyrite, Bauxite, Pitchblende) are finds too.
+	for _, e in ipairs(d.ELEMENTS or {}) do if e.id then GEM[e.id] = GEM[e.id] or e end end
 	for _, s in ipairs(d.STONES or {}) do STONE[s.id] = s end
 	for _, y in pairs(d.YIELD or {}) do
 		for _, id in ipairs(y.ore or {}) do ORE[id] = true end
@@ -413,6 +417,16 @@ end
 
 -- One vein mined: vein (a D.VEINS row, or { key = "other:Name", name = "Name" } for one the
 -- book doesn't know), loot { { id, name, n, q } }, map/x/y where it stood (nil if unknown).
+-- One mining swing (a vein usually takes two or three) writes at most one memoir line: the
+-- most worth telling. Candidates, best first: your first vein, a rare gem (blue and up), a new
+-- kind of vein, an uncommon gem (once per gem a day), a vein the maps don't have, then the
+-- small daily notes and milestones. A day-limited line only uses up its day when it's written.
+local PRIORITY = { first = 100, rare = 90, vein = 80, total = 70, gem = 60, find = 50, batch = 40, stone = 30, grey = 20 }
+-- The vein being worked: the swings after the one that got a line stay quiet, unless something
+-- rare (blue and up) falls out.
+local working = {}
+local SAME_VEIN = 90 -- seconds between swings that are still the same vein
+
 local function OnMined(vein, loot, map, x, y)
 	local log = Log()
 	if not log then return end
@@ -425,68 +439,90 @@ local function OnMined(vein, loot, map, x, y)
 	log.total = before + 1
 	log.zones[zone] = (log.zones[zone] or 0) + 1
 	local fields = { vein = vein.name, zone = zone }
-	local stone, ore, gems = 0, 0, {}
+	local stone, gems = 0, {}
 	for _, item in ipairs(loot) do
 		local id, n = item[1], item[2]
 		log.items[id] = (log.items[id] or 0) + n
 		if item[3] then log.names[id] = item[3] end
 		log.quality[id] = item[4]
 		if STONE[id] then stone = stone + n end
-		if ORE[id] then
-			ore = ore + n
-			fields.ore = fields.ore or item[3]
-		end
-		if GEM[id] or (item[4] or 1) >= 2 then gems[#gems + 1] = item end
+		if ORE[id] then fields.ore = fields.ore or item[3] end
+		-- Gems and the scarce materials only: some ores are green-quality items themselves.
+		if GEM[id] and not ORE[id] then gems[#gems + 1] = item end
 	end
 	fields.ore = fields.ore or "ore"
-	-- The first vein ever, then each new kind.
-	if before == 0 then
-		book.Write(Fill(lines.first[1], fields))
-	elseif fresh then
-		book.Write(Fill(lines.special[vein.key] or Pick(lines.vein, "vein"), fields))
+
+	local best
+	-- make() builds the line only for the winner, so the no-repeat decks lose no card to a
+	-- line that was never shown.
+	local function Offer(kind, make, quality, commit)
+		local p = PRIORITY[kind]
+		if not best or p > best.p then best = { p = p, make = make, q = quality, commit = commit } end
 	end
-	-- Gems: every one is a line, rarer ones louder.
+
+	if before == 0 then
+		Offer("first", function() return Fill(lines.first[1], fields) end)
+	elseif fresh then
+		Offer("vein", function() return Fill(lines.special[vein.key] or Pick(lines.vein, "vein"), fields) end)
+	end
+	-- Gems: all go in the trophy case; the best one may get the line.
+	local today = Today()
+	if log.gemDay ~= today then log.gemDay, log.gemsToday = today, {} end
+	log.gemsToday = log.gemsToday or {}
 	for _, item in ipairs(gems) do
 		local q = item[4] or 2
-		fields.gem = item[3] or ItemName(item[1])
-		local deck = q >= 3 and "rare" or "gem"
-		book.Write(Fill(Pick(q >= 3 and lines.rare or lines.gem, deck), fields), q)
-		log.trophies[#log.trophies + 1] = { item[1], fields.gem, q, time(), zone }
+		local name = item[3] or ItemName(item[1])
+		log.trophies[#log.trophies + 1] = { item[1], name, q, time(), zone }
 		while #log.trophies > MAX_TROPHIES do table.remove(log.trophies, 1) end
+		local f = { vein = fields.vein, zone = zone, gem = name, ore = fields.ore }
+		if q >= 3 then
+			Offer("rare", function() return Fill(Pick(lines.rare, "rare"), f) end, q)
+		elseif not log.gemsToday[item[1]] then
+			local id = item[1]
+			Offer("gem", function() return Fill(Pick(lines.gem, "gem"), f) end, q, function() log.gemsToday[id] = true end)
+		end
 	end
-	-- A vein the maps don't have.
+	-- A vein the maps don't have: kept and shared every time, told once a day.
 	if map and x and not vein.key:find("^other:") and Unknown(vein.key, map, x, y) then
 		log.finds[#log.finds + 1] = { vein.key, map, math.floor(x * 1000 + 0.5) / 1000, math.floor(y * 1000 + 0.5) / 1000, time() }
 		while #log.finds > MAX_FINDS do table.remove(log.finds, 1) end
 		if ns.MiningMap and ns.MiningMap.Forget then ns.MiningMap.Forget(map) end
 		if ns.MiningShare and ns.MiningShare.Shout then ns.MiningShare.Shout(log.finds[#log.finds]) end
-		if log.findDay ~= Today() then
-			log.findDay = Today()
-			book.Write(Fill(Pick(lines.find, "find"), fields))
+		if log.findDay ~= today then
+			Offer("find", function() return Fill(Pick(lines.find, "find"), fields) end, nil, function() log.findDay = today end)
 		end
 	end
 	-- Mining for the habit: one line a day once a vein teaches you nothing.
 	local colour = BY_KEY[vein.key] and Colour(vein, (M.Skill()))
-	if colour == "grey" and not fresh and log.greyDay ~= Today() then
-		log.greyDay = Today()
-		book.Write(Fill(Pick(lines.grey, "grey"), fields))
+	if colour == "grey" and not fresh and log.greyDay ~= today then
+		Offer("grey", function() return Fill(Pick(lines.grey, "grey"), fields) end, nil, function() log.greyDay = today end)
 	end
 	-- Stone piling up: once a day, past forty.
-	if log.stoneDay ~= Today() then log.stoneDay, log.stoneToday = Today(), 0 end
-	local was = log.stoneToday or 0
-	log.stoneToday = was + stone
-	if was < 40 and log.stoneToday >= 40 then
-		book.Write(Fill(Pick(lines.stone, "stone"), { n = log.stoneToday, zone = zone }))
+	if log.stoneDay ~= today then log.stoneDay, log.stoneToday, log.stoneTold = today, 0, nil end
+	log.stoneToday = (log.stoneToday or 0) + stone
+	if log.stoneToday >= 40 and not log.stoneTold then
+		Offer("stone", function() return Fill(Pick(lines.stone, "stone"), { n = log.stoneToday, zone = zone }) end, nil, function() log.stoneTold = true end)
 	end
 	for mark, line in pairs(lines.total) do
-		if before < mark and log.total >= mark then book.Write(line) end
+		if before < mark and log.total >= mark then Offer("total", function() return line end) end
 	end
 	-- A long day underground, once.
-	if log.batchDay ~= Today() then log.batchDay, log.batch = Today(), 0 end
-	local had = log.batch or 0
-	log.batch = had + 1
-	if had < 50 and log.batch >= 50 then
-		book.Write(Fill(lines.batch, { n = log.batch, zone = zone }))
+	if log.batchDay ~= today then log.batchDay, log.batch, log.batchTold = today, 0, nil end
+	log.batch = (log.batch or 0) + 1
+	if log.batch >= 50 and not log.batchTold then
+		Offer("batch", function() return Fill(lines.batch, { n = log.batch, zone = zone }) end, nil, function() log.batchTold = true end)
+	end
+
+	-- The same vein as the last swing: same kind, same spot (or no spot), soon after.
+	local same = working.key == vein.key and working.at and GetTime() - working.at < SAME_VEIN
+		and (not (map and x and working.x) or (working.map == map and math.abs(working.x - x) < FIND_GAP and math.abs(working.y - y) < FIND_GAP))
+	if not same then working = { key = vein.key, map = map, x = x, y = y } end
+	working.at = GetTime()
+	if best and working.told and best.p < PRIORITY.rare then best = nil end
+	if best then
+		if best.commit then best.commit() end
+		book.Write(best.make(), best.q)
+		working.told = true
 	end
 	book.Refresh()
 end
@@ -711,6 +747,9 @@ local function NextStep(rank, cap)
 	end
 end
 
+local StepText, CurrentStep = Book.StepText, Book.CurrentStep
+M.CurrentStep = CurrentStep
+
 function BUILD.seam()
 	Tables()
 	local d = D()
@@ -724,6 +763,21 @@ function BUILD.seam()
 		B.p(("Mining %d of %d."):format(rank, cap))
 		local step, color = NextStep(rank, cap)
 		if step then B.p(step, color, 12.5) end
+		-- The guide's step you're on, a click from the whole guide.
+		local g = d.GUIDE
+		local s, i = CurrentStep(g.mine.steps, rank)
+		local part = "mine"
+		if rank < g.smelt.upto then
+			local s2, i2 = CurrentStep(g.smelt.steps, rank)
+			if s2 then s, i, part = s2, i2, "smelt" end
+		end
+		if s then
+			local text = StepText(s)
+			B.row({ part == "smelt" and "Smelt" or "Mine", text }, { 0.14, 0.86 }, {
+				colors = { GOLD, INK }, tip = "The whole step, with what to bring, in The Way Down",
+				onClick = function() book.Jump("route", part .. ":" .. i) end,
+			})
+		end
 	end
 
 	-- What grows here.
@@ -837,23 +891,32 @@ local function PersonRow(id)
 	B.row({ name, n[2], n[3] > 0 and ("%.1f, %.1f"):format(n[3], n[4]) or "" }, { 0.40, 0.42, 0.18 }, { dim = enemy, anchor = "npc:" .. n[1] })
 end
 
+local function Steps(list, rank, prefix)
+	B.steps(list, rank, prefix, Have, ItemName)
+end
+
 function BUILD.route()
 	Opener("route")
 	local d = D()
+	local g = d.GUIDE
+	local rank = M.Skill()
 	local mine = MySide()
 	B.h("Ranks")
 	for i, r in ipairs(d.RANKS) do
 		B.row({ ("%s (to %d)"):format(r[1], r[2]), r[3] }, { 0.3, 0.7 }, { anchor = "rank:" .. i })
 	end
-	B.h("The road to 300")
 	if not mine then B.note("Both sides' roads, until the book can tell which you're on.") end
-	for i, step in ipairs(d.ROUTE) do
-		local text = mine and (step[mine] or step.N) or (step.N or step.A)
-		B.row({ step[1], text }, { 0.18, 0.82 }, { colors = { RED, INK }, pad = 2, anchor = "route:" .. i })
-		if not mine and step.H and step.H ~= step.A then
-			B.row({ "", "Horde: " .. step.H }, { 0.18, 0.82 }, { colors = { RED, INK }, cont = true })
-		end
-		if step.note then B.row({ "", step.note }, { 0.18, 0.82 }, { colors = { MUTED, MUTED }, cont = true }) end
+	-- The shortcut, while it's still ahead of you.
+	if not rank or rank < g.smelt.upto then
+		B.h(g.smelt.title, nil, "guide:smelt")
+		for _, line in ipairs(g.smelt.intro) do B.note(line) end
+		Steps(g.smelt.steps, rank, "smelt:")
+	end
+	B.h(g.mine.title, nil, "guide:mine")
+	for _, line in ipairs(g.mine.intro) do B.note(line) end
+	Steps(g.mine.steps, rank, "mine:")
+	if rank and rank >= g.smelt.upto then
+		B.note(g.smelt.after)
 	end
 	B.h("Trainers")
 	local other = 0
@@ -1089,8 +1152,13 @@ spec.index = function(Add)
 	for i, s in ipairs(d.STONES or {}) do Add("gems", "stone:" .. i, s.name, s.from .. " " .. (s.use or ""), s.id) end
 	for i, e in ipairs(d.ELEMENTS or {}) do Add("gems", "element:" .. i, e.name, e.from .. " " .. (e.use or ""), e.id) end
 	for i, r in ipairs(d.RANKS) do Add("route", "rank:" .. i, r[1] .. " Mining", r[3]) end
-	for i, step in ipairs(d.ROUTE) do
-		Add("route", "route:" .. i, "Route " .. step[1], (step.A or "") .. " " .. (step.H or "") .. " " .. (step.N or "") .. " " .. (step.note or ""))
+	for _, part in ipairs({ "smelt", "mine" }) do
+		for i, s in ipairs(d.GUIDE[part].steps) do
+			local text, lines = StepText(s)
+			local extra = {}
+			for _, l in ipairs(lines) do extra[#extra + 1] = type(l) == "table" and l[1] or l end
+			Add("route", part .. ":" .. i, (part == "smelt" and "Smelting " or "Mining ") .. s[1] .. "-" .. s[2], text .. " " .. table.concat(extra, " "))
+		end
 	end
 	for id, n in pairs(d.NPC) do
 		if not Enemy(n[5]) then
@@ -1171,7 +1239,7 @@ function M.Clear()
 	end
 	log.total, log.dayCount, log.bars = 0, 0, 0
 	for _, key in ipairs({ "started", "skillSeen", "rankSeen", "scanned", "decks", "story", "greyDay", "batchDay", "batch",
-		"stoneDay", "stoneToday", "findDay" }) do
+		"batchTold", "stoneDay", "stoneToday", "stoneTold", "findDay", "gemDay", "gemsToday" }) do
 		log[key] = nil
 	end
 	book.Refresh()
