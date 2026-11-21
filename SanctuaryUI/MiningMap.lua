@@ -565,7 +565,7 @@ local function DrawMini()
 	if not Readable(facing) then facing = 0 end
 	local turn = GetCVar and GetCVar("rotateMinimap") == "1"
 	-- Only when something moved: you, the way you face (if the map turns), the zoom.
-	local key = ("%d:%d:%.2f:%d:%s:%s"):format(north, west, turn and facing or 0, radius, opt.show, tostring(M().Skill()))
+	local key = ("%d:%d:%.2f:%d:%s:%s"):format(north, west, turn and facing or 0, radius, opt.show, tostring((M().Skill())))
 	if key == lastKey then return end
 	lastKey = key
 	miniUsed = 0
