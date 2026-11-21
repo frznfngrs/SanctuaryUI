@@ -85,6 +85,12 @@ Fishing.lua
 CookingRecipes.lua
 CookingData.lua
 Cookbook.lua
+MiningNodes.lua
+MiningRecipes.lua
+MiningData.lua
+Mining.lua
+MiningMap.lua
+MiningShare.lua
 Options.lua
 Minimap.lua
 VersionCheck.lua

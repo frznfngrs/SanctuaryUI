@@ -45,6 +45,8 @@ ns.Art.slots = {
 	journal = { file = "journal.png", lazy = true },
 	-- The Cookbook's own header and tabs (Cookbook.lua); its page and pop-up are the journal's.
 	cookbook = { file = "cookbook.png", lazy = true },
+	-- Rock Bottom's own header and tabs (Mining.lua); its page and pop-up are the journal's.
+	rockbottom = { file = "rockbottom.png", lazy = true },
 	-- The damage meter's Run Report (RunReport.lua): its header (crossed swords) and page tabs.
 	runReport = { file = "run-report.png", lazy = true },
 	mapMaskTorn = { file = "map-mask-torn.png", lazy = true },
@@ -213,7 +215,7 @@ end
 -- columns, rows normal / hover / pressed).
 ns.Art.FLYOUT_CELLS = {
 	spellbook = 0, professions = 1, collections = 2, achievements = 3, groupfinder = 4, pvp = 5,
-	legacy = 6, currency = 7, reputation = 8, fishing = 9, cooking = 10,
+	legacy = 6, currency = 7, reputation = 8, fishing = 9, cooking = 10, mining = 11,
 }
 function ns.Art.FlyoutTexCoord(name, state)
 	local i = ns.Art.FLYOUT_CELLS[name] or 0

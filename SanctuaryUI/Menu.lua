@@ -151,6 +151,14 @@ local FLYOUT = {
 		toggle = function() ns.Cookbook.Toggle() end,
 		available = function() return ns.Cookbook and ns.Cookbook.Toggle and ns.DB().cookbook.flyout end,
 	},
+	{
+		-- Rock Bottom, the miner's memoir (Mining.lua).
+		key = "mining",
+		label = "Rock Bottom",
+		binding = "SANCTUARYUIMINING",
+		toggle = function() ns.Mining.Toggle() end,
+		available = function() return ns.Mining and ns.Mining.Toggle and ns.DB().mining.flyout end,
+	},
 	-- No Currency or Reputation: they are tabs of the character sheet, and opening that from
 	-- addon code taints it (see the Character button).
 }

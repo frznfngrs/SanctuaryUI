@@ -1,0 +1,24 @@
+name: Mining finds
+description: Send in veins you found that Rock Bottom's maps didn't have, so every copy of SanctuaryUI gets them.
+title: "[Mining finds] "
+labels: ["mining-finds"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        In the game: Options > Professions > Rock Bottom > Sharing finds > **Export my finds**. Click in the box, press Ctrl+A, then Ctrl+C, and paste it below. It holds only veins, zones and places on the map: no names.
+  - type: textarea
+    id: finds
+    attributes:
+      label: Your finds string
+      description: It starts with RB1:. Paste all of it; a string cut short is noticed and left out.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: SanctuaryUI version
+      description: Optional. It's in the addon list.
+    validations:
+      required: false

@@ -716,7 +716,7 @@ local function Slash(msg)
 	elseif cmd == "search" or cmd == "find" then
 		if ns.Options and ns.Options.Search then ns.Options.Search(rest) end
 	elseif cmd == "help" then
-		ns.Print("/sanctuary opens options. Commands: search <words> (find a setting), lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n> (bars), globes <n>|match, bar 2-9 on|off, bind, pie [ring] (pie menus; dismiss: stop the mixed-up macros reminder), trinkets, swing (preview the swing timer), cast (preview the cast bar on the rail), plates (preview the nameplates), fish [chapter|log|outfit|outfit remember|words] (the angler's journal; log: what the game said while you fished; outfit: fishing gear on or off; anything else searches it), cook [chapter|words] (the Cookbook; anything else searches it), minimap, ring (preview the ally ring; totems: each totem's reach against your distance), map (overlay map; probe|peek for what the client allows; totems to probe group casts), test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, meter [analysis|run [test|banner]|glory|awards|test|reset|probe] (damage meter; run: the Run Report), proc (preview the proc highlight), aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), power [spell|off] (trace the resource globe against your casts), debug on|off, log, report [on|off], request (suggest a feature), updates [on|off] (new version notices over the realm channel)")
+		ns.Print("/sanctuary opens options. Commands: search <words> (find a setting), lock, unlock, grid [on|off|<spacing>], snap on|off, scale <n> (bars), globes <n>|match, bar 2-9 on|off, bind, pie [ring] (pie menus; dismiss: stop the mixed-up macros reminder), trinkets, swing (preview the swing timer), cast (preview the cast bar on the rail), plates (preview the nameplates), fish [chapter|log|outfit|outfit remember|words] (the angler's journal; log: what the game said while you fished; outfit: fishing gear on or off; anything else searches it), cook [chapter|words] (the Cookbook; anything else searches it), mine [chapter|words] (Rock Bottom, the mining memoir; anything else searches it), minimap, ring (preview the ally ring; totems: each totem's reach against your distance), map (overlay map; probe|peek for what the client allows; totems to probe group casts), test, rail auto|xp|rep, numbers on|combat|hover|off, reset, check, cooldowns, active, auras, watch, meter [analysis|run [test|banner]|glory|awards|test|reset|probe] (damage meter; run: the Run Report), proc (preview the proc highlight), aura (test globe auras), health <percent>|off (preview the health globe), predict (heal, shield and spell cost demo), power [spell|off] (trace the resource globe against your casts), debug on|off, log, report [on|off], request (suggest a feature), updates [on|off] (new version notices over the realm channel)")
 	elseif cmd == "grid" then
 		-- grid: toggle; grid on|off; grid <spacing>. The grid only shows while frames are
 		-- unlocked, so showing it unlocks them.
@@ -785,6 +785,25 @@ local function Slash(msg)
 			ns.Cookbook.Search(rest)
 		else
 			ns.Cookbook.Toggle()
+		end
+	elseif cmd == "mine" or cmd == "mining" or cmd == "rock" then
+		-- mine [chapter]: Rock Bottom, on a chapter by its key or a word of its title; anything
+		-- else searches it.
+		if not ns.Mining then
+			ns.Print("Rock Bottom is new: exit the game and start it again to load it (a /reload can't see new files).")
+			return
+		end
+		local want = rest:lower()
+		local key
+		for _, c in ipairs(ns.Mining.CHAPTERS) do
+			if want ~= "" and (c.key == want or c.title:lower():find(want, 1, true)) then key = c.key break end
+		end
+		if key then
+			ns.Mining.Open(key)
+		elseif want ~= "" then
+			ns.Mining.Search(rest)
+		else
+			ns.Mining.Toggle()
 		end
 	elseif cmd == "lock" then
 		ns.SetLocked(true)
@@ -1226,6 +1245,9 @@ loader:SetScript("OnEvent", function(_, event)
 		Safe("books", ns.Book and ns.Book.Init)
 		Safe("fishing journal", ns.Journal and ns.Journal.Init)
 		Safe("cookbook", ns.Cookbook and ns.Cookbook.Init)
+		Safe("rock bottom", ns.Mining and ns.Mining.Init)
+		Safe("rock bottom pins", ns.MiningMap and ns.MiningMap.Init)
+		Safe("rock bottom sharing", ns.MiningShare and ns.MiningShare.Init)
 		Safe("fishing tools", ns.Fishing and ns.Fishing.Init)
 		Safe("layout", ns.Layout)
 		Safe("position", ns.ApplyPosition)

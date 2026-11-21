@@ -3,8 +3,9 @@ local ns = SanctuaryUI
 ns.Book = ns.Book or {}
 local Book = ns.Book
 
--- The books' shared engine: the Angler's journal (FishingJournal.lua) and the Cookbook
--- (Cookbook.lua) are both made here, so they look, read, search and write their diaries alike.
+-- The books' shared engine: the Angler's journal (FishingJournal.lua), the Cookbook
+-- (Cookbook.lua) and Rock Bottom (Mining.lua) are all made here, so they look, read, search and
+-- write their diaries alike.
 --
 -- A book is a D3 window (the inventory's header with the book's own medallion, the stone body)
 -- holding a parchment page, with D3's red side tabs for chapters and a search box in the footer.
@@ -153,6 +154,11 @@ function Book.FactionFolk()
 	if cook then
 		for _, n in pairs(cook.NPC or {}) do Add(n[1], n[5]) end
 		for _, t in ipairs(cook.FOLK or {}) do Add(t[1], t[2]) end
+	end
+	local mine = ns.MiningData
+	if mine then
+		for _, n in pairs(mine.NPC or {}) do Add(n[1], n[5]) end
+		for _, t in ipairs(mine.FOLK or {}) do Add(t[1], t[2]) end
 	end
 	table.sort(list, function(a, b)
 		if #a[1] ~= #b[1] then return #a[1] > #b[1] end

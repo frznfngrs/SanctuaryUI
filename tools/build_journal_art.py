@@ -21,6 +21,10 @@
     in the medallion) and tabs, in the same places; `build_journal_art.py cookbook` makes
     only this one.
 
+  rockbottom.png 1024x1024 (Rock Bottom, Mining.lua): its own header (a pick over a lump of ore
+    in lamp-lit umber glass) and tabs, in the same places; `build_journal_art.py rockbottom`
+    makes only this one.
+
   run-report.png 1024x1024 (the damage meter's Run Report, RunReport.lua): its own header (two
     crossed swords in ember glass, the meter's mark) and its pages' tabs, in the same places;
     `build_journal_art.py runreport` makes only this one.
@@ -503,6 +507,183 @@ def cookbook() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Rock Bottom (SanctuaryUI/Mining.lua): rockbottom.png holds its own header (a pick over a lump
+# of ore in lamp-lit umber glass) and its chapters' tabs, laid out like journal.png's.
+
+# Memoir (journal), the seam (eye), the way down (rising hero), veins (pick), the smelter (anvil
+# in the fire), gems and stone (gem), pick and kit (satchel), down the pit (skull).
+MINE_TABS = [9, 8, 24, 11, 2, 6, 21, 26]
+
+
+def pick_shapes(w: float, h: float):
+    """Polygons in a w x h box: the pick's haft, its head (a curved iron crescent with two
+    points), the lump of rock under it, and the ore's seams and a gem in the rock."""
+    def P(x, y):
+        return (x * w, y * h)
+
+    # The haft: a board from the grip at the lower left up through the head, a nub past it.
+    grip, top = np.array([0.14, 0.90]), np.array([0.60, 0.22])
+    u = (top - grip) / np.linalg.norm(top - grip)  # along the haft
+    n = np.array([-u[1], u[0]])  # across it
+    end = top + u * 0.05
+    haft = [P(*(grip + n * 0.035)), P(*(grip - n * 0.035)), P(*(end - n * 0.026)), P(*(end + n * 0.026))]
+    # The head: an arc square to the haft, bowed away from the grip, thick at the eye and
+    # tapering to a point at each end.
+    rad = 0.46
+    centre = top - u * rad
+    mid = math.atan2(u[1], u[0])
+    outer, inner = [], []
+    for a in np.linspace(mid - 0.92, mid + 0.92, 36):
+        t = (a - mid + 0.92) / 1.84
+        thick = 0.062 * math.sin(math.pi * t) ** 0.65 + 0.004
+        outer.append(P(centre[0] + (rad + thick) * math.cos(a), centre[1] + (rad + thick) * math.sin(a)))
+        inner.append(P(centre[0] + (rad - thick) * math.cos(a), centre[1] + (rad - thick) * math.sin(a)))
+    head = outer + inner[::-1]
+    # A collar where the head meets the haft: a short band round the haft below the eye.
+    c0, c1 = top - u * 0.11, top - u * 0.06
+    collar = [P(*(c0 + n * 0.048)), P(*(c0 - n * 0.048)), P(*(c1 - n * 0.048)), P(*(c1 + n * 0.048))]
+    # The rock: a broken lump on the ground, wider than tall.
+    rock = [P(0.40, 0.98), P(0.36, 0.86), P(0.44, 0.74), P(0.58, 0.68), P(0.74, 0.70), P(0.86, 0.78),
+            P(0.95, 0.90), P(0.93, 0.98)]
+    seams = [[P(0.45, 0.88), P(0.55, 0.80), P(0.66, 0.82), P(0.78, 0.76)],
+             [P(0.60, 0.95), P(0.70, 0.88), P(0.84, 0.90)]]
+    gem = [P(0.70, 0.79), P(0.745, 0.745), P(0.79, 0.79), P(0.745, 0.835)]
+    return haft, head, collar, rock, seams, gem
+
+
+def pick_icon(height: int = 26) -> Image.Image:
+    """The pick over its rock in the embossed gold of the console's menu icons, for the
+    flyout's plate."""
+    w, h, ss = 52, 52, 4
+    W, H = w * ss, h * ss
+    haft, head, collar, rock, seams, gem = pick_shapes(W, H)
+    m = Image.new("L", (W, H), 0)
+    d = ImageDraw.Draw(m)
+    for poly in (rock, haft, head, collar):
+        d.polygon(poly, fill=255)
+    mask = np.asarray(m, np.float32) / 255
+    inside = mask > 0.5
+    dist = ndimage.distance_transform_edt(inside)
+    bevel = np.clip(dist / (3.0 * ss), 0, 1)
+    gy, gx = np.gradient(ndimage.gaussian_filter(bevel, ss))
+    light = np.clip(0.62 + (-gx - gy) * 9 * ss, 0, 1)
+    lum = light * (0.55 + 0.45 * bevel)
+    lines = Image.new("L", m.size, 0)
+    ld = ImageDraw.Draw(lines)
+    for s in seams:
+        ld.line(s, fill=255, width=int(1.1 * ss))
+    ld.line([haft[1], head[len(head) // 4]], fill=0, width=1)
+    # Grooves that part the haft from the rock where they cross, and the head from the haft.
+    ld.line(rock[1:6], fill=255, width=int(1.0 * ss))
+    ld.line(collar + [collar[0]], fill=200, width=int(0.8 * ss))
+    groove = np.asarray(lines, np.float32) / 255
+    lum = lum * (1 - 0.6 * groove)
+    lum = ndimage.zoom(lum, 1 / ss, order=1)
+    alpha = ndimage.zoom(mask, 1 / ss, order=1)
+    v = np.clip(lum ** 1.1 * 215 + 52, 0, 255)
+    out = np.zeros((h, w, 4), np.uint8)
+    out[..., 0] = v
+    out[..., 1] = v * 0.76
+    out[..., 2] = v * 0.32
+    out[..., 3] = (alpha * 255).astype(np.uint8)
+    rim_px = ndimage.binary_dilation(alpha > 0.5, iterations=2) & ~(alpha > 0.5)
+    out[rim_px] = (34, 20, 8, 200)
+    img = Image.fromarray(out, "RGBA")
+    img = img.crop(img.getbbox())
+    width = min(28, round(img.width * height / img.height))
+    return img.resize((width, round(img.height * width / img.width)), Image.LANCZOS)
+
+
+def mine_header() -> Image.Image:
+    """D3's inventory header with a pick over a lump of ore leaded into the medallion's glass:
+    deep umber, lit from the upper left as if by a miner's lamp."""
+    head = Image.open(OUT / "bag-frame.png").convert("RGBA").crop((0, 0, 600, 155))
+    ss = 6
+    R = int(GLASS_R + 2)
+    size = 2 * R
+    S = size * ss
+    yy, xx = np.mgrid[0:S, 0:S].astype(np.float32) / ss - R
+    mott = noise((S, S), 2.5 * ss, 31) * 0.5 + noise((S, S), 0.8 * ss, 32) * 0.25
+    lamp = np.clip(1 - np.hypot(xx + 0.45 * R, yy + 0.50 * R) / (1.5 * R), 0, 1)[..., None] ** 1.6
+    base = np.stack([46 + 0 * yy, 28 + 0 * yy, 18 + 0 * yy], -1) * (0.85 + 0.2 * (1 - lamp)) + np.array([150, 96, 30]) * lamp * 0.75
+    glass = base * (1 + mott[..., None] * 0.35)
+    canvas = Image.fromarray(glass.clip(0, 255).astype(np.uint8), "RGB").convert("RGBA")
+    d = ImageDraw.Draw(canvas)
+    lead = (22, 16, 12, 255)
+    for a in (-2.6, -1.9, -1.2, -0.5):  # spokes in the upper glass, like the original's
+        d.line([((R + 16 * math.cos(a)) * ss, (R + 16 * math.sin(a)) * ss),
+                ((R + 44 * math.cos(a)) * ss, (R + 44 * math.sin(a)) * ss)], fill=lead, width=int(1.4 * ss))
+    pw, ph = int(60 * ss), int(60 * ss)
+    haft, headp, collar, rock, seams, gem = pick_shapes(pw, ph)
+    art = Image.new("RGBA", (pw, ph), (0, 0, 0, 0))
+    ad = ImageDraw.Draw(art)
+    fy, fx = np.mgrid[0:ph, 0:pw].astype(np.float32)
+    fn = noise((ph, pw), 1.6 * ss, 33)
+    shine = np.clip(1 - np.hypot((fx - pw * 0.30) / (pw * 0.55), (fy - ph * 0.25) / (ph * 0.55)), 0, 1)[..., None]
+
+    def fill(polys, color_fn):
+        m = Image.new("L", (pw, ph), 0)
+        md = ImageDraw.Draw(m)
+        for poly in polys:
+            md.polygon(poly, fill=255)
+        mask = np.asarray(m, np.float32) / 255
+        col = color_fn() * (1 + fn[..., None] * 0.12)
+        art.alpha_composite(rgba(col, mask))
+
+    # The rock: slate grey glass, the lamp on its upper face.
+    fill([rock], lambda: np.concatenate([70 + 70 * shine, 72 + 66 * shine, 78 + 60 * shine], -1))
+    # The haft: worn oak.
+    fill([haft], lambda: np.concatenate([128 + 70 * shine, 82 + 50 * shine, 38 + 26 * shine], -1))
+    # The head and collar: iron, bright where the lamp catches it.
+    iron = lambda: np.concatenate([84 + 120 * shine, 92 + 118 * shine, 106 + 112 * shine], -1)
+    fill([headp, collar], iron)
+    # The ore: copper seams and a gem, the only warm-bright glass in the rock.
+    seam_mask = Image.new("L", (pw, ph), 0)
+    sd = ImageDraw.Draw(seam_mask)
+    for s in seams:
+        sd.line(s, fill=255, width=int(2.6 * ss), joint="curve")
+    art.alpha_composite(rgba(np.concatenate([224 + 0 * shine, 128 + 60 * shine, 44 + 30 * shine], -1),
+                             np.asarray(seam_mask, np.float32) / 255))
+    fill([gem], lambda: np.concatenate([70 + 60 * shine, 200 + 40 * shine, 190 + 50 * shine], -1))
+    for poly in (rock, haft, headp, collar, gem):
+        ad.line(poly + [poly[0]], fill=lead, width=int(1.4 * ss), joint="curve")
+    for s in seams:
+        ad.line(s, fill=lead, width=int(0.7 * ss), joint="curve")
+    canvas.alpha_composite(art, (int((R - 31) * ss), int((R - 29) * ss)))
+    # Sparks off the pick's point: three small panes.
+    for sx, sy, sr in ((R - 22, R - 2, 2.6), (R - 27, R - 9, 1.9), (R - 17, R - 12, 1.6)):
+        d.ellipse(((sx - sr) * ss, (sy - sr) * ss, (sx + sr) * ss, (sy + sr) * ss), outline=lead, width=int(0.9 * ss),
+                  fill=(255, 214, 120, 255))
+    small = canvas.resize((size, size), Image.LANCZOS)
+    hx, hy = MEDAL
+    hp = np.asarray(head).astype(np.float32)
+    sp = np.asarray(small).astype(np.float32)
+    x0, y0 = int(round(hx - R)), int(round(hy - R))
+    for y in range(size):
+        for x in range(size):
+            X, Y = x0 + x, y0 + y
+            dr = math.hypot(X + 0.5 - hx, Y + 0.5 - hy)
+            if dr > GLASS_R + 0.6:
+                continue
+            if ((X + 0.5 - CHIN[0]) / CHIN[2]) ** 2 + ((Y + 0.5 - CHIN[1]) / CHIN[3]) ** 2 < 1:
+                continue  # the gargoyle's chin hangs over the glass
+            k = min(1.0, GLASS_R + 0.6 - dr)  # soft rim
+            hp[Y, X, :3] = hp[Y, X, :3] * (1 - k) + sp[y, x, :3] * k
+    return Image.fromarray(hp.clip(0, 255).astype(np.uint8), "RGBA")
+
+
+def rockbottom() -> None:
+    atlas = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
+    atlas.alpha_composite(mine_header(), (0, 0))
+    global TABS
+    journal_tabs, TABS = TABS, MINE_TABS
+    tabs(atlas)
+    TABS = journal_tabs
+    atlas.save(OUT / "rockbottom.png")
+    print("wrote", OUT / "rockbottom.png")
+
+
+# ---------------------------------------------------------------------------
 # The Run Report (SanctuaryUI/RunReport.lua): run-report.png holds its own header (two crossed
 # swords in ember glass) and its pages' tabs, laid out like journal.png's.
 
@@ -615,6 +796,9 @@ def main() -> None:
     if "runreport" in sys.argv[1:]:  # only the Run Report's atlas
         run_report()
         return
+    if "rockbottom" in sys.argv[1:]:  # only Rock Bottom's atlas
+        rockbottom()
+        return
     atlas = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
     atlas.alpha_composite(header(), (0, 0))
     atlas.alpha_composite(page(), (0, PAGE_Y))
@@ -625,6 +809,7 @@ def main() -> None:
     print("wrote", OUT / "journal.png")
     cookbook()
     run_report()
+    rockbottom()
 
 
 if __name__ == "__main__":

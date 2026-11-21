@@ -14,6 +14,26 @@ local MINE = getMeta and getMeta("SanctuaryUI", "Version") or "?"
 -- Newest first: { version, date, notes = { { heading, text, button label, action }, ... } }.
 local RELEASES = {
 	{
+		version = "0.32.0", date = "21 November 2026",
+		notes = {
+			{
+				"Rock Bottom: A Miner's Memoir",
+				"The third book, about mining: where to dig for your skill, every vein with what it gives and where it grows, the smelts and where they're learned, gems, stone and the kit. It keeps a memoir that writes itself as you mine. /sanctuary mine, or the pick in the menu.",
+				"Options", function() ns.Options.Open("mining") end,
+			},
+			{
+				"Veins on your maps",
+				"Nearly ten thousand known vein spots on the world map and the minimap, ringed in what they still teach you. On the minimap, pins near you fade so the game's own yellow dot shows through: a faded pin with no dot is a vein somebody got to first.",
+				"Options", function() ns.Options.Open("mining") end,
+			},
+			{
+				"Share what you find",
+				"Mine a vein the maps don't have and your group and guild hear of it; theirs come to you, in blue. Export your finds and send them in, and the next release carries them for everyone.",
+				"Options", function() ns.Options.Open("mining") end,
+			},
+		},
+	},
+	{
 		version = "0.31.2", date = "18 November 2026",
 		notes = {
 			{

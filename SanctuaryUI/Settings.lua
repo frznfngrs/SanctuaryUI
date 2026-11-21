@@ -685,6 +685,38 @@ ns.DEFAULTS = {
 			toast = true, -- and show it in the diary pop-up
 			flyout = true, -- a cauldron plate in the console menu's flyout (needs a /reload)
 		},
+		-- Rock Bottom (Mining.lua), the miner's memoir. Its page fonts, text size and the diary
+		-- pop-up's look are the journal's above: the books share them.
+		mining = {
+			scale = 1,
+			point = "CENTER",
+			x = 0,
+			y = 0,
+			moved = false,
+			chapter = "seam", -- the chapter it opens on
+			diary = true, -- write diary entries from veins, finds, smelting and milestones
+			chat = false, -- and print each new entry in chat
+			toast = true, -- and show it in the diary pop-up
+			flyout = true, -- a pick plate in the console menu's flyout (needs a /reload)
+			-- MiningMap.lua: vein pins
+			pins = {
+				world = true, -- on the world map: every spot on a zone's map, a count per zone on a continent
+				minimap = true, -- on the minimap, within its reach
+				show = "teach", -- teach (veins that still teach you) | mine (every vein you can mine) | all
+				finds = true, -- your own finds, ringed in gold
+				worldSize = 14,
+				miniSize = 12,
+				near = "fade", -- fade | hide | full: pins this close, so the game's own Find Minerals dot shows
+				nearYards = 90,
+			},
+			-- MiningShare.lua: finds shared with other SanctuaryUI miners
+			share = {
+				group = true, -- tell your party or raid when you find a vein the maps don't have
+				guild = true, -- and your guild
+				hear = true, -- keep the finds they tell you
+				show = true, -- and pin them on the maps
+			},
+		},
 
 		-- bank window
 		bank = {
@@ -734,6 +766,22 @@ ns.DEFAULTS = {
 		},
 		-- MeterHistory.lua: saved fights, personal bests, the streak and the rival's tally.
 		meter = {},
+		-- Mining.lua (Rock Bottom): this character's mining log and memoir.
+		mining = {
+			veins = {}, -- vein key -> times mined
+			items = {}, -- itemID -> count looted from veins
+			names = {}, -- itemID -> name, as looted
+			quality = {}, -- itemID -> rarity, as looted
+			zones = {}, -- zone -> times mined there
+			smelted = {}, -- smelt spell -> bars made
+			known = {}, -- smelt spell -> true, as the spellbook showed it
+			trophies = {}, -- gems and other rare finds: { id, name, q, t, zone }, oldest first
+			finds = {}, -- veins mined where the book had no spot: { key, map, x, y, t }, oldest first
+			entries = {}, -- { t = time, day = n, text = "" }, oldest first
+			days = {}, -- "YYYY-MM-DD" -> true, the days you mined
+			dayCount = 0,
+			total = 0,
+		},
 		-- Cookbook.lua: this character's kitchen log and diary.
 		cooking = {
 			cooked = {}, -- recipe spell -> dishes made
@@ -771,6 +819,9 @@ ns.DEFAULTS = {
 		-- How long each buff lasts, by spell ID and name, learned while buffs are readable.
 		-- Lets the skill glow time a buff cast in combat, when the client hides buffs.
 		buffLengths = {},
+		-- MiningShare.lua: veins other miners found where the maps had none, shared with every
+		-- character: { vein key, map, x, y, t (first heard), n (miners who told us), who = { name = true } }
+		miningHeard = {},
 	},
 }
 
@@ -921,6 +972,8 @@ function ns.Refresh()
 	Run("bank", ns.Bank and ns.Bank.ApplySettings)
 	Run("fishing journal", ns.Journal and ns.Journal.ApplySettings)
 	Run("cookbook", ns.Cookbook and ns.Cookbook.ApplySettings)
+	Run("rock bottom", ns.Mining and ns.Mining.ApplySettings)
+	Run("rock bottom pins", ns.MiningMap and ns.MiningMap.ApplySettings)
 	Run("fishing tools", ns.Fishing and ns.Fishing.ApplySettings)
 	Run("stance", ns.Stance and ns.Stance.ApplySettings)
 	Run("totems", ns.Totem and ns.Totem.ApplySettings)

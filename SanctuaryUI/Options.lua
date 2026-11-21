@@ -1060,6 +1060,110 @@ local function CookbookArgs()
 	}
 end
 
+-- Options > Professions > Rock Bottom (Mining.lua).
+local finds = {} -- the sharing card's export and import boxes
+local function MiningArgs()
+	local function M() return ns.Mining end
+	local function S() return ns.MiningShare end
+	return {
+		intro = Note(1, "Rock Bottom: A Miner's Memoir, a mining guide for WoW Forever and the third of the books: where to mine for your skill, every vein with where it grows and what it gives, the smelts and where they're learned, gems and stone, the kit, and the people. It reads your Mining skill and bags, and keeps a memoir that writes itself as you mine. Open it with /sanctuary mine, its key (Key Bindings > AddOns) or the pick in the console menu's flyout."),
+		open = {
+			type = "execute", order = 2, name = "Open Rock Bottom",
+			func = function()
+				if not M() then return end -- a new file: not loaded until the game restarts
+				LibStub("AceConfigDialog-3.0"):Close(APP)
+				M().Open("seam")
+			end,
+		},
+		diary = Card(3, "Memoir", {
+			diary = Toggle(1, "Write memoir entries", "Your first vein, new kinds, gems, veins the maps don't know, smelting, milestones: a line in the memoir each time.", "mining", "diary"),
+			chat = Toggle(2, "Print them in chat", "Each new memoir line also shows in your chat window.", "mining", "chat"),
+			toast = Toggle(3, "Show the pop-up", "Each new line slides in on the diary pop-up the other books use.", "mining", "toast"),
+			preview = {
+				type = "execute", order = 4, width = "relative", relWidth = HALF,
+				name = "Show a sample",
+				func = function() if M() then M().PreviewToast() end end,
+			},
+			clear = {
+				type = "execute", order = 5, width = "relative", relWidth = HALF,
+				name = "Clear this character's memoir",
+				desc = "Forgets this character's veins, finds, tally and entries. The guide stays.",
+				confirm = true,
+				confirmText = "Bury this character's memoir under a rockfall?",
+				func = function() if M() then M().Clear() end end,
+			},
+		}),
+		look = Card(4, "Look", {
+			scale = Range(1, "Scale", nil, "mining", "scale", 0.5, 1.6, 0.01, true),
+			flyout = Width(Toggle(2, "Pick in the console menu's flyout", "A pick plate among the Spellbook & Panels flyout's buttons. Takes effect after a /reload.", "mining", "flyout"), 0.666),
+			shared = Note(3, "The books share their page: text size, the diary hand, the page font, and the pop-up's size, sound, time and place are set once, under Fishing journal."),
+		}),
+		pins = Card(5, "Vein pins", {
+			world = Toggle(1, "On the world map", "A pin on every known spot of the veins you want on a zone's map; on a continent, one pin per zone with the count.", "mining.pins", "world"),
+			minimap = Toggle(2, "On the minimap", "The same veins within the minimap's reach. They turn with \"rotate minimap\".", "mining.pins", "minimap"),
+			show = Select(3, "Which veins", "Veins that still teach you skill (orange, yellow, green), every vein you can mine, or every vein. The book's \"Show on the world map\" links always show the vein they name.", "mining.pins", "show",
+				{ teach = "Still teach you", mine = "You can mine", all = "Every vein" }, { "teach", "mine", "all" }),
+			near = Select(4, "Close to you", "The game's Find Minerals shows a live vein as a yellow dot. Pins this close fade so that dot shows through; a faded pin with no dot is a vein somebody got to first.", "mining.pins", "near",
+				{ fade = "Fade", hide = "Hide", full = "Leave as they are" }, { "fade", "hide", "full" }),
+			nearYards = Range(5, "Close means (yards)", nil, "mining.pins", "nearYards", 20, 200, 5),
+			finds = Toggle(6, "Your own finds", "Veins you mined where the maps had no spot, ringed in gold.", "mining.pins", "finds"),
+			worldSize = Range(7, "World map pin size", nil, "mining.pins", "worldSize", 8, 28, 1),
+			miniSize = Range(8, "Minimap pin size", nil, "mining.pins", "miniSize", 6, 22, 1),
+			note = Note(9, "Spots are where veins grow, from GatherLite's Forever database (Wowhead's coordinates), not live nodes. Ghost veins (Season of Discovery's) stay off the maps."),
+		}),
+		share = Card(5.5, "Sharing finds", {
+			intro = Note(0, "A find is a vein you mined where the maps had no spot. SanctuaryUI miners pass them on: yours go to your group and guild as you find them, theirs come to you, and they show on your maps ringed in blue."),
+			group = Toggle(1, "Tell my group", "Your party or raid hears each new find, and your latest finds when you join a group.", "mining.share", "group"),
+			guild = Toggle(2, "Tell my guild", "Your guild hears each new find, and your latest finds once after you log in.", "mining.share", "guild"),
+			hear = Toggle(3, "Keep what others tell me", "Finds from other SanctuaryUI miners are kept for all your characters. Only veins that already grow in that zone are taken.", "mining.share", "hear"),
+			show = Toggle(4, "Show them on the maps", "Other miners' finds, ringed in blue on the world map and the minimap.", "mining.share", "show"),
+			heardCount = Note(5, function()
+				local n = S() and #S().Heard() or 0
+				local log = M() and M().Log and M().Log()
+				return ("You've found %d veins the maps didn't have, and heard of %d from other miners."):format(log and #log.finds or 0, n)
+			end),
+			export = Width({
+				type = "execute", order = 6, name = "Export my finds",
+				func = function()
+					if not S() then return end
+					local text, n = S().Export()
+					finds.export = text
+					finds.exportNote = text and ("%d finds. Click in the box, press Ctrl+A, then Ctrl+C. Paste it to a friend, or onto the mining finds form so every copy of SanctuaryUI gets them: %s"):format(n, S().ISSUE_URL) or n
+				end,
+			}, HALF),
+			forget = Width({
+				type = "execute", order = 7, name = "Forget other miners' finds",
+				confirm = true, confirmText = "Forget every find other miners told you about? Your own finds stay.",
+				func = function() if S() then S().ClearHeard() end end,
+			}, HALF),
+			exportNote = Note(8, function() return finds.exportNote or "" end),
+			exportText = {
+				type = "input", order = 9, name = "", width = "full", multiline = 5,
+				get = function() return finds.export or "" end,
+				set = function() end, -- read only
+				hidden = function() return not finds.export end,
+			},
+			importText = {
+				type = "input", order = 10, name = "Import a friend's finds", width = "full", multiline = 4,
+				desc = "Paste a string that starts with RB1: and press Accept.",
+				get = function() return "" end,
+				set = function(_, value)
+					if not S() then return end
+					local r, why = S().Import(value)
+					if not r then
+						finds.importNote = "|cffff6060" .. why .. "|r"
+					else
+						finds.importNote = ("%d new finds, %d confirmed again, %d you already had%s."):format(r.new, r.again, r.known,
+							r.bad > 0 and (", %d left out (a vein that doesn't grow there, or one this version doesn't know)"):format(r.bad) or "")
+					end
+				end,
+			},
+			importNote = Note(11, function() return finds.importNote or "" end),
+		}),
+		place = PositionCard(6, "In the middle of the screen by default; the other two books sit to its sides. Drag the window by its stone or header to move it.", function() if M() then M().ResetPosition() end end, function() return not DB().mining.moved end),
+	}
+end
+
 local function ThreatArgs()
 	local function warnOff() return not DB().threat.warn end
 	return {
@@ -3248,6 +3352,7 @@ local function Build()
 			fishing = Page(44, "Fishing journal", JournalArgs()),
 			fishingTools = Page(44.5, "Fishing tools", FishingToolsArgs()),
 			cookbook = Page(44.7, "Cookbook", CookbookArgs()),
+			mining = Page(44.8, "Rock Bottom", MiningArgs()),
 			bank = Page(42, "Bank", {
 				enabled = Width(Toggle(1, "Use the SanctuaryUI bank window", "D3's stash in place of Blizzard's bank. Needs the bag window on. Turning it off needs a /reload.", "bank", "enabled"), 1),
 				layout = Card(2, "Layout", {
