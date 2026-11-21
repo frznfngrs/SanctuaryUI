@@ -895,7 +895,7 @@ local function FishingToolsArgs()
 	local function F() return ns.Fishing end
 	return {
 		intro = Note(1, "Quality of life for fishing. With a fishing pole on: double right-click the water to cast, and the first double-click with no lure on your pole puts on the best lure you carry. Or fish with one key: it puts your fishing outfit on, then a lure, casts, and hooks the bobber. Catches are looted for you, a panel keeps the session's tally, and the console can fade back while you fish."),
-		casting = Card(2, "Casting", {
+		casting = Tab(2, "Casting", {
 			doubleClick = Toggle(1, "Double right-click to cast", "With a fishing pole on, out of combat, and not mounted, swimming or flying. A right-click on your bobber still reels it in.", "fishing", "doubleClick"),
 			autoLure = Toggle(2, "Lure on the same click", "With no lure on the pole, the double-click puts the best lure in your bags on first; the next one casts.", "fishing", "autoLure"),
 			autoLoot = Toggle(3, "Loot catches", "Take everything from the bobber at once. Off, or with the game's own auto loot on, nothing changes.", "fishing", "autoLoot"),
@@ -917,7 +917,7 @@ local function FishingToolsArgs()
 				return note
 			end)(),
 		}),
-		outfit = Card(2.5, "Fishing outfit", {
+		outfit = Tab(2.5, "Outfit", {
 			about = Note(1, function() return F().OutfitText() end),
 			how = Note(2, "Put your pole and fishing gear on, then press Remember: the pole and everything with Fishing on it is your outfit. The Fishing key puts it on when you have no pole in hand; \"Fishing outfit on or off\" (Key Bindings > AddOns, or /sanctuary fish outfit) swaps either way. Taking it off puts back what you wore before."),
 			remember = Width({
@@ -932,7 +932,7 @@ local function FishingToolsArgs()
 			}, HALF),
 			combatWeapons = Toggle(5, "Weapons back when attacked", "Something attacks you with the pole in your hands: your weapons go back on at once (the game allows weapon swaps in combat; your hat and boots wait).", "fishing", "combatWeapons"),
 		}),
-		panel = Card(3, "Session panel", {
+		panel = Tab(3, "Session panel", {
 			panel = Toggle(1, "Show while fishing", "Your skill, the lure's time, this session's catches, fish an hour, got-aways, skill-ups and the catches to your next point. It stays three minutes after your last cast.", "fishing", "panel"),
 			extravaganza = Toggle(2, "Extravaganza tracker", "On Sunday afternoons in Stranglethorn: your Tastyfish against 40, the race's time left, and when your oldest catch rots.", "fishing", "extravaganza"),
 			panelScale = Range(3, "Scale", nil, "fishing", "panelScale", 0.5, 2, 0.05, true),
@@ -943,12 +943,12 @@ local function FishingToolsArgs()
 				set = OwningFlag("fishingPanel", ns.Fishing, function(_, value) F().SetPreview(value) end),
 			}, THIRD),
 		}),
-		fade = Card(4, "Fishing mode", {
+		fade = Tab(4, "Fishing mode", {
 			fade = Toggle(1, "Fade the console while fishing", "The console and globes fade back while you fish, and come back at once in combat or under the mouse.", "fishing", "fade"),
 			fadeAlpha = Range(2, "Faded to", nil, "fishing", "fadeAlpha", 0, 0.9, 0.05, true),
 			splash = Toggle(3, "Louder splash", "While you fish: sound effects at full, music and ambience at a quarter, so you hear the bobber. Put back after. This changes Blizzard's sound settings while you play, which can upset Blizzard's own frames: if you see errors from Blizzard's UI after fishing, turn it off and /reload.", "fishing", "splash"),
 		}),
-		place = PositionCard(5, "The panel sits left of the console by default. " .. UNLOCK, function() F().ResetPosition() end, function() return not DB().fishing.panelPos.moved end),
+		place = Tab(5, "Position", { place = PositionCard(1, "The panel sits left of the console by default. " .. UNLOCK, function() F().ResetPosition() end, function() return not DB().fishing.panelPos.moved end) }),
 	}
 end
 
@@ -964,7 +964,7 @@ local function JournalArgs()
 				J().Open("now")
 			end,
 		},
-		diary = Card(3, "Diary", {
+		diary = Tab(3, "Diary", {
 			diary = Toggle(1, "Write diary entries", "Firsts, new kinds of fish, milestones, treasure, the odd boot: a line in the diary each time.", "journal", "diary"),
 			chat = Toggle(2, "Print them in chat", "Each new diary line also shows in your chat window.", "journal", "chat"),
 			log = {
@@ -991,7 +991,7 @@ local function JournalArgs()
 				end,
 			},
 		}),
-		popup = Card(3.5, "Pop-up", {
+		popup = Tab(3.5, "Pop-up", {
 			note = Note(0, "Each new diary line slides in on D3's \"new lore\" notice, glowing as it arrives. Hover to hold it, click to open the diary, right-click to dismiss. Unlock frames to move it. The Cookbook's diary uses the same pop-up, with these settings."),
 			toast = Toggle(1, "Show the pop-up", nil, "journal", "toast"),
 			toastSound = Toggle(2, "Page-turn sound", nil, "journal", "toastSound"),
@@ -1009,18 +1009,18 @@ local function JournalArgs()
 				func = function() J().ResetToastPosition() end,
 			},
 		}),
-		look = Card(4, "Look", {
+		look = Tab(4, "Look", {
 			scale = Range(1, "Scale", nil, "journal", "scale", 0.5, 1.6, 0.01, true),
 			textScale = Range(2, "Text size", "The page's text, on top of the window's scale. The Cookbook follows it, and the two fonts below.", "journal", "textScale", 0.8, 1.4, 0.05, true),
 			diaryFont = Select(3, "Diary hand", "The diary's lines and chapter openers. Diablo Script by default.", "journal", "diaryFont", TEXT_FONTS, TEXT_FONT_ORDER),
 			pageFont = Select(4, "Page font", "The guide's text and tables. Diablo Serif by default.", "journal", "pageFont", TEXT_FONTS, TEXT_FONT_ORDER),
 			flyout = Width(Toggle(5, "Fish in the console menu's flyout", "A fish plate among the Spellbook & Panels flyout's buttons. Takes effect after a /reload.", "journal", "flyout"), 0.666),
 		}),
-		dock = Card(4.5, "Beside the Fishing window", {
+		dock = Tab(4.5, "Fishing window", {
 			dock = Toggle(1, "Open beside the Fishing window", "When the game's Fishing window opens, the journal opens on Camp, docked to its right edge and sized to match. It closes with the window, and can't be dragged away while docked.", "journal", "dock"),
 			skin = Toggle(2, "Dress it in D3 stone", "While Fishing is open, the window wears the book's stone, with a bobber in its medallion, so the two read as one spread. Its buttons, lists and crafting are the game's own; any other profession looks as Blizzard made it.", "journal", "skin"),
 		}),
-		place = PositionCard(5, "Left of centre by default. Drag the window by its stone or header to move it.", function() J().ResetPosition() end, function() return not DB().journal.moved end),
+		place = Tab(5, "Position", { place = PositionCard(1, "Left of centre by default. Drag the window by its stone or header to move it.", function() J().ResetPosition() end, function() return not DB().journal.moved end) }),
 	}
 end
 
@@ -1037,7 +1037,7 @@ local function CookbookArgs()
 				C().Open("larder")
 			end,
 		},
-		diary = Card(3, "Diary", {
+		diary = Tab(3, "Diary", {
 			diary = Toggle(1, "Write diary entries", "The first time you cook a dish, new recipes, milestones: a line in the diary each time.", "cookbook", "diary"),
 			chat = Toggle(2, "Print them in chat", "Each new diary line also shows in your chat window.", "cookbook", "chat"),
 			toast = Toggle(3, "Show the pop-up", "Each new line slides in on the diary pop-up, the same one the Angler's journal uses.", "cookbook", "toast"),
@@ -1055,16 +1055,16 @@ local function CookbookArgs()
 				func = function() if C() then C().Clear() end end,
 			},
 		}),
-		look = Card(4, "Look", {
+		look = Tab(4, "Look", {
 			scale = Range(1, "Scale", nil, "cookbook", "scale", 0.5, 1.6, 0.01, true),
 			flyout = Width(Toggle(2, "Cauldron in the console menu's flyout", "A cauldron plate among the Spellbook & Panels flyout's buttons. Takes effect after a /reload.", "cookbook", "flyout"), 0.666),
 			shared = Note(3, "The two books share their page: text size, the diary hand, the page font, and the pop-up's size, sound, time and place are set once, under Fishing journal."),
 		}),
-		dock = Card(4.5, "Beside the Cooking window", {
+		dock = Tab(4.5, "Cooking window", {
 			dock = Toggle(1, "Open beside the Cooking window", "When the game's Cooking window opens, the Cookbook opens on The Larder, docked to its right edge and sized to match. It closes with the window, and can't be dragged away while docked.", "cookbook", "dock"),
 			skin = Toggle(2, "Dress it in D3 stone", "While Cooking is open, the window wears the book's stone, with an egg in a pan in its medallion, so the two read as one spread. Its buttons, lists and crafting are the game's own; any other profession looks as Blizzard made it.", "cookbook", "skin"),
 		}),
-		place = PositionCard(5, "Right of centre by default, so both books can lie open. Drag the window by its stone or header to move it.", function() if C() then C().ResetPosition() end end, function() return not DB().cookbook.moved end),
+		place = Tab(5, "Position", { place = PositionCard(1, "Right of centre by default, so both books can lie open. Drag the window by its stone or header to move it.", function() if C() then C().ResetPosition() end end, function() return not DB().cookbook.moved end) }),
 	}
 end
 
@@ -1083,7 +1083,7 @@ local function MiningArgs()
 				M().Open("seam")
 			end,
 		},
-		diary = Card(3, "Memoir", {
+		diary = Tab(3, "Memoir", {
 			diary = Toggle(1, "Write memoir entries", "Your first vein, new kinds, gems, veins the maps don't know, smelting, milestones: a line in the memoir each time.", "mining", "diary"),
 			chat = Toggle(2, "Print them in chat", "Each new memoir line also shows in your chat window.", "mining", "chat"),
 			toast = Toggle(3, "Show the pop-up", "Each new line slides in on the diary pop-up the other books use.", "mining", "toast"),
@@ -1101,16 +1101,16 @@ local function MiningArgs()
 				func = function() if M() then M().Clear() end end,
 			},
 		}),
-		look = Card(4, "Look", {
+		look = Tab(4, "Look", {
 			scale = Range(1, "Scale", nil, "mining", "scale", 0.5, 1.6, 0.01, true),
 			flyout = Width(Toggle(2, "Pick in the console menu's flyout", "A pick plate among the Spellbook & Panels flyout's buttons. Takes effect after a /reload.", "mining", "flyout"), 0.666),
 			shared = Note(3, "The books share their page: text size, the diary hand, the page font, and the pop-up's size, sound, time and place are set once, under Fishing journal."),
 		}),
-		dock = Card(4.5, "Beside the Mining window", {
+		dock = Tab(4.5, "Mining window", {
 			dock = Toggle(1, "Open beside the Mining window", "When the game's Mining window shows its smelting, Rock Bottom opens on The Smelter, docked to its right edge and sized to match. It closes with the window, and can't be dragged away while docked.", "mining", "dock"),
 			skin = Toggle(2, "Dress it in D3 stone", "While Mining is open, the window wears the book's stone, with ingots over a forge in its medallion, so the two read as one spread. Its buttons, lists and smelting are the game's own; any other profession looks as Blizzard made it.", "mining", "skin"),
 		}),
-		pins = Card(5, "Vein pins", {
+		pins = Tab(5, "Vein pins", {
 			world = Toggle(1, "On the world map", "A pin on every known spot of the veins you want on a zone's map; on a continent, one pin per zone with the count.", "mining.pins", "world"),
 			minimap = Toggle(2, "On the minimap", "The same veins within the minimap's reach. They turn with \"rotate minimap\".", "mining.pins", "minimap"),
 			show = Select(3, "Which veins", "Every vein you can mine (the ones you've outgrown drawn dim), only those that still teach you skill, or every vein. The book's \"Show on the world map\" links always show the vein they name.", "mining.pins", "show",
@@ -1123,7 +1123,7 @@ local function MiningArgs()
 			miniSize = Range(8, "Minimap pin size", nil, "mining.pins", "miniSize", 6, 22, 1),
 			note = Note(9, "Spots are where veins grow, from GatherLite's Forever database (Wowhead's coordinates), not live nodes. Ghost veins (Season of Discovery's) stay off the maps."),
 		}),
-		share = Card(5.5, "Sharing finds", {
+		share = Tab(5.5, "Sharing", {
 			intro = Note(0, "A find is a vein you mined where the maps had no spot. SanctuaryUI miners pass them on: yours go to your group and guild as you find them, theirs come to you, and they show on your maps ringed in blue."),
 			group = Toggle(1, "Tell my group", "Your party or raid hears each new find, and your latest finds when you join a group.", "mining.share", "group"),
 			guild = Toggle(2, "Tell my guild", "Your guild hears each new find, and your latest finds once after you log in.", "mining.share", "guild"),
@@ -1172,7 +1172,7 @@ local function MiningArgs()
 			},
 			importNote = Note(11, function() return finds.importNote or "" end),
 		}),
-		place = PositionCard(6, "In the middle of the screen by default; the other two books sit to its sides. Drag the window by its stone or header to move it.", function() if M() then M().ResetPosition() end end, function() return not DB().mining.moved end),
+		place = Tab(6, "Position", { place = PositionCard(1, "In the middle of the screen by default; the other two books sit to its sides. Drag the window by its stone or header to move it.", function() if M() then M().ResetPosition() end end, function() return not DB().mining.moved end) }),
 	}
 end
 
@@ -3361,10 +3361,10 @@ local function Build()
 			}),
 			gap43 = Gap(43),
 			sectionProfessions = Section(43.5, "Professions"),
-			fishing = Page(44, "Fishing journal", JournalArgs()),
-			fishingTools = Page(44.5, "Fishing tools", FishingToolsArgs()),
-			cookbook = Page(44.7, "Cookbook", CookbookArgs()),
-			mining = Page(44.8, "Rock Bottom", MiningArgs()),
+			fishing = Page(44, "Fishing journal", JournalArgs(), "tab"),
+			fishingTools = Page(44.5, "Fishing tools", FishingToolsArgs(), "tab"),
+			cookbook = Page(44.7, "Cookbook", CookbookArgs(), "tab"),
+			mining = Page(44.8, "Rock Bottom", MiningArgs(), "tab"),
 			bank = Page(42, "Bank", {
 				enabled = Width(Toggle(1, "Use the SanctuaryUI bank window", "D3's stash in place of Blizzard's bank. Needs the bag window on. Turning it off needs a /reload.", "bank", "enabled"), 1),
 				layout = Card(2, "Layout", {
