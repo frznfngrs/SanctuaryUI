@@ -377,14 +377,37 @@ local RELOAD_TO_RESTORE = { PartyFrame = true }
 local reloadAsked = {}
 
 StaticPopupDialogs["SANCTUARYUI_PARTY_RELOAD"] = {
-	text = "Giving Blizzard's party frames back needs a reload.",
+	text = "Blizzard's party frames come back after a reload. Until then, you won't see any party frames.",
 	button1 = "Reload now",
-	button2 = "Later",
+	button2 = "Reload later",
 	OnAccept = function() ReloadUI() end,
+	-- Reload later, and Escape: never reloads, leaves a reminder in chat.
+	OnCancel = function()
+		print("SanctuaryUI: Party frames are hidden until you /reload.")
+	end,
 	timeout = 0,
 	whileDead = true,
 	hideOnEscape = true,
 }
+
+-- Never pops in combat: waits for combat to end. Only shows if the reload is still pending.
+local partyPopupWaiter
+local function AskPartyReload()
+	if InCombatLockdown() then
+		if not partyPopupWaiter then
+			partyPopupWaiter = CreateFrame("Frame")
+			partyPopupWaiter:SetScript("OnEvent", function(self)
+				self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+				if reloadAsked.PartyFrame then
+					StaticPopup_Show("SANCTUARYUI_PARTY_RELOAD")
+				end
+			end)
+		end
+		partyPopupWaiter:RegisterEvent("PLAYER_REGEN_ENABLED")
+		return
+	end
+	StaticPopup_Show("SANCTUARYUI_PARTY_RELOAD")
+end
 
 -- Totems turned off again: Blizzard's frame goes back where it was. Not shown here, because
 -- it shows itself only while a totem is down, on its next update.
@@ -500,7 +523,11 @@ function ns.Blizzard.Replaced()
 		local frame = _G[name]
 		if frame then
 			if replaced(db) then
-				reloadAsked[name] = nil
+				if reloadAsked[name] then
+					-- Back to a SanctuaryUI style before reloading: nothing pending any more.
+					reloadAsked[name] = nil
+					StaticPopup_Hide("SANCTUARYUI_PARTY_RELOAD")
+				end
 				frame.sanctuaryAllow = nil
 				pcall(frame.SetParent, frame, ns.Hider)
 				pcall(Suppress, frame)
@@ -508,7 +535,7 @@ function ns.Blizzard.Replaced()
 				if RELOAD_TO_RESTORE[name] then
 					if not reloadAsked[name] then
 						reloadAsked[name] = true
-						StaticPopup_Show("SANCTUARYUI_PARTY_RELOAD")
+						AskPartyReload()
 					end
 				else
 					Restore(frame, UIParent)
