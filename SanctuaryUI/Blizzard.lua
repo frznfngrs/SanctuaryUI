@@ -366,6 +366,26 @@ local function Restore(frame, parent)
 	show(frame)
 end
 
+-- Blizzard's party frames aren't given back mid-session: they come back after a reload. Putting
+-- PartyFrame back under UIParent and showing it from here runs its OnShow, and the OnShow of every
+-- shown frame under it, in SanctuaryUI's taint: PartyFrameMixin:OnShow, and CompactUnitFrame_OnShow
+-- on the raid-style members, which stores each member's range (outOfRange) from secret values.
+-- Blizzard's code then reads those and runs tainted for the rest of the session: the members' own
+-- updates test outOfRange, and Edit Mode's exit (ResetPartyFrames) compares a secret health colour
+-- (#32, #33). Until the reload it stays hidden, as the Show hook still applies.
+local RELOAD_TO_RESTORE = { PartyFrame = true }
+local reloadAsked = {}
+
+StaticPopupDialogs["SANCTUARYUI_PARTY_RELOAD"] = {
+	text = "Giving Blizzard's party frames back needs a reload.",
+	button1 = "Reload now",
+	button2 = "Later",
+	OnAccept = function() ReloadUI() end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+}
+
 -- Totems turned off again: Blizzard's frame goes back where it was. Not shown here, because
 -- it shows itself only while a totem is down, on its next update.
 function ns.Blizzard.RestoreTotemFrame()
@@ -480,11 +500,19 @@ function ns.Blizzard.Replaced()
 		local frame = _G[name]
 		if frame then
 			if replaced(db) then
+				reloadAsked[name] = nil
 				frame.sanctuaryAllow = nil
 				pcall(frame.SetParent, frame, ns.Hider)
 				pcall(Suppress, frame)
 			elseif frame:GetParent() == ns.Hider then
-				Restore(frame, UIParent)
+				if RELOAD_TO_RESTORE[name] then
+					if not reloadAsked[name] then
+						reloadAsked[name] = true
+						StaticPopup_Show("SANCTUARYUI_PARTY_RELOAD")
+					end
+				else
+					Restore(frame, UIParent)
+				end
 			end
 		end
 	end
