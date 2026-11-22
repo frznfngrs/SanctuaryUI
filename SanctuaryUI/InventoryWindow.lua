@@ -288,7 +288,28 @@ local MIN_SEARCH_W = 90 -- narrowest search box worth sharing the line with the 
 -- relayout), all of that runs tainted, and RunBinding from a tainted path is forbidden (#34).
 -- So with keys pending, leave the split frame up rather than hide it: Okay, Cancel or Escape
 -- then closes it through Blizzard's own code. Reads only, apart from our own slot's flag.
-local function SparePendingSplit(within)
+-- If a split we spared ends with the stack on the cursor (Okay, by click or Enter) and its bags
+-- are closed, reopen them so the stack has somewhere visible to go. Runs after Blizzard's own
+-- OnHide (HookScript appends), on the player's later click, and one frame later besides, so the
+-- key replay has already happened, untainted, before we touch anything.
+local sparedWindow
+local splitHooked
+local function HookSplitClose(split)
+	if splitHooked then return end
+	splitHooked = true
+	split:HookScript("OnHide", function()
+		local window = sparedWindow
+		sparedWindow = nil
+		if not window then return end
+		C_Timer.After(0, function()
+			if GetCursorInfo() == "item" and not window.frame:IsShown() and not InCombatLockdown() then
+				window:Open()
+			end
+		end)
+	end)
+end
+
+local function SparePendingSplit(within, window)
 	local split = StackSplitFrame
 	local owner = split and split:IsShown() and split.owner
 	if not owner or owner.hasStackSplit ~= 1 then return end
@@ -297,6 +318,8 @@ local function SparePendingSplit(within)
 	while region do
 		if region == within then
 			owner.hasStackSplit = 0
+			sparedWindow = window
+			HookSplitClose(split)
 			return
 		end
 		region = region:GetParent()
@@ -419,7 +442,7 @@ function Window:Layout()
 					col, row = 0, row + 1
 				end
 			elseif button then
-				SparePendingSplit(button)
+				SparePendingSplit(button, self)
 				button:Hide()
 			end
 		end
@@ -428,7 +451,7 @@ function Window:Layout()
 	for bag, holder in pairs(frame.holders) do
 		if not shownBags[bag] then
 			for _, button in ipairs(holder.slots) do
-				SparePendingSplit(button)
+				SparePendingSplit(button, self)
 				button:Hide()
 			end
 		end
@@ -546,7 +569,7 @@ function Window:Open()
 end
 
 function Window:Close()
-	SparePendingSplit(self.frame)
+	SparePendingSplit(self.frame, self)
 	self.frame:Hide()
 end
 
