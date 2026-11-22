@@ -281,6 +281,28 @@ end
 
 local MIN_SEARCH_W = 90 -- narrowest search box worth sharing the line with the bag slots
 
+-- Shift-clicking a stack opens Blizzard's StackSplitFrame, and our slot's template hides it
+-- again from its OnHide. The split frame's OnHide then runs RunBinding(action, "up") for every
+-- key it saw go down but not come up (a key that closes it, B for the bags, never comes up).
+-- When our code hides the slot (closing the window from a bag toggle hook or the close X, a
+-- relayout), all of that runs tainted, and RunBinding from a tainted path is forbidden (#34).
+-- So with keys pending, leave the split frame up rather than hide it: Okay, Cancel or Escape
+-- then closes it through Blizzard's own code. Reads only, apart from our own slot's flag.
+local function SparePendingSplit(within)
+	local split = StackSplitFrame
+	local owner = split and split:IsShown() and split.owner
+	if not owner or owner.hasStackSplit ~= 1 then return end
+	if type(split.down) ~= "table" or next(split.down) == nil then return end
+	local region = owner
+	while region do
+		if region == within then
+			owner.hasStackSplit = 0
+			return
+		end
+		region = region:GetParent()
+	end
+end
+
 function Window:Layout()
 	local frame = self.frame
 	if InCombatLockdown() then
@@ -397,6 +419,7 @@ function Window:Layout()
 					col, row = 0, row + 1
 				end
 			elseif button then
+				SparePendingSplit(button)
 				button:Hide()
 			end
 		end
@@ -405,6 +428,7 @@ function Window:Layout()
 	for bag, holder in pairs(frame.holders) do
 		if not shownBags[bag] then
 			for _, button in ipairs(holder.slots) do
+				SparePendingSplit(button)
 				button:Hide()
 			end
 		end
@@ -522,6 +546,7 @@ function Window:Open()
 end
 
 function Window:Close()
+	SparePendingSplit(self.frame)
 	self.frame:Hide()
 end
 
