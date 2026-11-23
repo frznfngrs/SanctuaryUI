@@ -1349,6 +1349,7 @@ do
 			if hub then GameTooltip:AddLine("Stay: " .. hub .. ".", 0.75, 0.72, 0.65, true) end
 		end
 		GameTooltip:AddLine("Click to zoom in.", 0.6, 0.6, 0.6)
+		ns.AddMapZoomCombatTip()
 		GameTooltip:Show()
 	end
 
@@ -1524,7 +1525,7 @@ do
 			return
 		end
 		if InCombatLockdown() then
-			ns.Print("The map waits until the fight's over.")
+			ns.TellWorldMapCombat(false)
 			return
 		end
 		if not WorldMapFrame and C_AddOns and C_AddOns.LoadAddOn then pcall(C_AddOns.LoadAddOn, "Blizzard_WorldMap") end

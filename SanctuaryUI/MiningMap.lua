@@ -331,6 +331,7 @@ local function DrawContinent(shownID, rank)
 						GameTooltip:AddDoubleLine(e[1].name, tostring(e[2]), ring[1], ring[2], ring[3], 0.9, 0.86, 0.78)
 					end
 					GameTooltip:AddLine("Click to see every spot.", 0.6, 0.6, 0.6)
+					ns.AddMapZoomCombatTip()
 					GameTooltip:Show()
 				end
 				pin:SetScript("OnClick", function() ns.ZoomWorldMap(map) end)
@@ -406,7 +407,7 @@ end
 -- show), map is where to open (a zone, or nil for the continent you're on).
 function MM.Show(key, map)
 	if InCombatLockdown() then
-		ns.Print("The map waits until the fight's over.")
+		ns.TellWorldMapCombat(false)
 		return
 	end
 	if not WorldMapFrame and C_AddOns and C_AddOns.LoadAddOn then pcall(C_AddOns.LoadAddOn, "Blizzard_WorldMap") end
