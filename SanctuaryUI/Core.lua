@@ -309,6 +309,104 @@ function ns.Print(msg)
 	ns.Log("print: %s", msg)
 end
 
+-- Show a map on the world map (opening it if need be) without tainting it. Addon code that
+-- calls OpenWorldMap, ShowUIPanel(WorldMapFrame) or WorldMapFrame:SetMapID runs the map's whole
+-- refresh as SanctuaryUI: Blizzard's data providers create and set up their pins tainted, those
+-- pins stay in the shared pools, and from then on, in combat, a quest or area pin's
+-- SetPassThroughButtons / SetPropagateMouseClicks is blocked and blamed on us (#37, #38).
+-- C_Map.OpenWorldMap only fires WORLD_MAP_OPEN, and Blizzard's own handler opens the map and
+-- sets it, so the refresh runs clean. It's refused in combat: returns false then. Clients
+-- without it fall back to the direct calls.
+function ns.OpenWorldMap(mapID)
+	if InCombatLockdown() then return false end
+	if C_Map and C_Map.OpenWorldMap then
+		C_Map.OpenWorldMap(mapID)
+		return true
+	end
+	if not WorldMapFrame then return false end
+	if not WorldMapFrame:IsShown() then
+		if OpenWorldMap then OpenWorldMap(mapID) else ShowUIPanel(WorldMapFrame) end
+	end
+	if mapID and WorldMapFrame:GetMapID() ~= mapID then WorldMapFrame:SetMapID(mapID) end
+	return true
+end
+
+-- A click on one of our world map pins that zooms the map: through ns.OpenWorldMap. In combat
+-- (where that is refused) the latest click is kept and the zoom runs when the fight ends, still
+-- through C_Map.OpenWorldMap, but only if the world map is still open on the same map it was
+-- when the pin was clicked. Closing the map or moving it yourself drops the click, so a late
+-- zoom never surprises anyone.
+local pendingZoom -- { mapID, fromMapID }
+local mapZoomHooked
+local lastMapCombatMsg = 0
+
+local function ClearPendingZoom()
+	pendingZoom = nil
+end
+
+local function HookPendingZoom()
+	if mapZoomHooked or not WorldMapFrame then return end
+	mapZoomHooked = true
+	WorldMapFrame:HookScript("OnHide", ClearPendingZoom)
+	hooksecurefunc(WorldMapFrame, "OnMapChanged", function()
+		if pendingZoom and WorldMapFrame:GetMapID() ~= pendingZoom.fromMapID then
+			ClearPendingZoom()
+		end
+	end)
+end
+
+local function FlushPendingZoom()
+	local pending = pendingZoom
+	ClearPendingZoom()
+	if not pending or InCombatLockdown() then return end
+	if not WorldMapFrame or not WorldMapFrame:IsShown() then return end
+	if WorldMapFrame:GetMapID() ~= pending.fromMapID then return end
+	ns.OpenWorldMap(pending.mapID)
+end
+
+-- Tell the player the world map can't change in combat. The same line goes to chat and to
+-- UIErrorsFrame (the text at the top centre, above a maximized map). At most once every 5
+-- seconds, so repeated pin clicks don't spam it. `queued` means a zoom will run after the fight
+-- (mapID is that zone).
+function ns.TellWorldMapCombat(queued, mapID)
+	local now = GetTime()
+	if now - lastMapCombatMsg < 5 then return end
+	lastMapCombatMsg = now
+	local msg
+	if queued then
+		local info = mapID and C_Map and C_Map.GetMapInfo and C_Map.GetMapInfo(mapID)
+		local zone = info and info.name
+		msg = zone and ("Map will zoom to %s after combat."):format(zone) or "Map will zoom after combat."
+	else
+		msg = "Can't zoom the map in combat. Click again after the fight."
+	end
+	ns.Print(msg)
+	if UIErrorsFrame and UIErrorsFrame.AddMessage then
+		UIErrorsFrame:AddMessage("SanctuaryUI: " .. msg, 1, 0.78, 0.38)
+	end
+end
+
+-- Grey hint on our own pin tooltips while a click would only queue a zoom.
+function ns.AddMapZoomCombatTip()
+	if InCombatLockdown() then
+		GameTooltip:AddLine("Zooms after combat", 0.6, 0.6, 0.6)
+	end
+end
+
+function ns.ZoomWorldMap(mapID)
+	if not mapID then return end
+	if ns.OpenWorldMap(mapID) then
+		ClearPendingZoom()
+		return
+	end
+	HookPendingZoom()
+	pendingZoom = {
+		mapID = mapID,
+		fromMapID = WorldMapFrame and WorldMapFrame:IsShown() and WorldMapFrame:GetMapID() or nil,
+	}
+	ns.TellWorldMapCombat(true, mapID)
+end
+
 -- Resize the buttons an aura container already made for one of its groups. Once the client has
 -- shown an aura on a button, addon code may no longer touch it ("forbidden object"), so those are
 -- skipped (and any other refusal caught) instead of aborting the caller's setup. sizer(button)
@@ -1270,6 +1368,7 @@ loader:SetScript("OnEvent", function(_, event)
 		end
 	elseif event == "PLAYER_REGEN_ENABLED" then
 		ns.Log("combat ended, applying deferred work%s", ns.pendingRefresh and " (refresh pending)" or "")
+		ns.Try("pending map zoom", FlushPendingZoom)
 		if ns.Blizzard and ns.Blizzard.Hide then ns.Blizzard.Hide() end
 		if ns.ActionBar and ns.ActionBar.ReassignBindings then ns.ActionBar.ReassignBindings() end
 		if ns.Menu and ns.Menu.ReassignBindings then ns.Menu.ReassignBindings() end
