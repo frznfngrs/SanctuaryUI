@@ -333,7 +333,7 @@ local function DrawContinent(shownID, rank)
 					GameTooltip:AddLine("Click to see every spot.", 0.6, 0.6, 0.6)
 					GameTooltip:Show()
 				end
-				pin:SetScript("OnClick", function() WorldMapFrame:SetMapID(map) end)
+				pin:SetScript("OnClick", function() ns.ZoomWorldMap(map) end)
 			end
 		end
 	end
@@ -422,13 +422,10 @@ function MM.Show(key, map)
 		local here = C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
 		target = Readable(here) and here and ContinentOf(here) or nil
 	end
-	if not WorldMapFrame:IsShown() then
-		if OpenWorldMap then OpenWorldMap(target) else ShowUIPanel(WorldMapFrame) end
-	end
-	if target and WorldMapFrame:GetMapID() ~= target then
-		WorldMapFrame:SetMapID(target) -- draws, through the OnMapChanged hook
-	else
+	if WorldMapFrame:IsShown() and (not target or WorldMapFrame:GetMapID() == target) then
 		Draw()
+	else
+		ns.OpenWorldMap(target) -- draws, through the OnShow and OnMapChanged hooks
 	end
 end
 

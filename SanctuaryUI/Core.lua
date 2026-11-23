@@ -309,6 +309,35 @@ function ns.Print(msg)
 	ns.Log("print: %s", msg)
 end
 
+-- Show a map on the world map (opening it if need be) without tainting it. Addon code that
+-- calls OpenWorldMap, ShowUIPanel(WorldMapFrame) or WorldMapFrame:SetMapID runs the map's whole
+-- refresh as SanctuaryUI: Blizzard's data providers create and set up their pins tainted, those
+-- pins stay in the shared pools, and from then on, in combat, a quest or area pin's
+-- SetPassThroughButtons / SetPropagateMouseClicks is blocked and blamed on us (#37, #38).
+-- C_Map.OpenWorldMap only fires WORLD_MAP_OPEN, and Blizzard's own handler opens the map and
+-- sets it, so the refresh runs clean. It's refused in combat: returns false then. Clients
+-- without it fall back to the direct calls.
+function ns.OpenWorldMap(mapID)
+	if InCombatLockdown() then return false end
+	if C_Map and C_Map.OpenWorldMap then
+		C_Map.OpenWorldMap(mapID)
+		return true
+	end
+	if not WorldMapFrame then return false end
+	if not WorldMapFrame:IsShown() then
+		if OpenWorldMap then OpenWorldMap(mapID) else ShowUIPanel(WorldMapFrame) end
+	end
+	if mapID and WorldMapFrame:GetMapID() ~= mapID then WorldMapFrame:SetMapID(mapID) end
+	return true
+end
+
+-- A click on one of our world map pins that zooms the map: through ns.OpenWorldMap, and in
+-- combat (where that is refused) a word instead of a dead click.
+function ns.ZoomWorldMap(mapID)
+	if not mapID then return end
+	if not ns.OpenWorldMap(mapID) then ns.Print("The map waits until the fight's over.") end
+end
+
 -- Resize the buttons an aura container already made for one of its groups. Once the client has
 -- shown an aura on a button, addon code may no longer touch it ("forbidden object"), so those are
 -- skipped (and any other refusal caught) instead of aborting the caller's setup. sizer(button)

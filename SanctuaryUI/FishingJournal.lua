@@ -1367,7 +1367,7 @@ do
 		pin.icon:SetMask(MASK)
 		pin:SetScript("OnEnter", PinTooltip)
 		pin:SetScript("OnLeave", function() GameTooltip:Hide() end)
-		pin:SetScript("OnClick", function(self) WorldMapFrame:SetMapID(self.g.mapID) end)
+		pin:SetScript("OnClick", function(self) ns.ZoomWorldMap(self.g and self.g.mapID) end)
 		pins[i] = pin
 		return pin
 	end
@@ -1410,7 +1410,7 @@ do
 		banner.other:SetPoint("LEFT", banner.text, "RIGHT", 12, 0)
 		banner.other.text = banner.other:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 		banner.other.text:SetPoint("LEFT")
-		banner.other:SetScript("OnClick", function(self) if self.mapID then WorldMapFrame:SetMapID(self.mapID) end end)
+		banner.other:SetScript("OnClick", function(self) ns.ZoomWorldMap(self.mapID) end)
 		banner.other:SetScript("OnEnter", function(self) self.text:SetTextColor(1, 0.82, 0.3) end)
 		banner.other:SetScript("OnLeave", function(self) self.text:SetTextColor(1, 1, 1) end)
 		banner.close = CreateFrame("Button", nil, banner, "UIPanelCloseButton")
@@ -1550,13 +1550,10 @@ do
 			ns.Print("The world map doesn't know these waters.")
 			return
 		end
-		if not WorldMapFrame:IsShown() then
-			if OpenWorldMap then OpenWorldMap(target) else ShowUIPanel(WorldMapFrame) end
-		end
-		if WorldMapFrame:GetMapID() ~= target then
-			WorldMapFrame:SetMapID(target) -- draws, through the OnMapChanged hook
-		else
+		if WorldMapFrame:IsShown() and WorldMapFrame:GetMapID() == target then
 			Draw()
+		else
+			ns.OpenWorldMap(target) -- draws, through the OnShow and OnMapChanged hooks
 		end
 	end
 
