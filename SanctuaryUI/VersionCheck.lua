@@ -11,8 +11,11 @@ local ns = SanctuaryUI
 --
 -- To reach everyone on the realm, not just group and guild, each copy also joins a temporary chat
 -- channel a little after login (after General and Trade, so their numbers don't move) and says its
--- version there once. Nothing but addon messages goes over it, so it shows nothing in chat; its
--- join notices are filtered out. /sanctuary updates off leaves it.
+-- version there once. Nothing but addon messages goes over it, so it shows nothing in chat. It
+-- is in no chat window, so the client already leaves its join and leave notices out of chat. No
+-- chat filter hides them: a filter runs inside every chat window for every channel notice, and
+-- spread SanctuaryUI taint into the channel lists and history of the chat windows (#41, #42).
+-- /sanctuary updates off leaves it.
 
 local PREFIX = "SanctuaryUI"
 local SEND_DELAY = 10  -- seconds after login or a group change, as other addons do
@@ -141,21 +144,6 @@ local function Reply(channel)
 		lastReply[channel] = GetTime()
 		Send(channel)
 	end)
-end
-
--- Join and leave notices for the channel ("Joined Channel: [5. SanctuaryUI]") stay out of chat.
-local function IsOurs(text)
-	return type(text) == "string" and not ns.Secret(text)
-		and (text:lower() == CHANNEL:lower() or text:lower():match("^%d+%. " .. CHANNEL:lower() .. "$"))
-end
-local function NoticeFilter(_, _, _, _, _, channelString, _, _, _, _, channelName)
-	if IsOurs(channelName) or IsOurs(channelString) then return true end
-end
-local addFilter = (ChatFrameUtil and ChatFrameUtil.AddMessageEventFilter) or ChatFrame_AddMessageEventFilter
-if addFilter then
-	for _, event in ipairs({ "CHAT_MSG_CHANNEL_NOTICE", "CHAT_MSG_CHANNEL_NOTICE_USER" }) do
-		pcall(addFilter, event, NoticeFilter)
-	end
 end
 
 local function JoinChannel(announce)
