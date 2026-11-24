@@ -66,6 +66,8 @@ ns.GlobeAura = ns.GlobeAura or {}
 --     rain     drops falling through the glass and rippling on the surface
 --     pulse    a wave of light rising through the liquid each tick, the surface flashing to it
 --     embers   slow sparks rising from the bottom of the glass, with their trails
+--     crosses  (First Aid) bevelled green crosses turning as they rise through the glass and
+--              drift up off the crown, brightening with each tick of the heal
 --     Vines and pulse time themselves from your own cast and the buff's length and tick period
 --     (the state's castAt), restarting when it is recast; with no cast to go on (someone else's
 --     buff, up since before a reload) vines are fully grown and pulse keeps a plain cadence.
@@ -156,6 +158,8 @@ local STYLE_SLOTS = {
 local HEAL_ART = {
 	vines = { slot = "healVines", w = 1024, h = 1024, cw = 256, ch = 256, cols = 4, frames = 16, row = 0 },
 	leaf = { slot = "healLeaf", w = 512, h = 512, cw = 128, ch = 128, cols = 4, frames = 16, row = 0 },
+	cross = { slot = "healCross", w = 1024, h = 1024, cw = 128, ch = 128, cols = 8, frames = 32, row = 0 },
+	crossHot = { slot = "healCross", w = 1024, h = 1024, cw = 128, ch = 128, cols = 8, frames = 32, row = 4 },
 	veil = { slot = "healVeil", w = 2048, h = 512, cw = 256, ch = 128, cols = 8, frames = 32, seconds = 7.5, row = 0 },
 	moundBody = { slot = "healMound", w = 2048, h = 512, cw = 256, ch = 128, cols = 8, frames = 16, row = 0 },
 	moundEdge = { slot = "healMound", w = 2048, h = 512, cw = 256, ch = 128, cols = 8, frames = 16, row = 2 },
@@ -167,12 +171,13 @@ STYLE_SLOTS.veil = { "healVeil" }
 STYLE_SLOTS.rain = { "healRings", "healDrop" }
 STYLE_SLOTS.pulse = { "healRings", "healDome" }
 STYLE_SLOTS.embers = { "healDrop" }
+STYLE_SLOTS.crosses = { "healCross" }
 -- The one-off heals; if a sheet won't load the skill plays the plain burst.
 local HEAL_SLOTS = { mend = { "healDome" }, benediction = { "healBeam", "healRings" }, mound = { "healMound" } }
 local HEAL_SECONDS = { mend = 1.25, benediction = 1.15, mound = 1.15 }
 local RIDES_LEVEL = { pour = true, upwell = true, rain = true, pulse = true, fury = true }
 local KICKS_POOL = { pour = true, upwell = true, fury = true } -- lighting one sets the liquid rocking
-local NEW_STYLE = { vines = true, halo = true, bloom = true, veil = true, rain = true, pulse = true, embers = true }
+local NEW_STYLE = { vines = true, halo = true, bloom = true, veil = true, rain = true, pulse = true, embers = true, crosses = true }
 local STREAKS = 24 -- inhale: streaks rushing in
 local STREAK_CYCLE = 3 -- seconds for one
 local STREAK_SPAN = 0.78 -- of the sprite's height, the streak's length in the art
@@ -206,6 +211,7 @@ local TINTS = {
 	hearth = { sat = { 1.0, 0.55, 0.25 }, hot = { 1.0, 0.85, 0.6 } },
 	vital = { sat = { 1.0, 0.2, 0.12 }, hot = { 1.0, 0.7, 0.55 } },
 	fel = { sat = { 0.4, 1.0, 0.25 }, hot = { 0.85, 1.0, 0.7 } },
+	mending = { sat = { 0.1, 0.95, 0.3 }, hot = { 0.78, 1.0, 0.82 } }, -- First Aid's emerald
 }
 ns.GlobeAura.TINTS = TINTS
 
@@ -2034,6 +2040,133 @@ function DRAW.embers(g, u, s, now, base, sat, hot, rush, calm)
 end
 
 do
+-- Crosses (First Aid): bevelled crosses (HEAL_ART.cross, the body over its hot filament and
+-- glints) turning as they rise. Some rise through the glass, clipped to it; more lift off the
+-- crown behind the globe and drift up, in mirrored pairs so the look can't lean. Each tick of
+-- the heal (your own cast and the skill's tick period) brightens them and the glass; with no
+-- cast to go on they breathe on a plain cadence. Light added over red liquid turns yellow, so
+-- the ones in the glass are backed by a dark shade of their colour (normal blending) first.
+local CROSS_INSIDE = { -0.55, 0.3, -0.1, 0.62, -0.38, 0.12 } -- lanes, of the chord at their height
+local CROSS_OUTSIDE = 6
+local CROSS_RISE_IN, CROSS_RISE_OUT = 3.6, 4.6 -- seconds for one to rise
+local CROSS_FLASH = 0.55 -- seconds a tick's brightening runs
+local CROSS_PLAIN = 2.2
+
+local function Cross(s, frame, sublevel, mask)
+	local item = { glow = Own(s, frame, "mote", sublevel), body = OwnPair(s, frame, HEAL_ART.cross, sublevel + 1),
+		hot = OwnPair(s, frame, HEAL_ART.crossHot, sublevel + 2) }
+	item.parts = { item.body, item.hot }
+	if mask then
+		item.shade = OwnPair(s, frame, HEAL_ART.cross, sublevel)
+		PairCall(item.shade, "SetBlendMode", "BLEND")
+		table.insert(item.parts, 1, item.shade)
+		item.glow:AddMaskTexture(mask)
+	end
+	for _, p in ipairs(item.parts) do
+		PairCall(p, "ClearAllPoints")
+		if mask then PairCall(p, "AddMaskTexture", mask) end
+	end
+	return item
+end
+
+local function Place(item, frame, x, y, sz, pos, angle, body, hot, glowColor, lit)
+	item.glow:ClearAllPoints()
+	item.glow:SetPoint("CENTER", frame, "CENTER", x, y)
+	Size(item.glow, sz * 1.5)
+	Paint(item.glow, glowColor, 0.3 * lit)
+	for _, p in ipairs(item.parts) do
+		PairCall(p, "ClearAllPoints")
+		PairCall(p, "SetPoint", "CENTER", frame, "CENTER", x, y)
+		PairCall(p, "SetSize", sz, sz)
+	end
+	if item.shade then
+		-- The backing: one dark colour, the crossfade in the alpha (blended, not added).
+		local shade, spec = item.shade, item.shade.spec
+		local at = (pos % 1) * spec.frames
+		local i = math.floor(at)
+		local f = at - i
+		SpinCell(shade.a, spec, i, angle)
+		SpinCell(shade.b, spec, (i + 1) % spec.frames, angle)
+		local k = math.max(0, math.min(1, 0.8 * lit))
+		for _, tex in ipairs({ shade.a, shade.b }) do tex:SetVertexColor(glowColor[1] * 0.12, glowColor[2] * 0.2, glowColor[3] * 0.12) end
+		shade.a:SetAlpha(k * (1 - f))
+		shade.b:SetAlpha(k * f)
+	end
+	DrawSpun(item.body, pos, angle, body, 0.95 * lit)
+	DrawSpun(item.hot, pos, angle, hot, 0.85 * lit)
+end
+
+-- How a cross turns: odd ones spin about their upright, the rest rock gently near face on.
+local function Turn(j, clock)
+	if j % 2 == 1 then return clock / (3.2 + 1.6 * Hash(j * 6.1)) + Hash(j * 2.7) end
+	return 0.07 * math.sin(clock * (1.1 + 0.5 * Hash(j * 3.9)) + j * 2.3)
+end
+
+-- The heal's beat: 0..1, highest just as a tick lands. Second value: how sure (a plain cadence
+-- is quieter).
+local function TickGlow(u, now)
+	local from = TimedBy(u)
+	local effect = u.effect
+	if from and effect and effect.tick then
+		local elapsed = now - from
+		if elapsed < effect.tick then return 0, 1 end
+		local since = elapsed % effect.tick
+		return since < CROSS_FLASH and (1 - since / CROSS_FLASH) ^ 2 or 0, 1
+	end
+	local since = (now + u.rank * 0.9) % CROSS_PLAIN
+	return since < CROSS_FLASH * 1.6 and (1 - since / (CROSS_FLASH * 1.6)) ^ 2 or 0, 0.6
+end
+
+function BUILD.crosses(g, u)
+	local s = { parts = {}, sheets = {}, bound = {} }
+	s.mask = GlobeMask(u.front, g.frame)
+	s.inside, s.outside = {}, {}
+	for i = 1, #CROSS_INSIDE do s.inside[i] = Cross(s, u.front, 1, s.mask) end
+	for i = 1, CROSS_OUTSIDE do s.outside[i] = Cross(s, u.behind, 4) end
+	return s
+end
+
+function DRAW.crosses(g, u, s, now, base, sat, hot, rush, calm)
+	local r = g.size / 2
+	local clock = now + u.rank * 1.3
+	local beat, sure = TickGlow(u, now)
+	local k = base * (RANK_WEIGHT[u.rank + 1] or 0.4) * (1 - 0.35 * calm)
+	local flash = 1 + 0.75 * beat * sure + 0.5 * rush
+	local body = Mix(sat, hot, 0.95, 0.12)
+	local glint = Mix(sat, hot, 0.25, 0.85)
+	-- Through the glass, from low in the liquid to the crown.
+	for i, item in ipairs(s.inside) do
+		-- Evenly staggered, so they climb one after another rather than in a clump.
+		local q = (clock / CROSS_RISE_IN + (i - 1) / #CROSS_INSIDE + Hash(i * 4.3) * 0.05) % 1
+		local y = -r * 0.78 + q * r * 1.5
+		local chord = math.sqrt(math.max(0.05, 1 - (y / r) ^ 2))
+		local x = CROSS_INSIDE[i] * 0.85 * r * chord + math.sin(q * 6 + i * 1.7) * r * 0.04
+		local fade = Smoothstep(q / 0.18) * (1 - Smoothstep((q - 0.62) / 0.38))
+		local sz = r * (0.34 + 0.1 * Hash(i * 8.3)) * (0.9 + 0.15 * q)
+		Place(item, u.front, x, y, sz, Turn(i, clock), 0.12 * math.sin(clock * 0.9 + i), body, glint, sat, fade * k * flash)
+	end
+	-- Off the crown behind the globe, drifting up and a little out.
+	for j = 0, CROSS_OUTSIDE - 1 do
+		local item = s.outside[j + 1]
+		local q = (clock / CROSS_RISE_OUT + j / CROSS_OUTSIDE + Hash(j * 5.9) * 0.06) % 1
+		local a0 = math.rad(50 + 80 * (math.floor(j / 2) + 0.5) / (CROSS_OUTSIDE / 2))
+		if j % 2 == 0 then a0 = math.pi - a0 end
+		local rise = 1 - (1 - q) ^ 1.4
+		local x = math.cos(a0) * r * (0.9 + 0.3 * rise) + math.sin(q * 3.6 + j * 2.1) * r * 0.06
+		local y = math.sin(a0) * r * 0.9 + rise * r * (0.75 + 0.3 * Hash(j * 3.3))
+		local fade = Smoothstep(q / 0.16) * (1 - Smoothstep((q - 0.5) / 0.5))
+		local sz = r * (0.42 + 0.12 * Hash(j * 9.1)) * (0.85 + 0.2 * q)
+		Place(item, u.behind, x, y, sz, Turn(j + 7, clock), 0.1 * math.sin(clock * 0.7 + j * 1.9), body, glint, sat, fade * k * flash)
+	end
+	-- The glass answers each tick.
+	if u.bloomTop and beat > 0 then
+		u.bloomTop:SetVertexColor(hot[1], hot[2], hot[3])
+		u.bloomTop:SetAlpha(math.min(1, (0.14 + 0.3 * beat * sure) * k))
+	end
+end
+end
+
+do
 -- Fury (BUILD.fury): the gargoyle's rage light and its hot parts share a sheet; its eye is
 -- StatueEyes.lua's flipbook, crossfaded here.
 local FURY_ART = {
@@ -2207,6 +2340,7 @@ local STYLE_LIGHT = {
 	rain = { corona = 0.8, glow = 0, top = 0.14, settle = 0.5 },
 	pulse = { corona = 0.8, glow = 0, top = 0.1, settle = 0.4 },
 	embers = { corona = 0.8, glow = 0, top = 0.14, settle = 0.4 },
+	crosses = { corona = 0.8, glow = 0.12, top = 0.14, settle = 0.4 },
 }
 
 local function BuildSurge(g)

@@ -584,11 +584,13 @@ local function GuessAim()
 end
 
 -- Is the cast with this GUID aimed at you? true or false from its target's name, then whether
--- that was only a guess (the name was hidden); nil when nothing can be told.
-local function AimedAtYou(castGUID)
+-- that was only a guess (the name was hidden); nil when nothing can be told. keep: leave the
+-- entry for the cast's other event (a channel's start and its success can come in either order;
+-- the SENT handler's cap keeps the table small).
+local function AimedAtYou(castGUID, keep)
 	local target = castGUID and sentTarget[castGUID]
 	local guess = castGUID and sentGuess[castGUID]
-	if castGUID then sentTarget[castGUID], sentGuess[castGUID] = nil, nil end
+	if castGUID and not keep then sentTarget[castGUID], sentGuess[castGUID] = nil, nil end
 	if not target or target == "" then return guess, true end
 	-- Characters here have a surname, and the event may give either form.
 	playerName = playerName or UnitName("player")
@@ -616,7 +618,9 @@ local function OnCast(spellID, now, castGUID)
 		length = length or ns.DescribedLength(spellID)
 		groupCast[group] = { name = name, at = now, expires = length and now + length }
 	end
-	local aimed, guessed = AimedAtYou(castGUID)
+	local channelled = false
+	for _, effect in ipairs(EffectsOf(spellID, name)) do channelled = channelled or effect.kind == "channel" end
+	local aimed, guessed = AimedAtYou(castGUID, channelled)
 	local matched = {}
 	for _, effect in ipairs(EffectsOf(spellID, name)) do matched[#matched + 1] = effect.key end
 	NoteCast(("%s (%s): %s; aimed at you: %s%s"):format(tostring(name or "unnamed"), tostring(spellID),
@@ -657,7 +661,10 @@ local function WatchLanding(now, icons)
 	end
 end
 
-local function OnChannel(event, spellID, now)
+-- A channel you can aim at others (a bandage) lights only on you: its target's name says, or in
+-- combat, where the name is hidden, the guess from your target and mouseover (GuessAim). An
+-- update (pushback) only moves one already up.
+local function OnChannel(event, spellID, now, castGUID)
 	if event == "UNIT_SPELLCAST_CHANNEL_STOP" then
 		for _, effect in ipairs(EFFECTS) do
 			if effect.kind == "channel" then Down(effect, "ended") end
@@ -667,8 +674,19 @@ local function OnChannel(event, spellID, now)
 	if not Readable(spellID) then return end
 	local name = GetSpellName(spellID)
 	if not Readable(name) then name = nil end
+	local aimed
 	for _, effect in ipairs(EffectsOf(spellID, name)) do
-		if effect.kind == "channel" then
+		local mine = true
+		if effect.kind == "channel" and effect.target == "any" and not test then
+			if event == "UNIT_SPELLCAST_CHANNEL_START" then
+				if aimed == nil then aimed = AimedAtYou(castGUID, true) end
+				mine = aimed ~= false
+			else
+				local st = state[effect.key]
+				mine = st and st.up or false
+			end
+		end
+		if effect.kind == "channel" and mine then
 			local length = LengthOf(effect, spellID, name)
 			local start, expires = now, now + length
 			if UnitChannelInfo and not test then
@@ -937,7 +955,8 @@ function ns.Watch.Init()
 				if not sentTarget[a3] or sentTarget[a3] == "" then sentGuess[a3] = GuessAim() end
 			end
 		elseif event == "UNIT_SPELLCAST_CHANNEL_START" or event == "UNIT_SPELLCAST_CHANNEL_STOP" or event == "UNIT_SPELLCAST_CHANNEL_UPDATE" then
-			OnChannel(event, a3, now)
+			-- unit, castGUID, spellID
+			OnChannel(event, a3, now, Readable(a2) and a2 or nil)
 		elseif event == "UNIT_ABSORB_AMOUNT_CHANGED" then
 			lastAbsorbEvent = now
 			SettleProbe(now, true)

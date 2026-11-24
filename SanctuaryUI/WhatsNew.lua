@@ -14,6 +14,16 @@ local MINE = getMeta and getMeta("SanctuaryUI", "Version") or "?"
 -- Newest first: { version, date, notes = { { heading, text, button label, action }, ... } }.
 local RELEASES = {
 	{
+		version = "0.34.0", date = "24 November 2026",
+		notes = {
+			{
+				"First Aid on the health globe",
+				"Bandage yourself and green crosses turn as they rise through your health globe and drift up off it, brightening with each tick of the heal. A bandage on someone else leaves your globe alone. Crosses is also a look any skill can wear: Globe auras > Skills, under Everyone.",
+				"Options", function() ns.Options.Open("globeAuras") end,
+			},
+		},
+	},
+	{
 		version = "0.33.0", date = "21 November 2026",
 		notes = {
 			{

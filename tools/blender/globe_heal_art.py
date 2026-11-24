@@ -13,6 +13,9 @@ and the growth): noise differing frame to frame flashes in game.
 
 heal-leaf.png    16 frames of a tumbling leaf, 128 cells, 4 cols, 512x512. The art is drawn into the
                  middle 70% of its cell so the addon can turn it inside its own cell with texcoords
+heal-cross.png   32 frames of a bevelled cross turning half a turn, 128 cells, 8 cols: the body over
+                 the hot part (a filament down each arm, glints off the bevels), 1024x512 each, 1024x1024.
+                 Kept to the middle 70% of its cell like the leaf
 heal-vines.png   16 growth stages, 256 cells, 4 cols, 1024x1024
 heal-halo.png    ring core over ring glow, 512x256 each, 512x512
 heal-rings.png   ripple core over ripple band, 256x64 each, 256x128
@@ -36,12 +39,16 @@ LEAF_FRAMES = 16
 LEAF_KEEP = 0.707  # of its cell the leaf is drawn into (GlobeAura.lua SpinCell samples this much)
 VINE_CELL = 256
 VINE_STAGES = 16
+CROSS_CELL = 128
+CROSS_FRAMES = 32
+CROSS_ARM, CROSS_HALF, CROSS_DEPTH = 0.4, 0.125, 0.07  # half sizes, of the cell before fit_middle
 VEIL_FRAMES = 32
 MOUND_FRAMES = 16
 
 # Frames of smoothing over time; see the module note.
 SMOOTH_LOOP = 0.8
 SMOOTH_SHOT = 0.6
+SMOOTH_CROSS = 0.3
 
 
 def smooth(x, a=0.0, b=1.0):
@@ -80,8 +87,8 @@ def sample(n, u, v, w):
     return map_coordinates(n, [(u % 1) * su, (v % 1) * sv, (w % 1) * sw], order=1, mode="grid-wrap").astype(np.float32)
 
 
-def settle_loop(frames):
-    return np.clip(gaussian_filter1d(np.stack(frames), SMOOTH_LOOP, axis=0, mode="wrap"), 0, 1)
+def settle_loop(frames, sigma=SMOOTH_LOOP):
+    return np.clip(gaussian_filter1d(np.stack(frames), sigma, axis=0, mode="wrap"), 0, 1)
 
 
 def settle_shot(frames, sigma=SMOOTH_SHOT):
@@ -155,6 +162,95 @@ def gen_leaf():
         yaw = 0.3 * math.sin(f * 2 * math.pi + 1.1)
         frames.append(fit_middle(leaf_frame(roll, pitch, yaw, fold=0.42, arch=0.45), LEAF_KEEP))
     return settle_loop(frames)
+
+
+# -- cross --------------------------------------------------------------------------------------
+
+def _round_box(p, b, r):
+    q = np.abs(p) - (np.array(b, np.float32) - r)
+    outside = np.linalg.norm(np.maximum(q, 0), axis=-1)
+    inside = np.minimum(np.max(q, axis=-1), 0)
+    return outside + inside - r
+
+
+def _cross_sdf(p):
+    """A thick plus with rounded edges, filleted where the arms meet."""
+    a = _round_box(p, (CROSS_ARM, CROSS_HALF, CROSS_DEPTH), 0.045)
+    b = _round_box(p, (CROSS_HALF, CROSS_ARM, CROSS_DEPTH), 0.045)
+    k = 0.05
+    h = np.clip(0.5 + 0.5 * (b - a) / k, 0, 1)
+    return b * (1 - h) + a * h - k * h * (1 - h)
+
+
+def cross_frame(yaw, tilt, cell=CROSS_CELL, ss=4):
+    """One cross, ray-marched in an orthographic view. Returns (body, hot): the body lit softly over
+    its faces and bright on its bevels, the hot part a glowing filament down the middle of each arm
+    and the light glinting off the bevels."""
+    n = cell * ss
+    xs = (np.arange(n, dtype=np.float32) + 0.5) / n - 0.5
+    X, Y = np.meshgrid(xs, -xs)
+    cy, sy, ct, st = math.cos(yaw), math.sin(yaw), math.cos(tilt), math.sin(tilt)
+    Ry = np.array([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]], np.float32)
+    Rx = np.array([[1, 0, 0], [0, ct, -st], [0, st, ct]], np.float32)
+    R = (Rx @ Ry).T  # view to object (rows: the object's axes in the view)
+
+    def f(p):
+        return _cross_sdf(p @ R)
+
+    origin = np.stack([X, Y, np.full_like(X, 1.0)], -1)
+    t = np.zeros_like(X)
+    hit = np.zeros(X.shape, bool)
+    for _ in range(96):
+        p = origin.copy()
+        p[..., 2] -= t
+        d = f(p)
+        hit |= d < 1e-4
+        t = np.where(hit | (t > 2.2), t, t + np.maximum(d, 2e-4) * 0.9)
+        if np.all(hit | (t > 2.2)):
+            break
+    p = origin.copy()
+    p[..., 2] -= t
+    e = 1.5e-3
+    nrm = np.stack([f(p + np.array(v, np.float32)) - f(p - np.array(v, np.float32))
+                    for v in ((e, 0, 0), (0, e, 0), (0, 0, e))], -1)
+    nrm /= np.linalg.norm(nrm, axis=-1, keepdims=True) + 1e-9
+    light = np.array([-0.45, 0.6, 0.66], np.float32)
+    light /= np.linalg.norm(light)
+    half = light + np.array([0, 0, 1], np.float32)
+    half /= np.linalg.norm(half)
+    ndl = np.clip(nrm @ light, 0, 1)
+    facing = np.clip(nrm[..., 2], 0, 1)
+    spec = np.clip(nrm @ half, 0, 1) ** 70
+    fresnel = (1 - facing) ** 2.2
+    # Distance from the arms' middle lines, in the cross's own plane: the filament.
+    q = p @ R
+    ax, ay = np.abs(q[..., 0]), np.abs(q[..., 1])
+    reach = CROSS_ARM - 0.06
+    skel = np.minimum(np.where(ay < reach, ax, 9), np.where(ax < reach, ay, 9))
+    skel = np.minimum(skel, np.hypot(ax, np.maximum(ay - reach, 0)), )
+    skel = np.minimum(skel, np.hypot(ay, np.maximum(ax - reach, 0)))
+    core = np.exp(-(skel / 0.045) ** 2) * (0.35 + 0.65 * facing)
+    hit &= t <= 2.2
+    body = np.where(hit, 0.34 + 0.2 * ndl + 0.62 * fresnel, 0)
+    hot = np.where(hit, 0.9 * core + 0.6 * spec + 0.4 * fresnel * ndl, 0)
+    body = cv2.resize(body.astype(np.float32), (cell, cell), interpolation=cv2.INTER_AREA)
+    hot = cv2.resize(hot.astype(np.float32), (cell, cell), interpolation=cv2.INTER_AREA)
+    # A soft bloom of each round itself, so the edges glow rather than cut.
+    body = body + 0.45 * cv2.GaussianBlur(body, (0, 0), cell * 0.035)
+    hot = hot + 0.35 * cv2.GaussianBlur(hot, (0, 0), cell * 0.025)
+    return np.clip(body, 0, 1), np.clip(hot, 0, 1)
+
+
+def gen_cross():
+    """CROSS_FRAMES of a cross turning half a turn about its upright (a plus looks the same from
+    behind, so it loops), tipped back a little so it reads as solid."""
+    body, hot = [], []
+    for i in range(CROSS_FRAMES):
+        b, h = cross_frame(math.pi * i / CROSS_FRAMES, math.radians(12))
+        body.append(fit_middle(b, LEAF_KEEP))
+        hot.append(fit_middle(h, LEAF_KEEP))
+    # Barely smoothed: a turning shape blurred over its frames doubles up edge-on.
+    return settle_loop(body, SMOOTH_CROSS), settle_loop(hot, SMOOTH_CROSS)
 
 
 # -- vines --------------------------------------------------------------------------------------
@@ -374,7 +470,14 @@ def sheet(frames, cols, cw, ch, w, h, row=0):
     return out
 
 
+def build_cross(out):
+    body, hot = gen_cross()
+    save_white(np.vstack([sheet(body, 8, CROSS_CELL, CROSS_CELL, 1024, 512), sheet(hot, 8, CROSS_CELL, CROSS_CELL, 1024, 512)]),
+               f"{out}/heal-cross.png")
+
+
 def build(out):
+    build_cross(out)
     save_white(sheet(gen_leaf(), 4, LEAF_CELL, LEAF_CELL, 512, 512), f"{out}/heal-leaf.png")
     save_white(sheet(gen_vines(), 4, VINE_CELL, VINE_CELL, 1024, 1024), f"{out}/heal-vines.png")
     core, glow = gen_halo()

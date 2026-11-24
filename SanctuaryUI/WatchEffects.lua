@@ -35,7 +35,7 @@ local ns = SanctuaryUI
 --                     rushing in to the glass, for a short violent surge), "upwell" (plumes rising
 --                     through the liquid, for quiet healing), or "swirl", "fury" (rage: the liquid
 --                     whipped into a whirlpool, and on the health globe the gargoyle wakes), or a healing look: "vines",
---                     "halo", "bloom", "veil", "rain", "pulse" or "embers". Players can change any
+--                     "halo", "bloom", "veil", "rain", "pulse", "embers" or "crosses". Players can change any
 --                     skill in the options (GlobeAura.lua LookOf)
 --   tally             with look = "radiate", shows as Slashes by default: that many claw slashes
 --                     (4 at most) burnt into the globe's glass over a low Radiance, one burning
@@ -141,6 +141,11 @@ ns.WatchData.EFFECTS = {
 	{ key = "regrowth", class = "DRUID", spells = { 8936 }, names = { "Regrowth" }, look = "surge", surge = "vines", hot = true, globe = "health", tint = "nature", length = 21, tick = 3, target = "any",
 		flare = { { globe = "health", tint = "nature", dir = "in" } },
 		label = "Regrowth", desc = "vines climb the health globe's glass while it runs, when it is on you" },
+	-- Bandaging: the channel, only when it is on you (target = "any": a bandage on someone else
+	-- channels too). Every bandage's spell is called First Aid; 746 is the Linen Bandage's.
+	{ key = "firstAid", class = "ANY", spells = { 746 }, names = { "First Aid" }, look = "surge", surge = "crosses", globe = "health", tint = "mending",
+		length = 8, tick = 1, kind = "channel", target = "any", strength = 1.15,
+		label = "First Aid", desc = "green crosses turn as they rise through the health globe and drift up off it while you bandage yourself, brightening with each tick" },
 	{ key = "food", class = "ANY", names = { "Food", "Food & Drink", "Refreshment" }, spells = {}, look = "surge", surge = "pour", globe = "health", tint = "hearth", length = 30, kind = "reading",
 		label = "Eating", desc = "a column of warm light pouring into the health globe while you eat" },
 	{ key = "drink", class = "ANY", names = { "Drink", "Food & Drink", "Refreshment" }, spells = {}, look = "surge", surge = "pour", globe = "mana", tint = "water", length = 30, kind = "reading",
@@ -224,10 +229,10 @@ ns.WatchData.CONSUMERS = {
 -- order the choices are listed in. A buff picks from LOOK_ORDER, a one-off flare from FLARE_ORDER.
 ns.WatchData.LOOK_NAMES = {
 	radiate = "Radiance", tally = "Slashes", shell = "Crystal shell", aegis = "Aegis", rime = "Rime", hex = "Hex ward", bulwark = "Bulwark", frozen = "Frozen", pour = "Pour", inhale = "Inhale", upwell = "Upwell", swirl = "Swirl", fury = "Fury",
-	vines = "Vines", halo = "Halo", bloom = "Bloom", veil = "Veil", rain = "Rain", pulse = "Pulse", embers = "Embers",
+	vines = "Vines", halo = "Halo", bloom = "Bloom", veil = "Veil", rain = "Rain", pulse = "Pulse", embers = "Embers", crosses = "Crosses",
 	burst = "Burst", mend = "Mend", benediction = "Benediction", mound = "Surge",
 }
-ns.WatchData.LOOK_ORDER = { "radiate", "tally", "shell", "aegis", "rime", "hex", "bulwark", "frozen", "pour", "inhale", "upwell", "swirl", "fury", "vines", "halo", "bloom", "veil", "rain", "pulse", "embers" }
+ns.WatchData.LOOK_ORDER = { "radiate", "tally", "shell", "aegis", "rime", "hex", "bulwark", "frozen", "pour", "inhale", "upwell", "swirl", "fury", "vines", "halo", "bloom", "veil", "rain", "pulse", "embers", "crosses" }
 ns.WatchData.FLARE_ORDER = { "burst", "mend", "benediction", "mound" }
 -- How a shield breaks, for the options. Only skills that can really break get the choice.
 ns.WatchData.BREAK_NAMES = { shatter = "Shatter", shockwave = "Shockwave", dissolve = "Dissolve", crumble = "Crumble", melt = "Melt" }

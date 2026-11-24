@@ -102,6 +102,7 @@ ns.Art.slots = {
 	-- Heal looks (GlobeAura.lua HEAL_ART and its sprites): lazy too, loaded only for looks in use.
 	healVines = { file = "heal-vines.png", lazy = true },
 	healLeaf = { file = "heal-leaf.png", lazy = true },
+	healCross = { file = "heal-cross.png", lazy = true },
 	healHalo = { file = "heal-halo.png", lazy = true },
 	healVeil = { file = "heal-veil.png", lazy = true },
 	healRings = { file = "heal-rings.png", lazy = true },
