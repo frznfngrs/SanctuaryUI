@@ -921,9 +921,12 @@ function ns.Meter.UpdateShown()
 	end
 end
 
--- The red glass strip: slices of the bag window's banner, every other one mirrored.
-local function LayGlass(host, list, width)
+-- The red glass strip: slices of the bag window's banner, every other one mirrored. height:
+-- 44 unless given; a shorter strip keeps the banner's middle.
+local function LayGlass(host, list, width, height)
 	local TILE = 180
+	local h = math.min(44, height or 44)
+	local v0 = 52 + (44 - h) / 2
 	local n = math.ceil(width / TILE)
 	local path = ns.Art.Path("bagFrame")
 	for i = 1, math.max(n, #list) do
@@ -938,12 +941,12 @@ local function LayGlass(host, list, width)
 			local w = math.min(TILE, width - (i - 1) * TILE)
 			t:ClearAllPoints()
 			t:SetPoint("TOPLEFT", host, "TOPLEFT", 4 + (i - 1) * TILE, -4)
-			t:SetSize(w, 44)
+			t:SetSize(w, h)
 			if path then
 				t:SetTexture(path)
 				local x0, x1 = 50, 50 + w
 				if i % 2 == 0 then x0, x1 = 230, 230 - w end
-				t:SetTexCoord(x0 / 1024, x1 / 1024, 52 / 1024, 96 / 1024)
+				t:SetTexCoord(x0 / 1024, x1 / 1024, v0 / 1024, (v0 + h) / 1024)
 			else
 				t:SetColorTexture(0.35, 0.05, 0.03, 1)
 			end

@@ -66,7 +66,7 @@ def shot(name, setup):
 
 
 shot("news-missed.png", 'SanctuaryUI.db.global.newsSeen = SanctuaryUI.WhatsNew.RELEASES[4].version; assert(SanctuaryUI.WhatsNew.Show("missed"))')
-shot("news-one.png", 'assert(SanctuaryUI.WhatsNew.Show("0.26.0"))')
+shot("news-one.png", 'assert(SanctuaryUI.WhatsNew.Show(SanctuaryUI.WhatsNew.RELEASES[1].version))')
 shot("news-timeline.png", 'assert(SanctuaryUI.WhatsNew.Show())')
 lua.execute('''
 local ns = SanctuaryUI
@@ -90,7 +90,8 @@ for _, w in ipairs(ALL) do
 	end
 end
 assert(news == 1, "one release marked NEW, got " .. news)
-assert(versions == #R, "the whole timeline shows (" .. versions .. " of " .. #R .. ")")
+local want = math.min(#R, ns.WhatsNew.KEEP)
+assert(versions == want, "the last " .. want .. " releases show (" .. versions .. ")")
 _G.SanctuaryUIWhatsNew:Hide()
 ''')
 print("flow ok")

@@ -5,8 +5,9 @@ local N = ns.WhatsNew
 
 -- What's new: after an update, a small D3 window lists what the releases you missed brought,
 -- newest first on a timeline, once per account (the newest version shown is kept in the global
--- saved variables). /sanctuary news shows the whole timeline again, /sanctuary news 0.26.0 one
--- release. Each feature release adds an entry at the top of RELEASES.
+-- saved variables). /sanctuary news shows the timeline again, /sanctuary news 0.30.0 one
+-- release. Each feature release adds an entry at the top of RELEASES; only the newest KEEP are
+-- shown, so the oldest entry can go when one is added.
 
 local getMeta = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
 local MINE = getMeta and getMeta("SanctuaryUI", "Version") or "?"
@@ -16,224 +17,105 @@ local RELEASES = {
 	{
 		version = "0.34.0", date = "24 November 2026",
 		notes = {
-			{
-				"First Aid on the health globe",
-				"Bandage yourself and green crosses turn as they rise through your health globe and drift up off it, brightening with each tick of the heal. A bandage on someone else leaves your globe alone. Crosses is also a look any skill can wear: Globe auras > Skills, under Everyone.",
-				"Options", function() ns.Options.Open("globeAuras") end,
-			},
+			{ "First Aid on the health globe",
+				"Bandage yourself and green crosses rise through your health globe, brightening with each tick. Any skill can use the Crosses look.",
+				"Options", function() ns.Options.Open("globeAuras") end },
 		},
 	},
 	{
 		version = "0.33.0", date = "21 November 2026",
 		notes = {
-			{
-				"The books beside your professions",
-				"Open Mining, Cooking or Fishing at a fire or forge and its book opens beside the window: Rock Bottom on The Smelter, the Cookbook on The Larder, the Angler's journal on Camp. The window wears the book's stone, with a forge, a pan or a bobber in its medallion. Both can be turned off on each book's page.",
-				"Options", function() ns.Options.Open("mining") end,
-			},
-			{
-				"Real levelling guides",
-				"Rock Bottom's The Way Down and the Cookbook's The Road to 300 now go step by step: what to make or mine and how many, where, when to train, your side's choices. The step you're on is marked, with what's already in your bags.",
-				"Options", function() ns.Options.Open("cookbook") end,
-			},
-			{
-				"Slimmer books, quieter memoir",
-				"All three books have slim headers, so more of the page shows. Vein pins no longer hide under the map where you've just explored, and outgrown veins show dimmed. Mining a vein now writes at most one memoir line.",
-				"Options", function() ns.Options.Open("mining") end,
-			},
+			{ "The books beside your professions",
+				"Mining, Cooking and Fishing open their book beside the profession window, which wears the book's stone.",
+				"Options", function() ns.Options.Open("mining") end },
+			{ "Real levelling guides",
+				"Rock Bottom and the Cookbook guide you step by step to 300, marking the step you're on.",
+				"Options", function() ns.Options.Open("cookbook") end },
+			{ "Slimmer books, quieter memoir",
+				"Slim headers on all three books, dimmed outgrown veins, and at most one memoir line per vein.",
+				"Options", function() ns.Options.Open("mining") end },
 		},
 	},
 	{
 		version = "0.32.0", date = "21 November 2026",
 		notes = {
-			{
-				"Rock Bottom: A Miner's Memoir",
-				"The third book, about mining: where to dig for your skill, every vein with what it gives and where it grows, the smelts and where they're learned, gems, stone and the kit. It keeps a memoir that writes itself as you mine. /sanctuary mine, or the pick in the menu.",
-				"Options", function() ns.Options.Open("mining") end,
-			},
-			{
-				"Veins on your maps",
-				"Nearly ten thousand known vein spots on the world map and the minimap, ringed in what they still teach you. On the minimap, pins near you fade so the game's own yellow dot shows through: a faded pin with no dot is a vein somebody got to first.",
-				"Options", function() ns.Options.Open("mining") end,
-			},
-			{
-				"Share what you find",
-				"Mine a vein the maps don't have and your group and guild hear of it; theirs come to you, in blue. Export your finds and send them in, and the next release carries them for everyone.",
-				"Options", function() ns.Options.Open("mining") end,
-			},
+			{ "Rock Bottom: A Miner's Memoir",
+				"A mining book: where to dig, every vein, smelts, gems and a memoir that writes itself. /sanctuary mine.",
+				"Options", function() ns.Options.Open("mining") end },
+			{ "Veins on your maps",
+				"Known vein spots on the world map and minimap, ringed in what they still teach you.",
+				"Options", function() ns.Options.Open("mining") end },
+			{ "Share what you find",
+				"New veins you mine reach your group and guild, and theirs reach you, in blue.",
+				"Options", function() ns.Options.Open("mining") end },
 		},
 	},
 	{
 		version = "0.31.2", date = "18 November 2026",
 		notes = {
-			{
-				"Enemy totems, small",
-				"An enemy totem is no longer a full player plate. It shows its icon, its name and a short health bar in its element's colour: earth, fire, water or air. Size them under Nameplates > Totems. The nameplate preview includes a Searing Totem.",
-				"Options", function() ns.Options.Open("plates") end,
-			},
+			{ "Enemy totems, small",
+				"Enemy totems show an icon, name and a short bar in their element's colour. Nameplates > Totems.",
+				"Options", function() ns.Options.Open("plates") end },
 		},
 	},
 	{
 		version = "0.31.1", date = "18 November 2026",
 		notes = {
-			{
-				"Enemy players in their class colour",
-				"An enemy player's health bar and name now show their class colour. They had stayed Diablo red, because in combat the game hides the class and the bar could not read it.",
-				"Options", function() ns.Options.Open("plates") end,
-			},
+			{ "Enemy players in their class colour",
+				"Enemy players' health bars and names show their class colour.",
+				"Options", function() ns.Options.Open("plates") end },
 		},
 	},
 	{
 		version = "0.31.0", date = "16 November 2026",
 		notes = {
-			{
-				"The target's cast, in its health bar",
-				"The target and focus frames now show a cast as a strip along the top of the health bar, opposite the resource along its bottom, in every frame style. While it runs, the spell's name and icon are on the bar in place of the name; it turns grey with a lock when it can't be interrupted. Target > Shows > Cast bar place brings back the bar of its own, and the Preview there now casts.",
-				"Options", function() ns.Options.Open("target") end,
-			},
-			{
-				"Items and people in the books",
-				"Item names in the Angler's journal and the Cookbook show in their quality colour. Common stays a soft white, in the game's own font, and the name is still a link. Alliance and Horde names wear their crest.",
-				"Journal", function() ns.Journal.Open("now") end,
-			},
-			{
-				"Pie menus keep their macros",
-				"A ring no longer replaces your macros with the first unnamed one in the General tab. A slice it can't match runs its saved text, or shows Empty until you drag a macro on. Rings already mixed up get one reminder, and /sanctuary pie dismiss turns that off.",
-				"Options", function() ns.Options.Open("pie") end,
-			},
-			{
-				"Blocked actions name the line",
-				"When the game blocks an action in combat, /sanctuary report keeps the call stack and names the SanctuaryUI line that did it.",
-			},
+			{ "The target's cast, in its health bar",
+				"Target and focus casts run along the top of the health bar, grey with a lock when they can't be interrupted.",
+				"Options", function() ns.Options.Open("target") end },
+			{ "Items and people in the books",
+				"Item names show their quality colour; Alliance and Horde names wear their crest.",
+				"Journal", function() ns.Journal.Open("now") end },
+			{ "Pie menus keep their macros",
+				"Rings no longer swap your macros for the first unnamed one.",
+				"Options", function() ns.Options.Open("pie") end },
 		},
 	},
 	{
 		version = "0.30.0", date = "15 November 2026",
 		notes = {
-			{
-				"Search the options",
-				"The options window has a search box at its top left, there whatever page you're on. Type a word or two: it looks through every setting's name and description, the choices in its lists, and the titles of pages, tabs and cards, as you type. Each result is a button that opens the page and tab it's on; clear the box to go back to where you were. /sanctuary search <words> does the same from chat.",
-				"Search", function() ns.Options.Search("") end,
-			},
+			{ "Search the options",
+				"A search box at the top of the options finds any setting as you type. /sanctuary search <words>.",
+				"Search", function() ns.Options.Search("") end },
 		},
 	},
 	{
 		version = "0.29.1", date = "15 November 2026",
 		notes = {
-			{
-				"Threat on the nameplates",
-				"In a group, an enemy's health bar now shows its threat: D3 red while it's not on you, gold when you're about to pull it, bright orange and pulsing when it's on you. As the tank it's the other way round: red while you hold it, gold as you lose it, orange when it's loose on someone else. Colours, the pulse and showing it solo too are under Nameplates > Marks.",
-				"Options", function() ns.Options.Open("plates") end,
-			},
+			{ "Threat on the nameplates",
+				"In a group, enemy health bars turn gold as you near pulling them and orange when they're on you (reversed for tanks).",
+				"Options", function() ns.Options.Open("plates") end },
 		},
 	},
 	{
 		version = "0.29.0", date = "15 November 2026",
 		notes = {
-			{
-				"A cast bar of its own",
-				"Your casts can now have a bar of their own instead of (or as well as) the XP rail: D3's Paragon bar with the spell's icon sweeping in its spiked ring, or its boss bar with the ram skull beneath, both filled with D3's lava. Unlock frames to move it. The rail cast is louder too: an ember glow past the rail, a spark trail, and bigger words on dark plates. Its options moved to Combat > Cast bar.",
-				"Options", function() ns.Options.Open("castbar") end,
-			},
-			{
-				"Tidier nameplates",
-				"Long names shrink to fit, the level and quest mark sit at the ends of the name row, the health percent is centred, and Questie's quest icons (a sword to kill, a bag to loot) now sit on the plate instead of off to one side. Friendly NPCs show their title and their level and faction under the name.",
-				"Options", function() ns.Options.Open("plates") end,
-			},
+			{ "A cast bar of its own",
+				"D3's Paragon or boss bar for your casts, instead of or as well as the XP rail. Combat > Cast bar.",
+				"Options", function() ns.Options.Open("castbar") end },
+			{ "Tidier nameplates",
+				"Names shrink to fit, Questie icons sit on the plate, and friendly NPCs show their title.",
+				"Options", function() ns.Options.Open("plates") end },
 		},
 	},
 	{
 		version = "0.28.0", date = "15 November 2026",
 		notes = {
-			{
-				"Diablo III nameplates",
-				"Enemies wear D3's own frames: silver for monsters, gold for elites (blue names) and rares (yellow), the scroll banner for bosses. Lost health drains away pale behind each hit, the bar turns molten in execute range, and your target grows with a gold glow. Cast bars say who the spell is aimed at, with a red » YOU when it's you, and who interrupted it. Your debuffs sit above the name, quest mobs get a gold !, and enemies burst into embers as they die. Friends outside dungeons are just their names. Turn Plater off to use them. Options > Unit frames > Nameplates; /sanctuary plates shows a made-up pull.",
-				"Options", function() ns.Options.Open("plates") end,
-			},
-			{
-				"Where to fish",
-				"The angler's journal now says where to fish now: the best zones for your skill and the next ones, on Here & Now and Waters. Every fish has a Where line, coloured by your skill, zone names find their fish in search, and Show on the world map lights those zones on the real map.",
-				"Journal", function() ns.Journal.Open("waters") end,
-			},
-		},
-	},
-	{
-		version = "0.27.0", date = "14 November 2026",
-		notes = {
-			{
-				"Share your setup",
-				"Turn your profile into one line of text and paste it to a friend or onto another account, then import theirs as a new profile or over your own. Only the settings you've changed go in; keybindings and your notes and history stay with you. Options > Setup > Import / Export.",
-				"Options", function() ns.Options.Open("share") end,
-			},
-		},
-	},
-	{
-		version = "0.26.0", date = "14 November 2026",
-		notes = {
-			{
-				"Your casts on the rail",
-				"While you cast, the XP rail above your skills becomes your cast bar: a molten fill runs along it, the spell's name and the time left sit either side of the skull, and the level medallion shows the spell's icon. A cast that lands flares the rail gold, an interrupted one turns red, channels drain in blue. Blizzard's cast bar is off while this is on. Options > Combat > Cast bar; /sanctuary cast shows a preview.",
-				"Options", function() ns.Options.Open("castbar") end,
-			},
-		},
-	},
-	{
-		version = "0.25.0", date = "14 November 2026",
-		notes = {
-			{
-				"Threat",
-				"Who is closest to pulling your enemy, on the damage meter's rails: a gold rail holds aggro, a molten one is above the tank and about to pull. Target a friend (the tank) to watch their enemy. Big letters warn you when you take aggro, or as the tank when you lose it, and a tank sees the enemies loose on the group and who they are on. Options > Combat > Threat; /sanctuary threat test shows a made-up pull.",
-				"Options", function() ns.Options.Open("threat") end,
-			},
-			{
-				"Saved fights remember everyone",
-				"Dungeon and raid fights the damage meter saves now keep every player's abilities and deaths, so the analysis window shows them long after the game has forgotten the fight. Opened from the Run Report, the analysis window comes in front of it.",
-				"Analysis", function() ns.MeterAnalysis.Open() end,
-			},
-			{
-				"Frozen globe",
-				"The ice on your health globe follows a frost debuff through the whole fight: it melts when the debuff runs out and holds when a caster renews it.",
-			},
-		},
-	},
-	{
-		version = "0.24.0", date = "13 November 2026",
-		notes = {
-			{
-				"The Run Report",
-				"When a dungeon or raid is done, a banner at the top of the screen offers a report of the run: a summary, every pull with its damage, the bosses, each player, what hurt the group most and your past runs. It never opens by itself. /sanctuary meter run test shows one for a made-up Deadmines run.",
-				"Options", function() ns.Options.Open("meter") end,
-			},
-		},
-	},
-	{
-		version = "0.23.0", date = "13 November 2026",
-		notes = {
-			{
-				"The Cookbook",
-				"A sister to the angler's journal: what your bags can cook right now, what each ingredient becomes, which recipes to learn and where, the route to 300, what's worth eating, and a diary that writes itself as you cook. /sanctuary cook, or the cauldron in the menu.",
-				"Options", function() ns.Options.Open("cookbook") end,
-			},
-		},
-	},
-	{
-		version = "0.22.0", date = "13 November 2026",
-		notes = {
-			{
-				"One key to fish",
-				"The Fishing key casts and, when the bobber splashes, hooks the catch. A fishing outfit swaps your pole and gear in and your weapons back when you're done or attacked, and the splash got louder. Options > Professions > Fishing tools.",
-				"Options", function() ns.Options.Open("fishingTools") end,
-			},
-		},
-	},
-	{
-		version = "0.21.0", date = "13 November 2026",
-		notes = {
-			{
-				"The angler's journal",
-				"A complete fishing guide in a D3 book: where to fish for your skill, what bites where, lures and gear, trainers and the route to 300, with a diary that writes itself as you fish and a pop-up for rare catches. /sanctuary fish, or the gold fish in the menu.",
-				"Options", function() ns.Options.Open("fishing") end,
-			},
+			{ "Diablo III nameplates",
+				"Enemies wear D3's frames, coloured by rank, with cast targets, your debuffs and quest marks. /sanctuary plates.",
+				"Options", function() ns.Options.Open("plates") end },
+			{ "Where to fish",
+				"The angler's journal lists the best zones for your skill and shows them on the map.",
+				"Journal", function() ns.Journal.Open("waters") end },
 		},
 	},
 }
@@ -242,6 +124,8 @@ local BY_VERSION = {}
 for _, r in ipairs(RELEASES) do BY_VERSION[r.version] = r end
 -- A first look (nothing seen yet on this account): only this many of the newest releases.
 local FIRST_LOOK = 3
+local KEEP = 10 -- releases on the timeline
+N.KEEP = KEEP
 
 -- True when version a is newer than b (0.27.0 > 0.26.10 > 0.26.9), as VersionCheck.lua compares.
 local function Newer(a, b)
@@ -258,19 +142,22 @@ end
 
 local GOLD = { 0.91, 0.78, 0.48 }
 local CREAM = { 0.89, 0.84, 0.75 }
-local WIDTH = 500
-local PAD = 32
-local HEADER = 50
+local WIDTH = 400
+local PAD = 18
+local HEADER = 34
 -- Text sizes: the header's title and version, a release's version on the timeline, each note's
 -- heading and text, the buttons.
-local TITLE, VERSION, VERSION_MARK, HEADING, BODY, BUTTON, OK = 18, 11, 15, 13, 10, 9, 12
-local LINE_GAP = 4 -- between a note's lines
-local ITEM_GAP = 30 -- between notes; a faint rule sits in its middle
-local RELEASE_GAP = 30 -- between releases on the timeline
-local MARK = 22 -- the timeline's line runs this far in from PAD; notes start past it
+local TITLE, VERSION, VERSION_MARK, HEADING, BODY, BUTTON, OK = 14, 9, 12, 10, 9, 8, 10
+local LINE_GAP = 2 -- between a note's lines
+local ITEM_GAP = 12 -- between notes; a faint rule sits in its middle
+local RELEASE_GAP = 16 -- between releases on the timeline
+local MARK = 14 -- the timeline's line runs this far in from PAD; notes start past it
 local INDENT = 2 * MARK -- notes' left edge, from PAD
-local MAX_BODY = 560 -- taller than this, the timeline scrolls
-local STEP = 48 -- a mouse wheel notch
+local HEAD_GAP = 6 -- under a release's version, and under a note's heading
+local OK_W, OK_H, OK_BELOW = 104, 26, 10 -- the Got it button, and its gap from the bottom
+local FOOT = OK_H + 2 * OK_BELOW -- under the timeline, for the button
+local MAX_BODY = 380 -- taller than this, the timeline scrolls
+local STEP = 40 -- a mouse wheel notch
 
 local frame
 local items, marks = {}, {}
@@ -377,15 +264,15 @@ local function Build()
 	frame.glass = {}
 	frame.head = head
 	frame.title = Text(head, TitleFont(), TITLE, GOLD)
-	frame.title:SetPoint("LEFT", head, "LEFT", 18, -1)
+	frame.title:SetPoint("LEFT", head, "LEFT", 12, -1)
 	frame.title:SetText("What's new")
 	frame.version = Text(head, BodyFont(), VERSION, CREAM, "RIGHT")
-	frame.version:SetPoint("RIGHT", head, "RIGHT", -18, -1)
+	frame.version:SetPoint("RIGHT", head, "RIGHT", -12, -1)
 
 	-- The timeline scrolls inside the window when it is taller than MAX_BODY.
 	local scroll = CreateFrame("ScrollFrame", nil, frame)
-	scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -HEADER - 6)
-	scroll:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, -HEADER - 6)
+	scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -HEADER - 3)
+	scroll:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, -HEADER - 3)
 	local content = CreateFrame("Frame", nil, scroll)
 	content:SetSize(WIDTH, 1)
 	scroll:SetScrollChild(content)
@@ -400,16 +287,16 @@ local function Build()
 	-- A thin gold thumb on the right while it scrolls.
 	local track = frame:CreateTexture(nil, "ARTWORK")
 	track:SetWidth(2)
-	track:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", -12, -4)
-	track:SetPoint("BOTTOMRIGHT", scroll, "BOTTOMRIGHT", -12, 4)
+	track:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", -7, -4)
+	track:SetPoint("BOTTOMRIGHT", scroll, "BOTTOMRIGHT", -7, 4)
 	track:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.12)
 	local thumb = frame:CreateTexture(nil, "OVERLAY")
 	thumb:SetWidth(2)
 	thumb:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.6)
 	frame.track, frame.thumb = track, thumb
 
-	frame.ok = Plate(frame, 140, 34, "Got it", OK)
-	frame.ok:SetPoint("BOTTOM", frame, "BOTTOM", 0, 20)
+	frame.ok = Plate(frame, OK_W, OK_H, "Got it", OK)
+	frame.ok:SetPoint("BOTTOM", frame, "BOTTOM", 0, OK_BELOW)
 	frame.ok:SetScript("OnClick", function() frame:Hide() end)
 
 	frame:SetScript("OnHide", function()
@@ -433,7 +320,7 @@ function N.UpdateThumb()
 	local at = (scroll:GetVerticalScroll() or 0) / (full - view)
 	thumb:SetHeight(size)
 	thumb:ClearAllPoints()
-	thumb:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", -12, -4 - (span - size) * at)
+	thumb:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", -7, -4 - (span - size) * at)
 	thumb:Show()
 	track:Show()
 end
@@ -447,7 +334,7 @@ local function Item(i)
 	it.text = Text(parent, BodyFont(), BODY, CREAM)
 	it.text:SetWordWrap(true)
 	it.text:SetSpacing(LINE_GAP)
-	it.button = Plate(parent, 84, 22, "", BUTTON)
+	it.button = Plate(parent, 64, 18, "", BUTTON)
 	it.rule = parent:CreateTexture(nil, "ARTWORK")
 	it.rule:SetHeight(1)
 	it.rule:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.18)
@@ -462,7 +349,7 @@ local function Mark(i)
 	local parent = frame.content
 	m = {}
 	m.dot = parent:CreateTexture(nil, "OVERLAY")
-	m.dot:SetSize(9, 9)
+	m.dot:SetSize(7, 7)
 	m.dot:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 1)
 	if m.dot.SetRotation then pcall(m.dot.SetRotation, m.dot, math.pi / 4) end -- as Book.lua's diamonds
 	m.version = Text(parent, TitleFont(), VERSION_MARK, GOLD)
@@ -487,7 +374,7 @@ local function Fill(list, newSet)
 	end
 	local textW = WIDTH - 2 * PAD - INDENT - 8
 	local lineX = PAD + MARK / 2
-	local y = 18
+	local y = 14
 	local n = 0
 	for r, release in ipairs(list) do
 		local m = Mark(r)
@@ -499,16 +386,16 @@ local function Fill(list, newSet)
 		m.version:SetPoint("TOPLEFT", content, "TOPLEFT", PAD + MARK, -y)
 		m.version:SetText(release.version)
 		m.date:ClearAllPoints()
-		m.date:SetPoint("BOTTOMLEFT", m.version, "BOTTOMRIGHT", 10, 1)
+		m.date:SetPoint("BOTTOMLEFT", m.version, "BOTTOMRIGHT", 8, 1)
 		m.date:SetText(release.date or "")
 		-- Releases this account hasn't seen yet are marked.
 		m.new:SetFont(TitleFont(), BODY, "")
 		m.new:ClearAllPoints()
-		m.new:SetPoint("LEFT", m.date, "RIGHT", 10, 0)
+		m.new:SetPoint("LEFT", m.date, "RIGHT", 8, 0)
 		m.new:SetText(newSet and newSet[release.version] and "NEW" or "")
 		m.new:Show()
-		local top = y + VERSION_MARK * 0.55 + 8
-		y = y + VERSION_MARK + 18
+		local top = y + VERSION_MARK * 0.55 + 6
+		y = y + VERSION_MARK + HEAD_GAP + 2
 		for i, note in ipairs(release.notes) do
 			n = n + 1
 			local it = Item(n)
@@ -537,7 +424,7 @@ local function Fill(list, newSet)
 			else
 				it.button:Hide()
 			end
-			y = y + HEADING + 12
+			y = y + HEADING + HEAD_GAP
 			it.text:ClearAllPoints()
 			it.text:SetPoint("TOPLEFT", content, "TOPLEFT", PAD + INDENT, -y)
 			it.text:SetWidth(textW)
@@ -567,16 +454,16 @@ local function Fill(list, newSet)
 	for i = #list + 1, #marks do
 		for _, piece in ipairs({ marks[i].dot, marks[i].version, marks[i].date, marks[i].line, marks[i].new }) do piece:Hide() end
 	end
-	local full = y - RELEASE_GAP + 24
+	local full = y - RELEASE_GAP + 8
 	content:SetSize(WIDTH, full)
 	local view = math.min(full, MAX_BODY)
 	frame.scroll:SetHeight(view)
 	frame.scroll:SetVerticalScroll(0)
-	frame:SetSize(WIDTH, HEADER + 6 + view + 66)
+	frame:SetSize(WIDTH, HEADER + 3 + view + FOOT)
 	N.UpdateThumb()
 	for _, t in ipairs(frame.glass) do t:Hide() end
 	local L = ns.Meter and ns.Meter.Lib
-	if L and L.LayGlass then L.LayGlass(frame.head, frame.glass, WIDTH - 14) end
+	if L and L.LayGlass then L.LayGlass(frame.head, frame.glass, WIDTH - 14, HEADER - 8) end
 end
 
 local function Place()
@@ -607,18 +494,19 @@ local function Missed()
 	return list
 end
 
--- The releases up to this copy's version, newest first: the timeline.
+-- The newest KEEP releases up to this copy's version, newest first: the timeline.
 local function Timeline()
 	local list = {}
 	for _, r in ipairs(RELEASES) do
+		if #list >= KEEP then break end
 		if MINE == "?" or not Newer(r.version, MINE) then list[#list + 1] = r end
 	end
 	return list
 end
 
 -- Show one release's notes (version), or the whole timeline (nil, or "missed" after an update).
--- The timeline is always the whole history, newest first, with the releases this account hasn't
--- seen yet marked NEW: a new release is added on top, never in place of the older ones.
+-- The timeline is always the last KEEP releases, newest first, with the releases this account
+-- hasn't seen yet marked NEW: a new release is added on top, never in place of the older ones.
 function N.Show(version)
 	if not frame then Build() end
 	local list, newSet
