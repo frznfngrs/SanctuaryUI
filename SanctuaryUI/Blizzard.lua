@@ -80,16 +80,28 @@ local MULTI_BARS = {
 local multiParent = {}
 
 -- A Blizzard bar hidden under a row's page is silenced too (see SILENCED): its combat
--- visibility and grid events would show and hide it and its buttons in combat. Given back, it
--- gets the same events again (EditModeActionBar_OnLoad and ActionBar_OnLoad register these).
+-- visibility events would show and hide it and its buttons in combat. Given back, it gets
+-- them again (EditModeActionBar_OnLoad registers these).
 local multiSilenced = {}
-local function MultiEvents(frame)
-	local events = { "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED" }
+local MULTI_EVENTS = { "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED" }
+
+-- The drag grid events (ACTIONBAR_SHOWGRID/HIDEGRID) never reach a Blizzard bar, even one
+-- left to the player. They fire inside whatever put something on the cursor, and with
+-- SanctuaryUI that is often addon code: our bag and bank slots (the slot template's OnClick
+-- and OnDragStart are mixin methods, written tainted when an addon makes the button, as in
+-- every bag addon), our bars' drags, the pet bar, the fishing weapon swap. The bar's
+-- handler then runs tainted. In combat each button's SetShown is blocked (a right-click on a
+-- bag item: a hundred blocked calls). Out of combat it is quieter and worse: the bar's
+-- showAllButtons, its shown-button list and Edit Mode's bar layout are rewritten tainted, and
+-- Blizzard's own code that reads them in combat is blocked later. From a tainted path the
+-- grid never showed anyway: ActionButton's SetShowGrid sets the showgrid attribute only when
+-- issecure(). Lost: a spell dragged from the spellbook no longer lights a Blizzard bar's empty
+-- slots. Blizzard's "Always Show Buttons" setting still shows them (that path is not an event).
+local function SilenceGrid(frame)
 	for _, key in ipairs({ "showGridEventName", "hideGridEventName" }) do
 		local event = rawget(frame, key)
-		if type(event) == "string" then events[#events + 1] = event end
+		if type(event) == "string" then pcall(frame.UnregisterEvent, frame, event) end
 	end
-	return events
 end
 
 -- The pages enabled SanctuaryUI rows show, their form pages included.
@@ -484,6 +496,7 @@ function ns.Blizzard.Replaced()
 	for name, page in pairs(MULTI_BARS) do
 		local frame = _G[name]
 		if frame then
+			SilenceGrid(frame)
 			if pages[page] then
 				if frame:GetParent() ~= ns.Hider then multiParent[name] = frame:GetParent() end
 				frame.sanctuaryAllow = nil
@@ -499,7 +512,7 @@ function ns.Blizzard.Replaced()
 			elseif frame:GetParent() == ns.Hider then
 				if multiSilenced[name] then
 					multiSilenced[name] = nil
-					for _, event in ipairs(MultiEvents(frame)) do pcall(frame.RegisterEvent, frame, event) end
+					for _, event in ipairs(MULTI_EVENTS) do pcall(frame.RegisterEvent, frame, event) end
 					-- Its buttons left the shared event loops while hidden (PruneDispatchers),
 					-- and putting them back from here would taint those loops: a reload does it.
 					if dispatchPruned then gaveBack[#gaveBack + 1] = name end
