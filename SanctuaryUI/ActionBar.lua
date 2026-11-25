@@ -1490,6 +1490,9 @@ function ns.ActionBar.UpdateMovers(hide)
 	if ns.Threat and ns.Threat.UpdateMovers then
 		ns.Threat.UpdateMovers(unlocked)
 	end
+	if ns.Alarm and ns.Alarm.UpdateMovers then
+		ns.Alarm.UpdateMovers(unlocked)
+	end
 	if ns.Map and ns.Map.UpdateMovers then
 		ns.Map.UpdateMovers(unlocked)
 	end

@@ -2720,6 +2720,129 @@ end
 
 local SetSearch
 
+-- Setup > Alarm clock (Alarm.lua): a new alarm, the alarms, and how they ring.
+local function AlarmArgs()
+	local AL = ns.Alarm
+	local draft = { time = "", label = "", rep = "once" }
+	local listArgs = {}
+	local function Notify()
+		local registry = LibStub("AceConfigRegistry-3.0", true)
+		if registry then registry:NotifyChange(APP) end
+	end
+	-- One row per alarm: what and when, on or off, remove.
+	local function Rebuild()
+		for k in pairs(listArgs) do listArgs[k] = nil end
+		local list = AL.List()
+		if #list == 0 then
+			listArgs.none = Note(1, "No alarms yet.")
+			return
+		end
+		for i, a in ipairs(list) do
+			listArgs["what" .. i] = Width({
+				type = "description", order = i, fontSize = "medium",
+				name = function()
+					local label = a.label ~= "" and ("  " .. a.label) or ""
+					return Gold(AL.FormatTime(a.h, a.m)) .. "  " .. Muted((AL.REPEATS[a.rep] or a.rep) .. ", " .. AL.Describe(a)) .. "|cffe6dfd0" .. label .. "|r"
+				end,
+			}, 0.62)
+			listArgs["on" .. i] = Width({
+				type = "toggle", order = i + 0.1, name = "On",
+				get = function() return a.on end,
+				set = function(_, v) AL.SetOn(a, v) end,
+			}, 0.16)
+			listArgs["remove" .. i] = Width({
+				type = "execute", order = i + 0.2, name = "Remove",
+				func = function() AL.Remove(a) end,
+			}, 0.2)
+		end
+	end
+	AL.onChange = function() Rebuild() Notify() end
+	Rebuild()
+	local function off() return not DB().alarm.enabled end
+	return {
+		intro = Note(0, "Alarms ring at a time of day by your computer's clock, on every character. A window opens at the top of the screen, the sound repeats until you dismiss or snooze it, and the game's taskbar icon flashes. From chat: /alarm 14:30 Standup, /alarm 9:30am weekdays Standup, /alarm in 15 Tea, /alarm list."),
+		enabled = Toggle(0.5, "Alarms on", "Off, nothing rings (the alarms are kept).", "alarm", "enabled"),
+		test = Width({ type = "execute", order = 0.6, name = "Test", desc = "Ring a made-up alarm now, sound and all.", func = function() AL.Test() end, disabled = off }, HALF),
+		add = Card(1, "New alarm", {
+			time = Third({
+				type = "input", order = 1, name = "Time", desc = "14:30, 2:30pm or 9am.",
+				get = function() return draft.time end,
+				set = function(_, v) draft.time = v end,
+			}),
+			rep = Third({
+				type = "select", order = 2, name = "Repeat", values = AL.REPEATS, sorting = AL.REPEAT_ORDER,
+				get = function() return draft.rep end,
+				set = function(_, v) draft.rep = v end,
+			}),
+			label = Third({
+				type = "input", order = 3, name = "What for", desc = "Shown when it rings, e.g. Standup.",
+				get = function() return draft.label end,
+				set = function(_, v) draft.label = v end,
+			}),
+			addButton = Third({
+				type = "execute", order = 4, name = "Add alarm",
+				disabled = function() return AL.ParseTime(draft.time) == nil end,
+				func = function()
+					local h, m = AL.ParseTime(draft.time)
+					if not h then return end
+					local a = AL.Add(h, m, (draft.label or ""):gsub("^%s+", ""):gsub("%s+$", ""), draft.rep)
+					ns.Print(AL.Confirm(a))
+					draft.time, draft.label = "", ""
+				end,
+			}),
+			hint = Note(5, function()
+				if draft.time == "" then return "" end
+				local h, m = AL.ParseTime(draft.time)
+				return h and ("Rings at " .. AL.FormatTime(h, m) .. ".") or "That isn't a time: try 14:30, 2:30pm or 9am."
+			end),
+		}),
+		alarms = Card(2, "Alarms", listArgs),
+		ring = Card(3, "Ringing", {
+			lead = Range(1, "Heads-up", "Minutes before each alarm for a quieter Coming up window. 0 for none.", "alarm", "lead", 0, 30, 1),
+			sound = Select(2, "Sound", nil, "alarm", "sound", (function()
+				local v = {}
+				for k, s in pairs(AL.SOUNDS) do v[k] = s[3] end
+				return v
+			end)(), AL.SOUND_ORDER),
+			scale = Range(3, "Size", nil, "alarm", "scale", 0.6, 1.6, 0.05, true),
+			repeatSound = Toggle(4, "Keep ringing", "The sound repeats every few seconds until you dismiss or snooze it, for two minutes at most.", "alarm", "repeatSound"),
+			flash = Toggle(5, "Flash the taskbar", "The game's icon flashes on the taskbar, for when you're in another window.", "alarm", "flash"),
+			background = Width({
+				type = "execute", order = 6, name = "Ring in the background",
+				desc = "WoW is silent while it isn't the window in front unless Sound in Background is on. This turns it on (it asks first, and reloads).",
+				func = function()
+					ns.AskCVarReload("Sound_EnableSoundWhenGameIsInBG", 1, "Turn on Sound in Background, so alarms are heard while WoW is behind another window.")
+				end,
+				hidden = function()
+					local get = C_CVar and C_CVar.GetCVar or GetCVar
+					local ok, v = pcall(get, "Sound_EnableSoundWhenGameIsInBG")
+					return ok and v == "1"
+				end,
+			}, HALF),
+		}, { disabled = off }),
+		meetings = Card(3.5, "Outlook meetings", {
+			meetings = Toggle(1, "Ring for meetings", "Meetings from Outlook ring at their start, with the same heads-up, like a one-off alarm.", "alarm", "meetings"),
+			status = Note(2, function()
+				local status = AL.CalendarStatus()
+				if not status then
+					return "Not set up. Outlook's meetings reach the game through a small helper on your PC (tools/outlook in SanctuaryUI's source) that copies them into an addon, SanctuaryUI_Calendar, every 15 minutes. The game reads it when you log in or /reload."
+				end
+				local list = AL.Meetings()
+				local lines = { ("%s, %d coming up. New ones show after a /reload."):format(status:gsub("^%l", string.upper), #list) }
+				for i = 1, math.min(6, #list) do
+					lines[#lines + 1] = "|cffd8b86a" .. AL.MeetingTime(list[i].start) .. "|r  |cffe6dfd0" .. list[i].subject .. "|r"
+				end
+				return table.concat(lines, "\n")
+			end),
+		}, { disabled = off }),
+		calendar = Card(3.7, "Game calendar", {
+			calendar = Toggle(1, "Show on the calendar", "Meetings and alarms appear on the game's calendar (the calendar button under the minimap opens it): small rows on each day, in its tooltip, and a panel when you click one.", "alarm", "calendar"),
+			about = Note(2, "Blue rows are Outlook meetings, orange ones alarms, grey ones won't ring. Click one to silence or remove it; the + on a day sets an alarm for that day. They're only drawn on your screen: nothing is added to the game's own calendar or sent anywhere."),
+		}, { disabled = off }),
+		place = PositionCard(4, "At the top of the screen by default. " .. UNLOCK, function() AL.ResetPosition() end, function() return not DB().alarm.moved end),
+	}
+end
+
 local function SearchArgs()
 	local args = {}
 	if search.text == "" then
@@ -2933,6 +3056,8 @@ local function Build()
 					reset = Third({ type = "execute", order = 3, name = "Reset all fonts", func = function() ResetFonts({ "title", "body", "titleScale", "bodyScale", "outline", "monochrome" }) end }),
 				}),
 			}),
+
+			alarms = Page(1.7, "Alarm clock", AlarmArgs()),
 
 			gap10 = Gap(9),
 			sectionConsole = Section(10, "Console"),

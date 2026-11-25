@@ -1186,6 +1186,12 @@ local function Slash(msg)
 		local ok, err = pcall(ns.ActionBar.CountdownReport)
 		ns.forceLog = nil
 		if not ok then ns.Print("report failed: " .. tostring(err)) end
+	elseif cmd == "alarm" or cmd == "alarms" then
+		if not ns.Alarm or not ns.Alarm.Slash then
+			ns.Print("the alarm clock loads after a full restart of the game (a new file).")
+		else
+			ns.Alarm.Slash(rest)
+		end
 	elseif cmd == "news" or cmd == "whatsnew" then
 		if not ns.WhatsNew or not ns.WhatsNew.Show then
 			ns.Print("what's new loads after a full restart of the game (a new file).")
@@ -1329,6 +1335,8 @@ loader:SetScript("OnEvent", function(_, event)
 		Safe("meter glory", ns.MeterGlory and ns.MeterGlory.Init)
 		Safe("threat", ns.Threat and ns.Threat.Init)
 		Safe("what's new", ns.WhatsNew and ns.WhatsNew.Init)
+		Safe("alarm clock", ns.Alarm and ns.Alarm.Init)
+		Safe("alarm calendar", ns.AlarmCalendar and ns.AlarmCalendar.Init)
 		Safe("pie menus", ns.Pie and ns.Pie.Init)
 		Safe("map", ns.Map and ns.Map.Init)
 		Safe("ally ring", ns.AllyRing and ns.AllyRing.Init)

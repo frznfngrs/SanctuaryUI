@@ -55,6 +55,8 @@ RunReport.lua
 MeterProbe.lua
 Threat.lua
 WhatsNew.lua
+Alarm.lua
+AlarmCalendar.lua
 Share.lua
 MapProbe.lua
 TotemProbe.lua

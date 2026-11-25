@@ -435,6 +435,20 @@ ns.DEFAULTS = {
 		-- weapon swing timers (SwingTimer.lua): a bar per weapon, filling to the next auto attack
 		-- What's new after an update (WhatsNew.lua); the version last shown is in global.newsSeen
 		news = { enabled = true, scale = 1 },
+		-- the alarm clock's window and sound (Alarm.lua); the alarms themselves are in global.alarms
+		alarm = {
+			enabled = true,
+			scale = 1,
+			lead = 5, -- minutes of heads-up before each alarm; 0 for none
+			sound = "clock", -- Alarm.lua SOUNDS
+			repeatSound = true, -- the sound repeats until dismissed (for two minutes at most)
+			flash = true, -- flash the game's taskbar icon
+			meetings = true, -- ring Outlook meetings synced by tools/outlook (SanctuaryUI_Calendar)
+			calendar = true, -- show meetings and alarms on the game's calendar (AlarmCalendar.lua)
+			moved = false,
+			mx = 0,
+			my = 0,
+		},
 		-- threat rails, warnings and loose enemies (Threat.lua)
 		threat = {
 			enabled = true,
@@ -831,6 +845,10 @@ ns.DEFAULTS = {
 		-- MiningShare.lua: veins other miners found where the maps had none, shared with every
 		-- character: { vein key, map, x, y, t (first heard), n (miners who told us), who = { name = true } }
 		miningHeard = {},
+		-- Alarm.lua: the alarm clock's alarms, for every character on the account
+		alarms = {},
+		-- and the Outlook meetings it has rung, warned of or snoozed, by "start|subject"
+		alarmMeetings = {},
 	},
 }
 
@@ -992,6 +1010,8 @@ function ns.Refresh()
 	Run("damage meter", ns.Meter and ns.Meter.ApplySettings)
 	Run("threat", ns.Threat and ns.Threat.ApplySettings)
 	Run("what's new", ns.WhatsNew and ns.WhatsNew.ApplySettings)
+	Run("alarm clock", ns.Alarm and ns.Alarm.ApplySettings)
+	Run("alarm calendar", ns.AlarmCalendar and ns.AlarmCalendar.ApplySettings)
 	Run("minimap", ns.Map and ns.Map.ApplySettings)
 	Run("overlay map", ns.MapOverlay and ns.MapOverlay.ApplySettings)
 	Run("ally ring", ns.AllyRing and ns.AllyRing.ApplySettings)
