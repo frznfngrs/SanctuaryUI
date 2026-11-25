@@ -15,6 +15,16 @@ local MINE = getMeta and getMeta("SanctuaryUI", "Version") or "?"
 -- Newest first: { version, date, notes = { { heading, text, button label, action }, ... } }.
 local RELEASES = {
 	{
+		version = "0.35.0", date = "25 November 2026",
+		notes = {
+			{ "Alarm clock",
+				"Set alarms for real-world times: /alarm 14:30 Standup, /alarm in 15 Tea. A window rings at the top of the screen with snooze, and the taskbar icon flashes.",
+				"Options", function() ns.Options.Open("alarms") end },
+			{ "On the game calendar",
+				"Your alarms, and your Outlook meetings if you set up the sync helper, show on the game's calendar days. Click one to change it or add a new alarm." },
+		},
+	},
+	{
 		version = "0.34.0", date = "24 November 2026",
 		notes = {
 			{ "First Aid on the health globe",
