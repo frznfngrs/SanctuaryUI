@@ -334,6 +334,13 @@ local function FriendLayout(p)
 	p.cast:Hide()
 	p.name:ClearAllPoints()
 	p.name:SetPoint("CENTER", root, "CENTER", 0, 3)
+	-- No set width (a pooled plate may carry an enemy's): the name sizes to itself, and a long one
+	-- is broken onto two lines between words by P.SetFriendName.
+	p.name:SetWidth(0)
+	p.name:SetWordWrap(true)
+	if p.name.SetNonSpaceWrap then p.name:SetNonSpaceWrap(false) end
+	p.name:SetJustifyH("CENTER")
+	p.nameRoom, p.nameFitW = nil, nil
 	local sw, sh = width * 0.55, math.max(2, math.floor((o.barHeight or 9) * 0.33 + 0.5))
 	for _, region in ipairs({ p.slot, p.health }) do
 		region:ClearAllPoints()
@@ -502,9 +509,13 @@ local function Layout(p)
 		local row = rootW * 1.35 -- the name's row may reach a little past the frame's ends
 		p.nameFitW = math.max(20, row - 2 * edge)
 		p.name:SetWidth(p.nameFitW)
-		p.name:SetWordWrap(false)
+		-- A long name takes a second line (broken between words, see P.FitNameFont); the row grows
+		-- upward, so the level and quest mark stay beside its bottom line, on the frame.
+		p.name:SetWordWrap(true)
+		if p.name.SetNonSpaceWrap then p.name:SetNonSpaceWrap(false) end
+		if p.name.SetMaxLines then p.name:SetMaxLines(2) end
 		p.name:SetJustifyH("CENTER")
-		p.level:SetPoint("LEFT", p.name, "LEFT", -edge, 0)
+		p.level:SetPoint("BOTTOMLEFT", p.name, "BOTTOMLEFT", -edge, (nameSize - (o.textSize or 9)) / 2)
 	end
 	p.raid:SetSize(nameSize + 6, nameSize + 6)
 	p.raid:ClearAllPoints()
@@ -518,7 +529,7 @@ local function Layout(p)
 	if o.namePos == "inside" then
 		p.quest:SetPoint("BOTTOMRIGHT", root, "TOPRIGHT", 0, 1)
 	else
-		p.quest:SetPoint("RIGHT", p.name, "RIGHT", math.max(o.showLevel ~= false and (o.textSize or 9) * 1.8 or 0, nameSize + 6), 0)
+		p.quest:SetPoint("BOTTOMRIGHT", p.name, "BOTTOMRIGHT", math.max(o.showLevel ~= false and (o.textSize or 9) * 1.8 or 0, nameSize + 6), -2)
 	end
 	p.pct:ClearAllPoints()
 	if o.healthTextPos == "center" and o.namePos ~= "inside" then
@@ -809,20 +820,55 @@ function P.FitName(p)
 	p.nameFitInside = math.max(10, p.nameRoom - pctW)
 end
 
--- A long name shrinks to fit its room (down to 72%) before it's cut short with "...". Sized from
--- the name's length, not by measuring the plate, which the game doesn't allow; Exocet runs about
--- two thirds of its size per letter, other faces a little less. A secret name keeps the size.
+-- A name too long for its room, broken onto two lines at the space nearest its middle, so the
+-- lines come out even and no word is ever split. Returns the text and its longest line's length in
+-- letters. A name with no space stays whole (it shrinks or is cut short instead).
+function P.BreakName(name, room, per)
+	if #name * per <= room then return name, #name end
+	local best, bestLong
+	for at in name:gmatch("() ") do
+		local long = math.max(at - 1, #name - at)
+		if not bestLong or long < bestLong then best, bestLong = at, long end
+	end
+	if not best then return name, #name end
+	return name:sub(1, best - 1) .. "\n" .. name:sub(best + 1), bestLong
+end
+
+-- Letters per font size: Exocet runs about two thirds of its size per letter, other faces less.
+-- (Worked out from the name's length: the game won't let an addon measure a nameplate.)
+local function PerLetter(font, size)
+	return ((font or "d3") == "d3" and 0.66 or 0.56) * size
+end
+
+-- Over the frame, a long name wraps to a second line between words; whatever still overflows (or a
+-- name on the bar, which has one line) shrinks to fit, down to 72%, before it's cut with "...".
+-- A secret name keeps the size and is left to the game's own word wrap.
 function P.FitNameFont(p, name)
 	if p.friend or p.totem then return end
 	local o = Opt()
 	local size = o.nameSize or 10
 	local room = p.nameRoom and p.nameFitInside or p.nameFitW
+	local text
 	if room and name ~= nil and not Secret(name) and type(name) == "string" and #name > 0 then
-		local per = ((o.nameFont or "d3") == "d3" and 0.66 or 0.56) * size
-		local need = #name * per
+		local per = PerLetter(o.nameFont, size)
+		local letters = #name
+		if not p.nameRoom then text, letters = P.BreakName(name, room, per) end
+		local need = letters * per
 		if need > room then size = math.max(size * 0.72, size * room / need) end
 	end
 	ns.Fonts.Set(p.name, "title", size, OUTLINES[o.nameOutline or "outline"] or "OUTLINE", o.nameFont)
+	if text and text ~= name then p.name:SetText(text) end
+end
+
+-- A friend's name: whole on one line, or broken between words onto two when it's wider than the
+-- plate (a little past it, as the name floats free of any frame).
+function P.SetFriendName(p, name)
+	if name ~= nil and not Secret(name) and type(name) == "string" and #name > 0 then
+		local o = Opt()
+		local room = (o.width or 130) * 0.9 * 1.15
+		name = P.BreakName(name, room, PerLetter(o.friendlyFont, o.friendlyNameSize or 10))
+	end
+	if not pcall(p.name.SetText, p.name, name) then p.name:SetText("") end
 end
 
 local function UpdatePercent(p)
@@ -1391,7 +1437,7 @@ end
 
 local function UpdateFriend(p)
 	local unit = p.unit
-	if not pcall(p.name.SetText, p.name, UnitName(unit)) then p.name:SetText("") end
+	P.SetFriendName(p, UnitName(unit))
 	local c = FRIEND_NAME
 	local fill = FRIEND_FILL
 	local isPlayer = Ask(UnitIsPlayer, unit)
@@ -1878,7 +1924,7 @@ local PACK = {
 	{ name = "Sneed", level = 20, rank = "elite", x = -150, y = -90, hp = 0.73 },
 	{ name = "Foreman Thistlenettle", level = -1, rank = "rare", x = 150, y = -90, hp = 0.55 },
 	{ name = "Edwin VanCleef", level = -1, rank = "boss", x = 0, y = -165, hp = 0.62 },
-	{ name = "Wu Shen", friend = true, guild = "Warrior Trainer", detail = "Level 60 · Stormwind", x = -380, y = -165, hp = 1 },
+	{ name = "Lord Grayson Shadowbreaker", friend = true, guild = "Paladin Trainer", detail = "Level 60 · Stormwind", x = -380, y = -165, hp = 1 },
 	{ name = "Brakka", friend = true, class = "WARRIOR", guild = "The Rethiadians", x = 380, y = -165, hp = 0.6 },
 	{ name = "Searing Totem III", totem = true, element = 2, icon = "Interface\\Icons\\Spell_Fire_SearingTotem", x = 0, y = 175, hp = 0.7 },
 }
@@ -1992,7 +2038,7 @@ function P.DrawPreview()
 				p.root:Show()
 			end
 		elseif d.friend then
-			p.name:SetText(d.name)
+			P.SetFriendName(p, d.name)
 			local cc = d.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[d.class]
 			local c = cc and { cc.r, cc.g, cc.b } or FRIEND_NAME
 			p.name:SetTextColor(c[1], c[2], c[3])
