@@ -7,10 +7,35 @@ local function Hearth()
 	return tonumber(ns.DB().hearthItem) or 6948
 end
 
+-- The spellbook and talents (one Blizzard window, PlayerSpellsFrame) can't be opened from
+-- addon code in combat. Its OnShow lights every action bar's empty slots
+-- (MultiActionBar_ShowAllGrids); run from our click it runs tainted, and in combat each
+-- button's SetShown is blocked and blamed on us, a hundred at once (#44). So in combat the
+-- click is refused with a word in chat and at the top of the screen, at most once every 5
+-- seconds. Blizzard's own key opens it as always, and so does the Talents button (a secure
+-- click on Blizzard's button). Out of combat it opens as before.
+local lastCombatMsg = 0
+local function RefusedInCombat(label, binding)
+	if not InCombatLockdown() then return false end
+	local now = GetTime()
+	if now - lastCombatMsg < 5 then return true end
+	lastCombatMsg = now
+	local key = binding and GetBindingKey(binding)
+	key = key and (GetBindingText and GetBindingText(key) or key)
+	local msg = key and ("%s can't open from here in combat. Press %s, or click again after the fight."):format(label, key)
+		or ("%s can't open from here in combat. Click again after the fight."):format(label)
+	ns.Print(msg)
+	if UIErrorsFrame and UIErrorsFrame.AddMessage then
+		UIErrorsFrame:AddMessage("SanctuaryUI: " .. msg, 1, 0.78, 0.38)
+	end
+	return true
+end
+
 -- The five D3 menu buttons, left to right. On Forever (a modern client) several micro
 -- buttons open their panel from mouse-down handlers, so clicking them does nothing; these
 -- call the same toggle functions ElvUI uses on this client instead.
 local function ToggleSpells()
+	if RefusedInCombat(SPELLBOOK or "Spellbook", "TOGGLESPELLBOOK") then return end
 	if PlayerSpellsUtil and PlayerSpellsUtil.ToggleSpellBookFrame then
 		PlayerSpellsUtil.ToggleSpellBookFrame()
 	elseif ToggleSpellBook then
@@ -21,6 +46,7 @@ local function ToggleSpells()
 end
 
 local function ToggleTalents()
+	if RefusedInCombat(TALENTS_BUTTON or "Talents", "TOGGLETALENTS") then return end
 	if PlayerSpellsUtil and PlayerSpellsUtil.ToggleClassTalentFrame then
 		PlayerSpellsUtil.ToggleClassTalentFrame()
 	elseif ToggleTalentFrame then
