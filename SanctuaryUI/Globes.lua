@@ -6,6 +6,13 @@ local GLOBE = 136
 local WELL_PAD = 5 / 160 -- the well's reach past the liquid, of the globe's diameter
 local PIP_MAX = 6
 local HOTLINE_H = 0.16
+-- The pet's globe (#45): the same liquid in the party frames' forged pet bezel (PartyArt.lua),
+-- over the gargoyle's wing, up and left of the health globe and clear of the stance bar above
+-- it. Of the health globe's size, so it follows the globe scale; Options > Globes > Pet globe.
+local PET_SIZE = 0.36 -- liquid diameter
+local PET_AT = { -0.9, 0.62 } -- centre from the health globe's: left, up
+local PET_NUMBER = 0.55 -- its number, of the globes' number size
+local DEAD_COLOR = { 0.4, 0.4, 0.4 }
 
 -- Liquid colors sampled from the D3 class globes. liquid.png is luminance, so these set the hue.
 local HEALTH_COLOR = { 0.86, 0.07, 0.05 }
@@ -65,6 +72,15 @@ local function StyleNumber(fontString, size, r, g, b)
 	fontString:SetShadowColor(0, 0, 0, 0.85)
 	fontString:SetShadowOffset(1.5, -1.5)
 	fontString:SetTextColor(r, g, b)
+end
+
+-- Every globe that carries numbers: the pet's has no maximum or halves.
+local function NumberedGlobes()
+	return { ns.HealthGlobe, ns.ResourceGlobe, ns.PetGlobe }
+end
+
+local function PetNumberSize(size)
+	return math.max(9, math.floor(size * PET_NUMBER + 0.5))
 end
 
 local function SetMax(fontString, value)
@@ -547,9 +563,9 @@ end
 
 function ns.Globes.ApplySettings()
 	local size = tonumber(ns.DB().numberSize) or VALUE_SIZE
-	for _, globe in ipairs({ ns.HealthGlobe, ns.ResourceGlobe }) do
+	for _, globe in ipairs(NumberedGlobes()) do
 		if globe then
-			StyleNumber(globe.Number, size, 1, 0.94, 0.8)
+			StyleNumber(globe.Number, globe.isPet and PetNumberSize(size) or size, 1, 0.94, 0.8)
 			StyleNumber(globe.Max, math.max(8, math.floor(size / 2 + 0.5)), 0.82, 0.68, 0.42)
 			if globe.Halves then
 				for _, half in pairs(globe.Halves) do
@@ -565,6 +581,7 @@ function ns.Globes.ApplySettings()
 	-- The prediction toggles.
 	ns.Globes.UpdateHealPrediction()
 	ns.Globes.UpdatePower()
+	ns.Globes.UpdatePet()
 end
 
 -- Number fades: quick in, slower out, and a short wait after combat before they go.
@@ -587,7 +604,7 @@ end
 local function FadeStep(_, elapsed)
 	local busy = false
 	local now = GetTime()
-	for _, globe in ipairs({ ns.HealthGlobe, ns.ResourceGlobe }) do
+	for _, globe in ipairs(NumberedGlobes()) do
 		if globe then
 			local target = globe.numberTarget or 1
 			-- Just left combat: hold until the linger ends, then fade.
@@ -620,11 +637,11 @@ function ns.Globes.ApplyNumbers()
 	if not fader then
 		fader = CreateFrame("Frame")
 	end
-	for _, globe in ipairs({ ns.HealthGlobe, ns.ResourceGlobe }) do
+	for _, globe in ipairs(NumberedGlobes()) do
 		if globe then
 			local enabled = mode ~= "off"
 			globe.Number:SetShown(enabled and not globe.split)
-			globe.Max:SetShown(enabled and not globe.split and db.numbersMax)
+			globe.Max:SetShown(enabled and not globe.split and not globe.isPet and db.numbersMax)
 			if globe.Halves then
 				for _, half in pairs(globe.Halves) do
 					half.number:SetShown(enabled and globe.split or false)
@@ -748,6 +765,43 @@ function ns.Globes.UpdateHealth()
 	SetMax(globe.Max, maxHealth)
 	ns.Globes.ApplyNumbers()
 	ns.Globes.PlaceSurface(globe)
+end
+
+-- The pet's globe shows while you have a pet, and while frames are unlocked without one (a
+-- stand-in level, no number) so it can be placed. It is no secure frame, so it shows and hides
+-- in combat as pets come and go. Its health may come back secret: Fill and SetNumber take that.
+function ns.Globes.UpdatePet()
+	local globe = ns.PetGlobe
+	if not globe then return end
+	local db = ns.DB()
+	local opt = db.petGlobe
+	local hasPet = UnitExists("pet")
+	if Secret(hasPet) then hasPet = true end
+	local show = opt.enabled and (hasPet or not db.locked) and true or false
+	globe:SetShown(show)
+	if not show then return end
+	local health, maxHealth, dead = 800, 1000, false
+	if hasPet then
+		health, maxHealth = UnitHealth("pet"), UnitHealthMax("pet")
+		dead = UnitIsDeadOrGhost("pet")
+		if Secret(dead) then dead = false end
+	end
+	local color = dead and DEAD_COLOR or HEALTH_COLOR
+	Tint(globe, color[1], color[2], color[3])
+	Fill(globe.Liquid, health, maxHealth)
+	if hasPet then
+		SetNumber(globe.Number, health)
+	else
+		globe.Number:SetText("")
+	end
+	ns.Globes.ApplyNumbers()
+	ns.Globes.PlaceSurface(globe)
+end
+
+function ns.Globes.ResetPetPosition()
+	local opt = ns.DB().petGlobe
+	opt.moved, opt.mx, opt.my = false, 0, 0
+	ns.Refresh()
 end
 
 -- What the server last said you have, by power type. Forever is a modern client on vanilla
@@ -903,6 +957,36 @@ function ns.Globes.Layout()
 	place(ns.HealthGlobe, "health")
 	place(ns.ResourceGlobe, "resource")
 
+	-- The pet's globe, in the health pod so it takes the globe scale; its bezel is drawn over
+	-- the liquid like the console's ring.
+	local pet = ns.PetGlobe
+	if pet then
+		local opt = ns.DB().petGlobe
+		local spot = spots.health
+		local size = spot.size * PET_SIZE * math.max(0.5, math.min(2, tonumber(opt.scale) or 1))
+		pet:SetSize(size, size)
+		pet:ClearAllPoints()
+		if opt.moved then
+			pet:SetPoint("CENTER", UIParent, "BOTTOMLEFT", ns.MovedPoint(pet, opt))
+		else
+			pet:SetPoint("CENTER", pods.health, "BOTTOM", spot.x + spot.size * PET_AT[1], base + spot.y + spot.size * PET_AT[2])
+		end
+		local pad = size * WELL_PAD
+		pet.Well:ClearAllPoints()
+		pet.Well:SetPoint("TOPLEFT", pet, "TOPLEFT", -pad, pad)
+		pet.Well:SetPoint("BOTTOMRIGHT", pet, "BOTTOMRIGHT", pad, -pad)
+		pet:SetFrameLevel(level + ns.LEVEL.globe)
+		pet.Liquid:SetFrameLevel(level + ns.LEVEL.liquid)
+		if pet.pool then pet.pool:SetLevels(level) end
+		if pet.Shade then pet.Shade:SetFrameLevel(level + ns.LEVEL.shade) end
+		local cell = ns.Art.PARTY.globes.pet
+		local k = size / cell.globe[3]
+		pet.Bezel:SetSize(cell.size[1] * k, cell.size[2] * k)
+		pet.Bezel:SetFrameLevel(level + ns.LEVEL.surface + 1)
+		pet.Chrome:SetFrameLevel(level + ns.LEVEL.chrome)
+		ns.Globes.UpdatePet()
+	end
+
 	-- The health globe's click button: on the globe's circle (anchored to its pod, like the
 	-- globe), above the art. Unlocked, clicks go through to drag the console.
 	local click = ns.Globes.click
@@ -1001,6 +1085,7 @@ function ns.Globes.Layout()
 	end
 	ns.Globes.PlaceSurface(ns.HealthGlobe)
 	ns.Globes.PlaceSurface(ns.ResourceGlobe)
+	if ns.PetGlobe then ns.Globes.PlaceSurface(ns.PetGlobe) end
 end
 
 function ns.Globes.RefreshArt()
@@ -1026,6 +1111,7 @@ function ns.Globes.RefreshArt()
 	end
 	Paint(ns.HealthGlobe)
 	Paint(ns.ResourceGlobe)
+	Paint(ns.PetGlobe)
 	local halves = ns.ResourceGlobe and ns.ResourceGlobe.Halves
 	if halves then
 		for side, half in pairs(halves) do
@@ -1045,6 +1131,7 @@ function ns.Globes.RefreshArt()
 	ns.Globes.ShowGlass()
 	ns.Globes.UpdateHealth()
 	ns.Globes.UpdatePower()
+	ns.Globes.UpdatePet()
 end
 
 -- The glass over the whole console, or with the globes scaled separately, a piece in each pod.
@@ -1070,10 +1157,33 @@ function ns.Globes.ShowGlass()
 	end
 end
 
+-- The pet's globe: a globe like yours, smaller, in the party pet's forged bezel. Hover shows
+-- its number (as yours); clicks go through it.
+local function MakePetGlobe()
+	local globe = MakeGlobe("SanctuaryUIPetGlobe", ns.Pods.health)
+	globe.isPet = true
+	StyleNumber(globe.Number, PetNumberSize(tonumber(ns.DB().numberSize) or VALUE_SIZE), 1, 0.94, 0.8)
+	globe.Max:Hide()
+	local bezel = CreateFrame("Frame", nil, globe)
+	bezel:SetPoint("CENTER")
+	bezel:EnableMouse(false)
+	local tex = bezel:CreateTexture(nil, "ARTWORK")
+	tex:SetAllPoints()
+	if ns.Art.Apply(tex, "partyGlobes") then
+		tex:SetTexCoord(ns.Art.PartyCoord("globes", ns.Art.PARTY.globes.pet.iron))
+	else
+		tex:SetColorTexture(0, 0, 0, 0)
+	end
+	globe.Bezel = bezel
+	globe:Hide()
+	return globe
+end
+
 function ns.Globes.Init()
 	local parent = ns.Cluster
 	ns.HealthGlobe = MakeGlobe("SanctuaryUIHealthGlobe", ns.Pods.health, { 0.72, 0.08, 0.08 })
 	ns.ResourceGlobe = MakeGlobe("SanctuaryUIResourceGlobe", ns.Pods.resource, { 0.15, 0.4, 0.85 })
+	ns.PetGlobe = MakePetGlobe()
 
 	-- Click your health globe to target yourself; right-click for your unit menu (leave group,
 	-- loot, raid markers). It covers the globe, so it passes hover on for the numbers.
@@ -1118,12 +1228,21 @@ function ns.Globes.Init()
 		for _, half in pairs(ns.ResourceGlobe.Halves) do
 			ns.Liquid.Band(half.pool, "cost")
 		end
+		-- The pet's: a damage ghost, no heartbeat (that is your own health's warning).
+		ns.PetGlobe.pool = ns.Liquid.Attach(ns.PetGlobe, ns.PetGlobe.Liquid, { zoom = 0.36, slices = 6, ghost = true })
+		ns.PetGlobe.Shade = ns.Liquid.Shade(ns.PetGlobe)
 	end
 
 	ns.ResourceGlobe.Pips = {}
 	for i = 1, PIP_MAX do
 		ns.ResourceGlobe.Pips[i] = MakePip(ns.ResourceGlobe)
 	end
+
+	-- Its mover covers the bezel, so it snaps by the metal.
+	ns.Globes.petMover = ns.MakeMover(ns.PetGlobe, "Pet globe", function() return ns.DB().petGlobe end,
+		"Reset its position in /sanctuary > Globes > Pet globe.")
+	ns.Globes.petMover:ClearAllPoints()
+	ns.Globes.petMover:SetAllPoints(ns.PetGlobe.Bezel)
 
 	ns.Globes.Layout()
 	ns.Globes.RefreshArt()
@@ -1184,6 +1303,15 @@ function ns.Globes.Init()
 			ns.Globes.UpdateHealth()
 			ns.Globes.UpdatePower()
 		end
+	end)
+	-- Your pet coming, going and its health: its own frame, so pet events never redraw yours.
+	local petEvents = CreateFrame("Frame", nil, parent)
+	petEvents:RegisterUnitEvent("UNIT_PET", "player")
+	petEvents:RegisterUnitEvent("UNIT_HEALTH", "pet")
+	petEvents:RegisterUnitEvent("UNIT_MAXHEALTH", "pet")
+	petEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+	petEvents:SetScript("OnEvent", function()
+		ns.Globes.UpdatePet()
 	end)
 	if ns.OnHotChanged then ns.OnHotChanged(function() ns.Globes.UpdateHealPrediction() end) end
 	ns.Globes.SetCombat(UnitAffectingCombat and UnitAffectingCombat("player") or false)

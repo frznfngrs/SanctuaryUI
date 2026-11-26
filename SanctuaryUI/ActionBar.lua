@@ -1469,6 +1469,9 @@ function ns.ActionBar.UpdateMovers(hide)
 	if ns.Stance and ns.Stance.mover then
 		ns.Stance.mover:SetShown(unlocked and ns.Stance.HasForms())
 	end
+	if ns.Globes and ns.Globes.petMover then
+		ns.Globes.petMover:SetShown(unlocked and ns.DB().petGlobe.enabled)
+	end
 	if ns.LeaveMover then
 		ns.LeaveMover:SetShown(unlocked)
 	end
