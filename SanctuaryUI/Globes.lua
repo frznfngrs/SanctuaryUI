@@ -17,6 +17,16 @@ local PET_SCALE_MAX = 1.5 -- the 88 px bezel blurs at 200%
 local PET_NUMBER = 0.55 -- its number, of the globes' number size
 local PET_NUMBER_COLOR = { 0.91, 0.86, 0.75 } -- #E8DCC0, with the globes' outline
 local DEAD_COLOR = { 0.4, 0.4, 0.4 }
+-- Happiness still exists on Forever (C_PetInfo.GetPetHappiness, or the old GetPetHappiness).
+-- The badge uses Blizzard's PetFrame strip; texcoords match PetFrameHappiness.
+local GetHappiness = (C_PetInfo and C_PetInfo.GetPetHappiness) or GetPetHappiness
+local PET_HAPPINESS_TEXTURE = "Interface\\PetPaperDollFrame\\UI-PetHappiness"
+local PET_HAPPINESS_COORD = { -- 1 unhappy, 2 content, 3 happy
+	{ 0.375, 0.5625, 0, 0.359375 },
+	{ 0.1875, 0.375, 0, 0.359375 },
+	{ 0, 0.1875, 0, 0.359375 },
+}
+local PET_HAPPINESS_SIZE = 0.36 -- of the liquid diameter, on the ring, clear of the number
 
 -- Liquid colors sampled from the D3 class globes. liquid.png is luminance, so these set the hue.
 local HEALTH_COLOR = { 0.86, 0.07, 0.05 }
@@ -806,6 +816,39 @@ function ns.Globes.UpdatePet()
 	end
 	ns.Globes.ApplyNumbers()
 	ns.Globes.PlaceSurface(globe)
+	ns.Globes.UpdatePetHappiness()
+end
+
+-- Hunter pets only: GetPetHappiness (or C_PetInfo.GetPetHappiness) returns 1, 2 or 3.
+-- Other pets, a missing API, or a secret value: the badge stays hidden.
+function ns.Globes.UpdatePetHappiness()
+	local globe = ns.PetGlobe
+	local badge = globe and globe.Happiness
+	if not badge then return end
+	local mood, damage
+	if globe:IsShown() and UnitExists("pet") and GetHappiness then
+		local hunterPet = true
+		if HasPetUI then
+			local _, isHunter = HasPetUI()
+			if Secret(isHunter) then
+				hunterPet = false
+			else
+				hunterPet = isHunter and true or false
+			end
+		end
+		if hunterPet then
+			mood, damage = GetHappiness()
+		end
+	end
+	local coord = not Secret(mood) and PET_HAPPINESS_COORD[mood]
+	if coord then
+		badge.mood, badge.damage = mood, damage
+		badge.icon:SetTexCoord(coord[1], coord[2], coord[3], coord[4])
+		badge:Show()
+	else
+		badge.mood, badge.damage = nil, nil
+		badge:Hide()
+	end
 end
 
 function ns.Globes.ResetPetPosition()
@@ -992,6 +1035,14 @@ function ns.Globes.Layout()
 		pet.Bezel:SetSize(size * PET_RING, size * PET_RING)
 		pet.Bezel:SetFrameLevel(level + ns.LEVEL.surface + 1)
 		pet.Chrome:SetFrameLevel(level + ns.LEVEL.chrome)
+		if pet.Happiness then
+			local badge = size * PET_HAPPINESS_SIZE
+			pet.Happiness:SetSize(badge, badge)
+			-- Up and right on the ring, outside the number and clear of the bolt on the horn.
+			pet.Happiness:ClearAllPoints()
+			pet.Happiness:SetPoint("CENTER", pet, "CENTER", size * 0.42, size * 0.38)
+			pet.Happiness:SetFrameLevel(level + ns.LEVEL.chrome + 1)
+		end
 		ns.Globes.UpdatePet()
 	end
 
@@ -1183,6 +1234,38 @@ local function MakePetGlobe()
 		tex:SetColorTexture(0, 0, 0, 0)
 	end
 	globe.Bezel = bezel
+	-- Happiness badge: Blizzard's PetFrame icon, on the ring so it doesn't cover the number.
+	local badge = CreateFrame("Frame", nil, globe)
+	badge:Hide()
+	local icon = badge:CreateTexture(nil, "OVERLAY")
+	icon:SetAllPoints()
+	icon:SetTexture(PET_HAPPINESS_TEXTURE)
+	badge.icon = icon
+	if badge.SetMouseMotionEnabled then
+		badge:SetMouseMotionEnabled(true)
+		if badge.SetMouseClickEnabled then
+			badge:SetMouseClickEnabled(false)
+		end
+	else
+		badge:EnableMouse(true)
+	end
+	badge:SetScript("OnEnter", function(self)
+		if GameTooltip.IsForbidden and GameTooltip:IsForbidden() or not self.mood then return end
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText(_G["PET_HAPPINESS" .. self.mood] or "", 1, 0.82, 0)
+		if type(self.damage) == "number" and not Secret(self.damage) and PET_DAMAGE_PERCENTAGE then
+			GameTooltip:AddLine(PET_DAMAGE_PERCENTAGE:format(self.damage), 1, 1, 1)
+		end
+		GameTooltip:Show()
+	end)
+	badge:SetScript("OnLeave", function()
+		if GameTooltip_Hide then
+			GameTooltip_Hide()
+		elseif not (GameTooltip.IsForbidden and GameTooltip:IsForbidden()) then
+			GameTooltip:Hide()
+		end
+	end)
+	globe.Happiness = badge
 	globe:Hide()
 	return globe
 end
@@ -1322,6 +1405,9 @@ function ns.Globes.Init()
 	petEvents:RegisterUnitEvent("UNIT_HEALTH", "pet")
 	petEvents:RegisterUnitEvent("UNIT_MAXHEALTH", "pet")
 	petEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+	pcall(petEvents.RegisterUnitEvent, petEvents, "UNIT_HAPPINESS", "pet")
+	pcall(petEvents.RegisterEvent, petEvents, "PET_HAPPINESS")
+	pcall(petEvents.RegisterEvent, petEvents, "PET_UI_UPDATE")
 	petEvents:SetScript("OnEvent", function()
 		ns.Globes.UpdatePet()
 	end)
