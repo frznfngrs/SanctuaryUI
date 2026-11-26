@@ -12,30 +12,125 @@ end
 -- (MultiActionBar_ShowAllGrids); run from our click it runs tainted, and in combat each
 -- button's SetShown is blocked and blamed on us, a hundred at once (#44). So in combat the
 -- click is refused with a word in chat and at the top of the screen, at most once every 5
--- seconds. Blizzard's own key opens it as always, and so does the Talents button (a secure
--- click on Blizzard's button). Out of combat it opens as before.
-local lastCombatMsg = 0
-local function RefusedInCombat(label, binding)
+-- seconds per panel. Blizzard's own key opens it as always, and so does the Talents button
+-- (a secure click on Blizzard's button). Out of combat it opens as before.
+--
+-- Binding names that open each panel on this client: the first one that has a key bound is
+-- used. Forever's Player Spells window may use TOGGLEPLAYERSPELLS for either tab.
+local SPELL_BINDINGS = { "TOGGLESPELLBOOK", "TOGGLEPLAYERSPELLS" }
+local TALENT_BINDINGS = { "TOGGLETALENTS", "TOGGLEPLAYERSPELLS" }
+
+local function IsPadKey(key)
+	return type(key) == "string" and key:sub(1, 3) == "PAD"
+end
+
+-- True when the last input was from a gamepad, so "Press P" would not help.
+local function UsingGamepad()
+	return IsGamePadInUse and IsGamePadInUse()
+end
+
+-- The key that actually opens this panel, written the way the game names it ("Shift-P").
+-- From a gamepad, only a gamepad binding is used; with no pad binding we show no key.
+-- If two keys are bound, only the first of that kind is shown.
+local function PanelKey(bindings, preferGamepad)
+	if not bindings or not GetBindingKey then return end
+	local kb, pad
+	for _, name in ipairs(type(bindings) == "table" and bindings or { bindings }) do
+		for i = 1, select("#", GetBindingKey(name)) do
+			local key = select(i, GetBindingKey(name))
+			if key and key ~= "" then
+				if IsPadKey(key) then
+					pad = pad or key
+				else
+					kb = kb or key
+				end
+			end
+		end
+	end
+	local key = preferGamepad and pad or (kb or pad)
+	if not key then return end
+	return GetBindingText and GetBindingText(key) or key
+end
+
+local lastCombatMsg = {} -- per panel, so a Talents click after Spellbook still gets its own line
+
+local function RefusedInCombat(label, bindings)
 	if not InCombatLockdown() then return false end
 	local now = GetTime()
-	if now - lastCombatMsg < 5 then return true end
-	lastCombatMsg = now
-	local key = binding and GetBindingKey(binding)
-	key = key and (GetBindingText and GetBindingText(key) or key)
-	local msg = key and ("%s can't open from here in combat. Press %s, or click again after the fight."):format(label, key)
-		or ("%s can't open from here in combat. Click again after the fight."):format(label)
+	if now - (lastCombatMsg[label] or 0) < 5 then return true end
+	lastCombatMsg[label] = now
+	local key = PanelKey(bindings, UsingGamepad())
+	local msg = key
+		and ("Can't open %s in combat. Press %s instead."):format(label, key)
+		or ("Can't open %s in combat. Try again after the fight."):format(label)
 	ns.Print(msg)
 	if UIErrorsFrame and UIErrorsFrame.AddMessage then
+		-- Same shape as ns.TellWorldMapCombat: Print prefixes the chat line, and the
+		-- top-of-screen line starts with SanctuaryUI: as well.
 		UIErrorsFrame:AddMessage("SanctuaryUI: " .. msg, 1, 0.78, 0.38)
 	end
 	return true
+end
+
+-- Addon-owned, non-protected buttons whose click is refused in combat (the flyout's
+-- Spellbook plate, the Spellbook & Panels button when it is only a spellbook, and the
+-- Talents button when it has no Blizzard micro button to click securely). Their plate is
+-- dimmed and our tooltip gets an amber line. The secure Talents button is left alone: it
+-- still opens in combat, and we don't change a protected frame mid-fight.
+local combatHintButtons = {}
+
+local function CombatTipLine(bindings)
+	if not InCombatLockdown() then return end
+	local key = PanelKey(bindings, UsingGamepad())
+	if key then
+		GameTooltip:AddLine("In combat: press " .. key, 1, 0.78, 0.38)
+	else
+		GameTooltip:AddLine("Opens after combat", 1, 0.78, 0.38)
+	end
+end
+
+local function SetCombatLook(button, inCombat)
+	if button.IsProtected and button:IsProtected() then return end
+	if button.Art then
+		button.Art:SetAlpha(inCombat and 0.5 or 1)
+	else
+		button:SetAlpha(inCombat and 0.5 or 1)
+	end
+end
+
+local function RefreshCombatHints()
+	local inCombat = InCombatLockdown()
+	for _, button in ipairs(combatHintButtons) do
+		SetCombatLook(button, inCombat)
+	end
+	local tip = GameTooltip
+	local owner = tip and tip.GetOwner and tip:GetOwner()
+	if owner and owner.sanctuaryCombatBindings and tip:IsShown() then
+		-- GetScript does not run HookScript handlers, so add the combat line ourselves.
+		local onEnter = owner:GetScript("OnEnter")
+		if onEnter then onEnter(owner) end
+		CombatTipLine(owner.sanctuaryCombatBindings)
+		if GameTooltip:GetOwner() == owner then GameTooltip:Show() end
+	end
+end
+
+local function MarkCombatHint(button, bindings)
+	if not button or button.sanctuaryCombatBindings then return end
+	if button.IsProtected and button:IsProtected() then return end
+	button.sanctuaryCombatBindings = bindings
+	combatHintButtons[#combatHintButtons + 1] = button
+	button:HookScript("OnEnter", function(self)
+		CombatTipLine(self.sanctuaryCombatBindings)
+		if GameTooltip:GetOwner() == self then GameTooltip:Show() end
+	end)
+	SetCombatLook(button, InCombatLockdown())
 end
 
 -- The five D3 menu buttons, left to right. On Forever (a modern client) several micro
 -- buttons open their panel from mouse-down handlers, so clicking them does nothing; these
 -- call the same toggle functions ElvUI uses on this client instead.
 local function ToggleSpells()
-	if RefusedInCombat(SPELLBOOK or "Spellbook", "TOGGLESPELLBOOK") then return end
+	if RefusedInCombat(SPELLBOOK or "Spellbook", SPELL_BINDINGS) then return end
 	if PlayerSpellsUtil and PlayerSpellsUtil.ToggleSpellBookFrame then
 		PlayerSpellsUtil.ToggleSpellBookFrame()
 	elseif ToggleSpellBook then
@@ -46,7 +141,7 @@ local function ToggleSpells()
 end
 
 local function ToggleTalents()
-	if RefusedInCombat(TALENTS_BUTTON or "Talents", "TOGGLETALENTS") then return end
+	if RefusedInCombat(TALENTS_BUTTON or "Talents", TALENT_BINDINGS) then return end
 	if PlayerSpellsUtil and PlayerSpellsUtil.ToggleClassTalentFrame then
 		PlayerSpellsUtil.ToggleClassTalentFrame()
 	elseif ToggleTalentFrame then
@@ -342,6 +437,10 @@ local function MakeMenuButton(parent, entry)
 	button:SetScript("OnLeave", GameTooltip_Hide)
 	-- After SetScript: it replaces handlers, including hooks added before it.
 	Art(button, entry.cell or entry.key)
+	-- Only the insecure fallback: the secure Talents button still opens in combat.
+	if not delegate and entry.key == "talents" then
+		MarkCombatHint(button, TALENT_BINDINGS)
+	end
 	return button
 end
 
@@ -391,6 +490,9 @@ local function MakeFlyoutButton(flyout, entry)
 		Run(entry, entry.toggle)
 	end)
 	FlyoutState(button)
+	if entry.key == "spellbook" then
+		MarkCombatHint(button, SPELL_BINDINGS)
+	end
 	return button
 end
 
@@ -609,6 +711,10 @@ function ns.Menu.Init()
 		end
 	end
 	ns.Menu.flyout = MakeFlyout(parent)
+	-- No flyout panels on this client: the button itself calls ToggleSpells.
+	if ns.Menu.flyoutButton and #(ns.Menu.flyoutItems or {}) == 0 then
+		MarkCombatHint(ns.Menu.flyoutButton, SPELL_BINDINGS)
+	end
 	ns.HearthButton = MakeHearth(parent)
 	ns.Menu.KeyBindable(ns.HearthButton, "SANCTUARYUIHEARTH", "Hearthstone")
 
@@ -617,9 +723,14 @@ function ns.Menu.Init()
 	events:RegisterEvent("BAG_UPDATE_DELAYED")
 	events:RegisterEvent("PLAYER_ENTERING_WORLD")
 	events:RegisterEvent("UPDATE_BINDINGS")
+	events:RegisterEvent("PLAYER_REGEN_DISABLED")
+	events:RegisterEvent("PLAYER_REGEN_ENABLED")
 	events:SetScript("OnEvent", function(_, event)
 		if event == "UPDATE_BINDINGS" or event == "PLAYER_ENTERING_WORLD" then
 			ns.Menu.ReassignBindings()
+		end
+		if event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" or event == "PLAYER_ENTERING_WORLD" then
+			RefreshCombatHints()
 		end
 		ns.Menu.UpdateHearth()
 	end)
