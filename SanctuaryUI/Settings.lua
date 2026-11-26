@@ -53,7 +53,7 @@ ns.DEFAULTS = {
 		healPrediction = true, -- incoming heals poured on top of the health globe
 		absorbPrediction = true, -- damage shields: silver liquid above the heals, a glow when full
 		costPrediction = true, -- the cast's cost lit at the top of the resource globe
-		-- your pet's health in a small rust globe sitting on the gargoyle, up and left of the health globe (#45)
+		-- your pet's health in a small globe of the same liquid, sitting on the gargoyle, up and left of the health globe (#45)
 		petGlobe = {
 			enabled = true,
 			scale = 1, -- of its default size (about a third of the health globe across); at most 1.5

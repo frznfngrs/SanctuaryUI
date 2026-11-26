@@ -6,16 +6,15 @@ local GLOBE = 136
 local WELL_PAD = 5 / 160 -- the well's reach past the liquid, of the globe's diameter
 local PIP_MAX = 6
 local HOTLINE_H = 0.16
--- The pet's globe (#45): rust liquid in the party frames' forged pet bezel (PartyArt.lua),
--- sitting on the gargoyle's left horn, up and left of the health globe and clear of a stance
--- bar with up to 4 buttons. Of the health globe's size, so it follows the globe scale;
--- Options > Globes > Pet globe.
+-- The pet's globe (#45): the same liquid as the other health globes, in the party frames'
+-- forged pet bezel (PartyArt.lua), sitting on the gargoyle's left horn, up and left of the
+-- health globe and clear of a stance bar with up to 4 buttons. Of the health globe's size,
+-- so it follows the globe scale; Options > Globes > Pet globe.
 local PET_SIZE = 0.36 -- liquid diameter
 local PET_AT = { -0.80, 0.48 } -- centre from the health globe's: left, up
 local PET_RING = 1.3 -- the bezel, of the liquid's diameter (native art is ~1.47)
 local PET_SCALE_MAX = 1.5 -- the 88 px bezel blurs at 200%
 local PET_NUMBER = 0.55 -- its number, of the globes' number size
-local PET_COLOR = { 0.55, 0.22, 0.08 } -- muted rust, so it isn't read as your own health
 local PET_NUMBER_COLOR = { 0.91, 0.86, 0.75 } -- #E8DCC0, with the globes' outline
 local DEAD_COLOR = { 0.4, 0.4, 0.4 }
 
@@ -795,7 +794,7 @@ function ns.Globes.UpdatePet()
 		dead = UnitIsDeadOrGhost("pet")
 		if Secret(dead) then dead = false end
 	end
-	local color = dead and DEAD_COLOR or PET_COLOR
+	local color = dead and DEAD_COLOR or HEALTH_COLOR
 	Tint(globe, color[1], color[2], color[3])
 	Fill(globe.Liquid, health, maxHealth)
 	-- Hide the number while the pet is dead (or the unlocked stand-in), instead of showing 0.
