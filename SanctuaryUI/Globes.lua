@@ -6,12 +6,17 @@ local GLOBE = 136
 local WELL_PAD = 5 / 160 -- the well's reach past the liquid, of the globe's diameter
 local PIP_MAX = 6
 local HOTLINE_H = 0.16
--- The pet's globe (#45): the same liquid in the party frames' forged pet bezel (PartyArt.lua),
--- over the gargoyle's wing, up and left of the health globe and clear of the stance bar above
--- it. Of the health globe's size, so it follows the globe scale; Options > Globes > Pet globe.
+-- The pet's globe (#45): rust liquid in the party frames' forged pet bezel (PartyArt.lua),
+-- sitting on the gargoyle's left horn, up and left of the health globe and clear of a stance
+-- bar with up to 4 buttons. Of the health globe's size, so it follows the globe scale;
+-- Options > Globes > Pet globe.
 local PET_SIZE = 0.36 -- liquid diameter
-local PET_AT = { -0.9, 0.62 } -- centre from the health globe's: left, up
+local PET_AT = { -0.80, 0.48 } -- centre from the health globe's: left, up
+local PET_RING = 1.3 -- the bezel, of the liquid's diameter (native art is ~1.47)
+local PET_SCALE_MAX = 1.5 -- the 88 px bezel blurs at 200%
 local PET_NUMBER = 0.55 -- its number, of the globes' number size
+local PET_COLOR = { 0.55, 0.22, 0.08 } -- muted rust, so it isn't read as your own health
+local PET_NUMBER_COLOR = { 0.91, 0.86, 0.75 } -- #E8DCC0, with the globes' outline
 local DEAD_COLOR = { 0.4, 0.4, 0.4 }
 
 -- Liquid colors sampled from the D3 class globes. liquid.png is luminance, so these set the hue.
@@ -565,7 +570,11 @@ function ns.Globes.ApplySettings()
 	local size = tonumber(ns.DB().numberSize) or VALUE_SIZE
 	for _, globe in ipairs(NumberedGlobes()) do
 		if globe then
-			StyleNumber(globe.Number, globe.isPet and PetNumberSize(size) or size, 1, 0.94, 0.8)
+			if globe.isPet then
+				StyleNumber(globe.Number, PetNumberSize(size), unpack(PET_NUMBER_COLOR))
+			else
+				StyleNumber(globe.Number, size, 1, 0.94, 0.8)
+			end
 			StyleNumber(globe.Max, math.max(8, math.floor(size / 2 + 0.5)), 0.82, 0.68, 0.42)
 			if globe.Halves then
 				for _, half in pairs(globe.Halves) do
@@ -640,7 +649,7 @@ function ns.Globes.ApplyNumbers()
 	for _, globe in ipairs(NumberedGlobes()) do
 		if globe then
 			local enabled = mode ~= "off"
-			globe.Number:SetShown(enabled and not globe.split)
+			globe.Number:SetShown(enabled and not globe.split and not globe.hideNumber)
 			globe.Max:SetShown(enabled and not globe.split and not globe.isPet and db.numbersMax)
 			if globe.Halves then
 				for _, half in pairs(globe.Halves) do
@@ -786,10 +795,12 @@ function ns.Globes.UpdatePet()
 		dead = UnitIsDeadOrGhost("pet")
 		if Secret(dead) then dead = false end
 	end
-	local color = dead and DEAD_COLOR or HEALTH_COLOR
+	local color = dead and DEAD_COLOR or PET_COLOR
 	Tint(globe, color[1], color[2], color[3])
 	Fill(globe.Liquid, health, maxHealth)
-	if hasPet then
+	-- Hide the number while the pet is dead (or the unlocked stand-in), instead of showing 0.
+	globe.hideNumber = not hasPet or dead or false
+	if hasPet and not dead then
 		SetNumber(globe.Number, health)
 	else
 		globe.Number:SetText("")
@@ -963,7 +974,7 @@ function ns.Globes.Layout()
 	if pet then
 		local opt = ns.DB().petGlobe
 		local spot = spots.health
-		local size = spot.size * PET_SIZE * math.max(0.5, math.min(2, tonumber(opt.scale) or 1))
+		local size = spot.size * PET_SIZE * math.max(0.5, math.min(PET_SCALE_MAX, tonumber(opt.scale) or 1))
 		pet:SetSize(size, size)
 		pet:ClearAllPoints()
 		if opt.moved then
@@ -979,9 +990,7 @@ function ns.Globes.Layout()
 		pet.Liquid:SetFrameLevel(level + ns.LEVEL.liquid)
 		if pet.pool then pet.pool:SetLevels(level) end
 		if pet.Shade then pet.Shade:SetFrameLevel(level + ns.LEVEL.shade) end
-		local cell = ns.Art.PARTY.globes.pet
-		local k = size / cell.globe[3]
-		pet.Bezel:SetSize(cell.size[1] * k, cell.size[2] * k)
+		pet.Bezel:SetSize(size * PET_RING, size * PET_RING)
 		pet.Bezel:SetFrameLevel(level + ns.LEVEL.surface + 1)
 		pet.Chrome:SetFrameLevel(level + ns.LEVEL.chrome)
 		ns.Globes.UpdatePet()
@@ -1162,7 +1171,7 @@ end
 local function MakePetGlobe()
 	local globe = MakeGlobe("SanctuaryUIPetGlobe", ns.Pods.health)
 	globe.isPet = true
-	StyleNumber(globe.Number, PetNumberSize(tonumber(ns.DB().numberSize) or VALUE_SIZE), 1, 0.94, 0.8)
+	StyleNumber(globe.Number, PetNumberSize(tonumber(ns.DB().numberSize) or VALUE_SIZE), unpack(PET_NUMBER_COLOR))
 	globe.Max:Hide()
 	local bezel = CreateFrame("Frame", nil, globe)
 	bezel:SetPoint("CENTER")
@@ -1231,6 +1240,10 @@ function ns.Globes.Init()
 		-- The pet's: a damage ghost, no heartbeat (that is your own health's warning).
 		ns.PetGlobe.pool = ns.Liquid.Attach(ns.PetGlobe, ns.PetGlobe.Liquid, { zoom = 0.36, slices = 6, ghost = true })
 		ns.PetGlobe.Shade = ns.Liquid.Shade(ns.PetGlobe)
+		-- Soft off-white volume, not the health globe's white glint (that glint stays as it is).
+		if ns.PetGlobe.Shade and ns.PetGlobe.Shade.tex then
+			ns.PetGlobe.Shade.tex:SetVertexColor(0.91, 0.86, 0.75, 0.5)
+		end
 	end
 
 	ns.ResourceGlobe.Pips = {}

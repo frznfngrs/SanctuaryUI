@@ -3129,13 +3129,13 @@ local function Build()
 					costPrediction = Toggle(3, "Spell cost", "While you cast, the part of your resource the spell will spend lights up at the top of the resource globe.", nil, "costPrediction"),
 				}),
 				pet = Card(5, "Pet globe", {
-					enabled = Toggle(1, "Pet health globe", "Your pet's health in a small globe of the same liquid, in a forged bezel above the gargoyle, up and left of your health globe. It shows only while you have a pet (and while frames are unlocked, so it can be placed). Its number follows Show numbers.", "petGlobe", "enabled"),
+					enabled = Toggle(1, "Pet health globe", "Your pet's health in a small rust-coloured globe, in a forged bezel sitting on the gargoyle, up and left of your health globe. It shows only while you have a pet (and while frames are unlocked, so it can be placed). Its number follows Show numbers.", "petGlobe", "enabled"),
 					scale = (function()
-						local option = Range(2, "Pet globe size", "Of its default size, about a third of the health globe across. It follows the globe scale too.", "petGlobe", "scale", 0.5, 2, 0.01, true)
+						local option = Range(2, "Pet globe size", "Of its default size, about a third of the health globe across. It follows the globe scale too. Capped at 150% so the bezel stays sharp.", "petGlobe", "scale", 0.5, 1.5, 0.01, true)
 						option.disabled = function() return not DB().petGlobe.enabled end
 						return option
 					end)(),
-					note = Note(3, "Above the gargoyle by default. " .. UNLOCK),
+					note = Note(3, UNLOCK),
 					reset = { type = "execute", order = 4, name = "Reset position", func = function() ns.Globes.ResetPetPosition() end, disabled = function() return not DB().petGlobe.moved end },
 				}),
 			}),
