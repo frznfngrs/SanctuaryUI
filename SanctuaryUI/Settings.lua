@@ -183,7 +183,14 @@ ns.DEFAULTS = {
 			totWidth = 1, -- the target of target bar's width (d3 style)
 			totHeight = 1, -- the target of target bar's height (d3 style)
 			power = true, -- the target's resource: a strip in D3's bar, a groove in the other styles
-			classColor = true, -- a player's name in their class colour
+			classColor = true, -- old: a player's name in their class colour (nameColor, unset, falls back on it)
+			-- nameColor: class (players in class colour, the rest by rank) | rank | custom. No default,
+			-- so profiles that turned classColor off keep their look.
+			nameRGB = { 0.95, 0.9, 0.8 },
+			healthColor = "reaction", -- reaction (D3 red, friendly green, neutral amber) | class (players) | custom
+			healthRGB = { 0.72, 0.1, 0.08 },
+			healthTextColor = "plain", -- plain | class | custom
+			healthTextRGB = { 0.95, 0.9, 0.8 },
 			classIcon = true, -- a player's class icon on the portrait
 			factionIcon = true, -- a player's Alliance or Horde emblem
 			raidIcon = true, -- the raid marker (skull, cross...) on any target
@@ -213,7 +220,8 @@ ns.DEFAULTS = {
 			levelPos = "badge", -- badge: a D3 level plaque on the portrait frame (needs the portrait)
 			levelFont = "wow",
 			levelSize = 10,
-			levelColor = "plain", -- plain | difficulty
+			levelColor = "plain", -- plain | difficulty | class | custom
+			levelRGB = { 0.95, 0.9, 0.8 },
 			levelX = 0,
 			levelY = 0,
 			cast = true,

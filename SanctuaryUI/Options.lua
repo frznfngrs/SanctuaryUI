@@ -2290,6 +2290,26 @@ local function UnitPlatePage(K, M, order, title, intro, placeNote)
 		option.disabled = function() return DB()[K].tot == false end
 		return option
 	end
+	-- A custom colour, shown while its mode select is on Custom.
+	local function TargetRGB(order, modeKey, rgbKey, fallback, mode)
+		return Width({
+			type = "color", order = order, name = "Custom colour",
+			hidden = function() return (mode and mode() or DB()[K][modeKey]) ~= "custom" end,
+			get = function()
+				local c = DB()[K][rgbKey] or fallback
+				return c[1], c[2], c[3]
+			end,
+			set = function(_, r, g, b)
+				DB()[K][rgbKey] = { r, g, b }
+				Changed()
+			end,
+		}, THIRD)
+	end
+	local function NameColorMode()
+		local t = DB()[K]
+		return t.nameColor or (t.classColor == false and "rank" or "class")
+	end
+
 	-- A target text option, greyed out while that text is off.
 	local function TargetText(key, option)
 		option.disabled = function()
@@ -2371,9 +2391,13 @@ local function UnitPlatePage(K, M, order, title, intro, placeNote)
 				power = Toggle(3, "Resource bar", "The " .. WHO .. "'s mana, rage or energy. In the Monster bar it runs along the bottom of the health bar; the other styles have a groove for it.", K, "power"),
 				healPrediction = Toggle(4, "Heal prediction", "Heals on their way to your " .. WHO .. " show in green past the end of its health, damage shields in silver after them, and a silver glow lights the bar's end when the shield is bigger than the health missing.", K, "healPrediction"),
 				raidIcon = Toggle(5, "Raid marker", "The skull, cross or other marker on the " .. WHO .. ", for anyone in your group who set one.", K, "raidIcon"),
-				classColor = Toggle(6, "Class colour on player names", "A player's name in their class colour, instead of cream.", K, "classColor"),
 				classIcon = Toggle(7, "Class icon on players", "The class crest at the portrait's corner. With no portrait, in a row left of the frame.", K, "classIcon"),
 				factionIcon = Toggle(8, "Faction emblem on players", "Alliance or Horde, whether or not they are flagged for PvP.", K, "factionIcon"),
+			}),
+			colours = Card(2.5, "Colours", {
+				healthColor = Select(1, "Health colour", "By reaction: D3's red on enemies, green on friends, amber on neutrals, grey when tapped by others. Class colour: players in their class colour, everything else by reaction. Custom: one colour for every " .. WHO .. ". The " .. TOT:lower() .. " follows it.", K, "healthColor", { reaction = "By reaction", class = "Class colour", custom = "Custom" }, { "reaction", "class", "custom" }),
+				healthRGB = TargetRGB(2, "healthColor", "healthRGB", { 0.72, 0.1, 0.08 }),
+				note = Note(3, "The name, health and level text colours are on the Text tab."),
 			}),
 			effects = Card(3, "Effects", {
 				liquid = Third(Toggle(1, "Liquid in the bar", "The globes' liquid drifting through the health bar.", K, "liquid")),
@@ -2417,6 +2441,8 @@ local function UnitPlatePage(K, M, order, title, intro, placeNote)
 				healthSize = TargetText("healthText", Range(6, "Size", nil, K, "healthSize", 6, 24, 1)),
 				healthX = TargetText("healthText", Range(7, "Nudge left / right", nil, K, "healthX", -200, 200, 1)),
 				healthY = TargetText("healthText", Range(8, "Nudge up / down", nil, K, "healthY", -60, 60, 1)),
+				healthTextColor = TargetText("healthText", Select(9, "Colour", "Class colour: a player's class colour; cream on everything else.", K, "healthTextColor", { plain = "Cream", class = "Class colour", custom = "Custom" }, { "plain", "class", "custom" })),
+				healthTextRGB = TargetText("healthText", TargetRGB(10, "healthTextColor", "healthTextRGB", { 0.95, 0.9, 0.8 })),
 			}),
 			name = Card(2, "Name", {
 				nameShow = Third(Toggle(1, "Show name", nil, K, "nameShow")),
@@ -2426,10 +2452,22 @@ local function UnitPlatePage(K, M, order, title, intro, placeNote)
 				nameX = TargetText("nameShow", Range(5, "Nudge left / right", nil, K, "nameX", -200, 200, 1)),
 				nameY = TargetText("nameShow", Range(6, "Nudge up / down", nil, K, "nameY", -60, 60, 1)),
 				surnames = TargetText("nameShow", Third(Toggle(7, "Last names", "A player's full name, first and last, here and on the " .. TOT:lower() .. ". Off, first names only.", K, "surnames"))),
+				nameColor = TargetText("nameShow", Width({
+					type = "select", order = 8, name = "Colour",
+					desc = "Class colour: players in their class colour, monsters by rank as D3 colours them (elites blue, rares yellow, bosses orange). By rank: everyone by rank, players cream. Custom: one colour for every name.",
+					values = { class = "Class colour", rank = "By rank (Diablo III)", custom = "Custom" }, sorting = { "class", "rank", "custom" },
+					get = NameColorMode,
+					set = function(_, value)
+						DB()[K].nameColor = value
+						Changed()
+					end,
+				}, THIRD)),
+				nameRGB = TargetText("nameShow", TargetRGB(9, "nameColor", "nameRGB", { 0.95, 0.9, 0.8 }, NameColorMode)),
 			}),
 			level = Card(3, "Level", {
 				levelShow = Third(Toggle(1, "Show level", nil, K, "levelShow")),
-				levelColor = TargetText("levelShow", Select(2, "Colour", "By difficulty: grey, green, yellow, orange or red against your level, as Blizzard colours it.", K, "levelColor", { plain = "Plain", difficulty = "By difficulty" })),
+				levelColor = TargetText("levelShow", Select(2, "Colour", "By difficulty: grey, green, yellow, orange or red against your level, as Blizzard colours it. Class colour: a player's class colour, cream on monsters. The " .. TOT:lower() .. "'s level follows Plain, By difficulty and Custom.", K, "levelColor", { plain = "Plain", difficulty = "By difficulty", class = "Class colour", custom = "Custom" }, { "plain", "difficulty", "class", "custom" })),
+				levelRGB = TargetText("levelShow", TargetRGB(2.5, "levelColor", "levelRGB", { 0.95, 0.9, 0.8 })),
 				levelPos = TargetText("levelShow", Select(3, "Position", "The plaque sits under the portrait frame, in its metal. With the portrait off, the level goes in the bar's left end.", K, "levelPos", LEVEL_POSITIONS, LEVEL_ORDER)),
 				levelFont = TargetText("levelShow", Select(4, "Font", nil, K, "levelFont", TEXT_FONTS, TEXT_FONT_ORDER)),
 				levelSize = TargetText("levelShow", Range(5, "Size", nil, K, "levelSize", 6, 24, 1)),

@@ -131,6 +131,48 @@ local function IsPlayerTarget()
 	return not Secret(isPlayer) and isPlayer or false
 end
 
+-- The target's class colour when it's a player, or nil. A class the client hides comes back as
+-- the client's own colour object (its fields maybe secret: only for SetTextColor in a pcall).
+-- plain: only a colour that can be read, for the bar fill, whose colour feeds the glow maths.
+local function TargetClassColor(plain)
+	if not IsPlayerTarget() then return nil end
+	local _, class = UnitClass(U())
+	if not Secret(class) then
+		return RAID_CLASS_COLORS and class and RAID_CLASS_COLORS[class]
+	end
+	if not plain and C_ClassColor and C_ClassColor.GetClassColor then
+		local ok, color = pcall(C_ClassColor.GetClassColor, class)
+		if ok then return color end
+	end
+end
+
+-- The name's colour mode (Options > Text > Name > Colour). Profiles from before it had only the
+-- class colour toggle, which stands in until the mode is chosen.
+local function NameColorMode()
+	local opt = Opt()
+	return opt.nameColor or (opt.classColor == false and "rank" or "class")
+end
+
+local function Custom(key, r, g, b)
+	local c = Opt()[key]
+	if type(c) == "table" and c[1] then return c[1], c[2], c[3] end
+	return r, g, b
+end
+
+-- Sets a text's colour from its mode: a class colour (maybe hidden by the client, so in a pcall),
+-- a custom colour, or the given default.
+local function PaintText(fs, mode, rgbKey, r, g, b)
+	if mode == "custom" then
+		fs:SetTextColor(Custom(rgbKey, r, g, b))
+		return
+	end
+	if mode == "class" then
+		local c = TargetClassColor()
+		if c and pcall(fs.SetTextColor, fs, c.r, c.g, c.b) then return end
+	end
+	fs:SetTextColor(r, g, b)
+end
+
 ---------------------------------------------------------------------------
 -- Cast bar
 
@@ -1775,6 +1817,7 @@ local function UpdateToTMarks(art, unit, opt, isPlayer, class)
 	else
 		shown = false
 	end
+	if opt.levelColor == "custom" then r, g, b = Custom("levelRGB", r, g, b) end
 	text:SetTextColor(r, g, b)
 	if marks.onBadge then marks.badge:SetShown(shown) else marks.level:SetShown(shown) end
 end
@@ -1815,6 +1858,13 @@ local function UpdateToT(plate, full)
 	local isPlayer = UnitIsPlayer(unit)
 	if Secret(isPlayer) then isPlayer = false end
 	local _, class = UnitClass(unit)
+	-- The target's health colour option carries over: class colour on players, or the custom one.
+	if opt.healthColor == "custom" then
+		ToTFill(art.Health, false, Custom("healthRGB", 0.72, 0.1, 0.08))
+	elseif opt.healthColor == "class" and isPlayer and not tapped and not Secret(class) then
+		local c = RAID_CLASS_COLORS and class and RAID_CLASS_COLORS[class]
+		if c then ToTFill(art.Health, false, c.r, c.g, c.b) end
+	end
 	-- On you: your name in warning red, so a tank sees it at a glance.
 	if isYou then
 		art.Name:SetText(YOU or "You")
@@ -1887,19 +1937,6 @@ local function UpdatePower(plate)
 	SetPowerTrack(bar.track, unit, power)
 end
 
--- A player's class colour, or nil when it's off or can't be read.
-local function ClassNameColor()
-	if Opt().classColor == false or not IsPlayerTarget() then return nil end
-	local _, class = UnitClass(U())
-	if not Secret(class) then
-		return RAID_CLASS_COLORS and class and RAID_CLASS_COLORS[class]
-	end
-	if C_ClassColor and C_ClassColor.GetClassColor then
-		local ok, color = pcall(C_ClassColor.GetClassColor, class)
-		if ok then return color end
-	end
-end
-
 -- The class icon, faction emblem and raid marker. Each hides when off or unreadable.
 local function UpdateMarks(plate)
 	local opt, unit, marks = Opt(), U(), plate.Marks
@@ -1967,14 +2004,22 @@ function M.Update(snap)
 		nameColor = NAME_COLORS[colorKey]
 		SetFillColor(plate, true)
 	end
-	local classColor = ClassNameColor()
-	if classColor then nameColor = { classColor.r, classColor.g, classColor.b } end
+	-- Health colour (Options > Frame > Colours): class colour on players (tapped stays grey), or
+	-- one custom colour for every target.
+	local fillMode = Opt().healthColor
+	if fillMode == "custom" then
+		SetFillColor(plate, false, Custom("healthRGB", 0.72, 0.1, 0.08))
+	elseif fillMode == "class" and not tapped then
+		local c = TargetClassColor(true)
+		if c then SetFillColor(plate, false, c.r, c.g, c.b) end
+	end
 	if Previewing() then
 		plate.Name:SetText(PREVIEW_NAMES[PREVIEW_RANKS[preview.rank]] or "")
 	elseif not pcall(plate.Name.SetText, plate.Name, ns.Or(ns.UnitDisplayName(U(), Opt().surnames ~= false), "")) then
 		plate.Name:SetText("")
 	end
-	plate.Name:SetTextColor(nameColor[1], nameColor[2], nameColor[3])
+	PaintText(plate.Name, NameColorMode(), "nameRGB", nameColor[1], nameColor[2], nameColor[3])
+	PaintText(plate.Percent, Opt().healthTextColor, "healthTextRGB", 0.95, 0.9, 0.8)
 
 	local level = UnitLevel(U())
 	if not Secret(level) and level then
@@ -1993,12 +2038,13 @@ function M.Update(snap)
 			if ok and type(c) == "table" and c.r then lr, lg, lb = c.r, c.g, c.b end
 		end
 	end
-	plate.Level:SetTextColor(lr, lg, lb)
+	local levelMode = Opt().levelColor
 	local badge = plate.Portrait.badge
 	badge.text:SetText(plate.Level:GetText() or "")
-	badge.text:SetTextColor(lr, lg, lb)
 	plate.StyleBadge.text:SetText(plate.Level:GetText() or "")
-	plate.StyleBadge.text:SetTextColor(lr, lg, lb)
+	for _, fs in ipairs({ plate.Level, badge.text, plate.StyleBadge.text }) do
+		PaintText(fs, levelMode, "levelRGB", lr, lg, lb)
+	end
 	plate.Sub:SetText(RANK_LABEL[classification] or "")
 
 	SetHealth(plate, snap)
