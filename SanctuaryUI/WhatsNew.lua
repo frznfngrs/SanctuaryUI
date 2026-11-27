@@ -15,6 +15,17 @@ local MINE = getMeta and getMeta("SanctuaryUI", "Version") or "?"
 -- Newest first: { version, date, notes = { { heading, text, button label, action }, ... } }.
 local RELEASES = {
 	{
+		version = "0.36.0", date = "27 November 2026",
+		notes = {
+			{ "Class colours on the target frame",
+				"The target and focus health bars can take a player's class colour or one of your own. Frame > Colours.",
+				"Options", function() ns.Options.Open("target") end },
+			{ "Colour every text",
+				"Name, health and level text each pick a colour: class, rank, cream or custom. Text tab.",
+				"Options", function() ns.Options.Open("target") end },
+		},
+	},
+	{
 		version = "0.35.0", date = "25 November 2026",
 		notes = {
 			{ "Alarm clock",
@@ -115,17 +126,6 @@ local RELEASES = {
 			{ "Tidier nameplates",
 				"Names shrink to fit, Questie icons sit on the plate, and friendly NPCs show their title.",
 				"Options", function() ns.Options.Open("plates") end },
-		},
-	},
-	{
-		version = "0.28.0", date = "15 November 2026",
-		notes = {
-			{ "Diablo III nameplates",
-				"Enemies wear D3's frames, coloured by rank, with cast targets, your debuffs and quest marks. /sanctuary plates.",
-				"Options", function() ns.Options.Open("plates") end },
-			{ "Where to fish",
-				"The angler's journal lists the best zones for your skill and shows them on the map.",
-				"Journal", function() ns.Journal.Open("waters") end },
 		},
 	},
 }
