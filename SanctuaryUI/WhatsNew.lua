@@ -15,6 +15,14 @@ local MINE = getMeta and getMeta("SanctuaryUI", "Version") or "?"
 -- Newest first: { version, date, notes = { { heading, text, button label, action }, ... } }.
 local RELEASES = {
 	{
+		version = "0.37.0", date = "27 November 2026",
+		notes = {
+			{ "Percentage on the XP rail",
+				"Your experience (or reputation) can show as a percentage over the rail, with the numbers too if you like. XP & Reputation > Text on the rail.",
+				"Options", function() ns.Options.Open("rail") end },
+		},
+	},
+	{
 		version = "0.36.0", date = "27 November 2026",
 		notes = {
 			{ "Class colours on the target frame",
@@ -114,17 +122,6 @@ local RELEASES = {
 		notes = {
 			{ "Threat on the nameplates",
 				"In a group, enemy health bars turn gold as you near pulling them and orange when they're on you (reversed for tanks).",
-				"Options", function() ns.Options.Open("plates") end },
-		},
-	},
-	{
-		version = "0.29.0", date = "15 November 2026",
-		notes = {
-			{ "A cast bar of its own",
-				"D3's Paragon or boss bar for your casts, instead of or as well as the XP rail. Combat > Cast bar.",
-				"Options", function() ns.Options.Open("castbar") end },
-			{ "Tidier nameplates",
-				"Names shrink to fit, Questie icons sit on the plate, and friendly NPCs show their title.",
 				"Options", function() ns.Options.Open("plates") end },
 		},
 	},
