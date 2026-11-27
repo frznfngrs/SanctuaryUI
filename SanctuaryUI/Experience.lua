@@ -178,7 +178,10 @@ function ns.Experience.Layout()
 	-- the rail while a cast runs on it, as children of the bar.
 	if bar.TextHolder then
 		bar.TextHolder:SetFrameLevel(cluster:GetFrameLevel() + ns.LEVEL.console + 1)
-		ns.Fonts.Set(bar.Text, "body", ns.DB().railTextSize or 11, "OUTLINE")
+		local db = ns.DB()
+		ns.Fonts.Set(bar.Text, "body", db.railTextSize or 11, "OUTLINE")
+		bar.Text:ClearAllPoints()
+		bar.Text:SetPoint("CENTER", bar.TextHolder, "CENTER", db.railTextX or 0, db.railTextY or 0)
 	end
 	local badge, spot = ns.LevelPlaque, metrics.levelPlaque
 	if badge and spot then

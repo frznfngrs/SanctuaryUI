@@ -3191,6 +3191,16 @@ local function Build()
 						option.disabled = function() return (DB().railText or "none") == "none" end
 						return option
 					end)(),
+					railTextX = (function()
+						local option = Range(3, "Nudge left / right", nil, nil, "railTextX", -400, 400, 1)
+						option.disabled = function() return (DB().railText or "none") == "none" end
+						return option
+					end)(),
+					railTextY = (function()
+						local option = Range(4, "Nudge up / down", nil, nil, "railTextY", -60, 60, 1)
+						option.disabled = function() return (DB().railText or "none") == "none" end
+						return option
+					end)(),
 				}),
 			}),
 
