@@ -74,6 +74,8 @@ ns.DEFAULTS = {
 		-- rail
 		railMode = "auto", -- auto | xp | rep
 		railRested = true,
+		railText = "none", -- none | percent | both (numbers and percent), over the rail
+		railTextSize = 11,
 		levelPlaque = true, -- your level on a D3 plaque over the console's centre skull
 		castRail = true, -- your casts run on the rail; Blizzard's cast bar is off (CastRail.lua)
 		castMedallion = true, -- the level medallion wears the spell's icon while you cast

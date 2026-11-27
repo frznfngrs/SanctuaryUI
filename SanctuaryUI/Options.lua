@@ -3180,6 +3180,18 @@ local function Build()
 					levelPlaque = Toggle(3, "Your level on the console", "Your level in a D3 medallion resting on the skull at the console's top centre.", nil, "levelPlaque"),
 					note = Note(4, "Reputation is tinted with your resource colour. Watch a faction from the Reputation panel."),
 				}),
+				text = Card(2, "Text on the rail", {
+					railText = Select(1, "Show", "How far through your level (or reputation standing) you are, written over the rail. It fades while a cast runs on the rail.", nil, "railText", {
+						none = "Nothing",
+						percent = "Percentage",
+						both = "Numbers and percentage",
+					}, { "none", "percent", "both" }),
+					railTextSize = (function()
+						local option = Range(2, "Size", nil, nil, "railTextSize", 7, 20, 1)
+						option.disabled = function() return (DB().railText or "none") == "none" end
+						return option
+					end)(),
+				}),
 			}),
 
 			statues = Page(14, "Statues", {

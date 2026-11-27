@@ -84,6 +84,25 @@ local function UpdateLevel(newLevel)
 	badge:Show()
 end
 
+-- The words over the rail (Options > XP & Reputation > Text on the rail): the share of the level
+-- (or standing) filled, and optionally the numbers beside it.
+local function SetRailText(bar, value, size)
+	local fs = bar.Text
+	if not fs then return end
+	local mode = ns.DB().railText or "none"
+	if mode == "none" or not value or not size or size <= 0 then
+		fs:SetText("")
+		return
+	end
+	local pct = math.floor(value / size * 1000 + 0.5) / 10
+	if mode == "both" then
+		local function Big(n) return BreakUpLargeNumbers and BreakUpLargeNumbers(n) or tostring(n) end
+		fs:SetFormattedText("%s / %s  |  %.1f%%", Big(value), Big(size), pct)
+	else
+		fs:SetFormattedText("%.1f%%", pct)
+	end
+end
+
 function ns.Experience.Update(_, event, arg)
 	UpdateLevel(event == "PLAYER_LEVEL_UP" and tonumber(arg) or nil)
 	if event == "PLAYER_LEVEL_UP" then
@@ -112,6 +131,7 @@ function ns.Experience.Update(_, event, arg)
 		bar:SetStatusBarColor(r, g, b, 1)
 		bar:SetMinMaxValues(0, size)
 		bar:SetValue(value)
+		SetRailText(bar, value, size)
 		return
 	end
 
@@ -129,6 +149,7 @@ function ns.Experience.Update(_, event, arg)
 	bar:SetStatusBarColor(1, 1, 1, 1)
 	bar:SetMinMaxValues(0, maxXP)
 	bar:SetValue(xp)
+	SetRailText(bar, xp, maxXP)
 	local bonus = GetXPExhaustion and GetXPExhaustion()
 	if Secret(bonus) then bonus = nil end
 	if bonus and bonus > 0 and ns.DB().railRested then
@@ -153,6 +174,12 @@ function ns.Experience.Layout()
 	-- Above the liquid, below the glass and console art.
 	bar.Rested:SetFrameLevel(cluster:GetFrameLevel() + ns.LEVEL.railRested)
 	bar:SetFrameLevel(cluster:GetFrameLevel() + ns.LEVEL.rail)
+	-- The words sit over the console art (the rail's own level is under it), and still fade with
+	-- the rail while a cast runs on it, as children of the bar.
+	if bar.TextHolder then
+		bar.TextHolder:SetFrameLevel(cluster:GetFrameLevel() + ns.LEVEL.console + 1)
+		ns.Fonts.Set(bar.Text, "body", ns.DB().railTextSize or 11, "OUTLINE")
+	end
 	local badge, spot = ns.LevelPlaque, metrics.levelPlaque
 	if badge and spot then
 		badge:SetSize(spot.w, spot.h)
@@ -199,6 +226,14 @@ function ns.Experience.Init()
 	rested:SetStatusBarColor(1, 1, 1, 0.55)
 	rested:Hide()
 	bar.Rested = rested
+
+	local holder = CreateFrame("Frame", nil, bar)
+	holder:SetAllPoints(bar)
+	bar.TextHolder = holder
+	bar.Text = holder:CreateFontString(nil, "OVERLAY")
+	ns.Fonts.Set(bar.Text, "body", 11, "OUTLINE")
+	bar.Text:SetPoint("CENTER", holder, "CENTER", 0, 0)
+	bar.Text:SetTextColor(0.98, 0.9, 0.75)
 
 	bar:EnableMouse(true)
 	bar:SetScript("OnEnter", ShowTooltip)
