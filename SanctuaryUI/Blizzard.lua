@@ -214,6 +214,39 @@ local function FrameName(frame)
 	return ok and type(name) == "string" and name or nil
 end
 
+-- Pruning writes into Blizzard's loop tables (frames[key] = nil), and every button the loop
+-- reaches after an emptied entry runs tainted. A Blizzard bar left in the loop behind those
+-- entries then had all its buttons and slots blocked in combat whenever every slot refreshed
+-- at once (releasing at a graveyard, 2026-11-27: the bottom-right bar, turned off in
+-- Settings but still in the loop, right after the main bar's twelve emptied entries). So a
+-- Blizzard bar turned off in Settings leaves the loops with the hidden ones, and while one is
+-- turned on with no row over its page, nothing is pruned at all. Bar toggles in Settings
+-- order: bottom left, bottom right, right, left, bars 5-7. Unknown (not mirrored from the
+-- server yet) counts as on; the next call (after each combat) decides again.
+local TOGGLE_ORDER = { "MultiBarBottomLeft", "MultiBarBottomRight", "MultiBarRight", "MultiBarLeft",
+	"MultiBar5", "MultiBar6", "MultiBar7" }
+local offBars = {}
+
+-- Returns the first bar that is on with no row over its page ("unknown" if the toggles
+-- aren't known yet), and fills offBars with the bars turned off.
+local function KeptBlizzardBar()
+	wipe(offBars)
+	if type(GetActionBarToggles) ~= "function" then return nil end
+	local toggles = { pcall(GetActionBarToggles) }
+	if not toggles[1] or toggles[2] == nil then return "unknown" end
+	local pages = RowPages(ns.DB())
+	local kept
+	for i, name in ipairs(TOGGLE_ORDER) do
+		local on = toggles[i + 1]
+		if not on or on == 0 then
+			offBars[name] = true
+		elseif not kept and _G[name] and not pages[MULTI_BARS[name]] then
+			kept = name
+		end
+	end
+	return kept
+end
+
 local function Unwanted(frame)
 	if type(frame) ~= "table" then return false end
 	local name = FrameName(frame)
@@ -221,6 +254,8 @@ local function Unwanted(frame)
 		return false
 	end
 	if HiddenByUs(frame) then return true end
+	local bar = name and name:match("^(MultiBar.-)Button%d+$")
+	if bar and offBars[bar] then return true end
 	return name ~= nil and name:match("^Gamepad") ~= nil and not GamepadActive()
 end
 
@@ -240,6 +275,9 @@ local function PruneDispatcher(owner, only)
 end
 
 function ns.Blizzard.PruneDispatchers()
+	local kept = KeptBlizzardBar()
+	ns.Blizzard.pruneKept = kept
+	if kept then return 0 end
 	local total = 0
 	for _, name in ipairs(DISPATCHERS) do
 		local owner = _G[name]
@@ -248,6 +286,7 @@ function ns.Blizzard.PruneDispatchers()
 			if not rawget(owner, "sanctuaryHooked") and type(owner.RegisterFrame) == "function" then
 				owner.sanctuaryHooked = true
 				hooksecurefunc(owner, "RegisterFrame", function(self, frame)
+					if KeptBlizzardBar() then return end
 					PruneDispatcher(self, frame)
 				end)
 			end
@@ -260,9 +299,11 @@ end
 
 -- For /sanctuary check.
 function ns.Blizzard.DispatchStatus()
-	return ("Blizzard bar events: controller %s, %d button(s) taken out of the shared loops%s"):format(
+	local kept = ns.Blizzard.pruneKept
+	return ("Blizzard bar events: controller %s, %d button(s) taken out of the shared loops%s%s"):format(
 		ns.Blizzard.controllerQuiet and "quiet" or "running", ns.Blizzard.prunedCount or 0,
-		GamepadActive() and ", gamepad active" or "")
+		GamepadActive() and ", gamepad active" or "",
+		kept and (" (none taken now: %s is on)"):format(kept == "unknown" and "bar state unknown" or kept) or "")
 end
 
 -- The controller only pages and shows the main, stance, possess and override bars, which are
