@@ -3516,6 +3516,11 @@ local function Build()
 				editMode = Card(4, "Position and size", {
 					note = Note(1, "Position, icon size, icons per row, how many and wrap direction are Edit Mode's (Esc > Edit Mode, then drag or click the Buff Frame and Debuff Frame). For the D3 look, place them just above the bars with Icon Wrap set to Up."),
 				}),
+				debuffPlace = Card(5, "Debuff position", {
+					note = Note(1, "Where Edit Mode puts the Debuff Frame by default. " .. UNLOCK .. " Once moved here, your debuffs stay where you dropped them whatever Edit Mode's layout says; dragging the Debuff Frame in Edit Mode, or Reset position, gives it back to Edit Mode. Moves wait for the end of combat."),
+					reset = { type = "execute", order = 2, name = "Reset position", func = function() ns.Auras.ResetDebuffPosition() end,
+						disabled = function() return not DB().auras.debuffPos.moved end },
+				}),
 			}),
 
 			gap35 = Gap(35),

@@ -181,6 +181,9 @@ ns.DEFAULTS = {
 			moved = false,
 			mx = 0,
 			my = 0,
+			-- Debuffs' own place, from their mover (#49). Not moved: Edit Mode's Debuff Frame
+			-- position, untouched. w, h: the box they were dropped in (keeps their corner).
+			debuffPos = { moved = false, mx = 0, my = 0 },
 		},
 		hearthItem = 6948,
 

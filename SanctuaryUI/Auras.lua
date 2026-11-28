@@ -13,7 +13,8 @@ ns.Auras = ns.Auras or {}
 -- write) what their buttons show.
 --
 -- Where they sit, icon size, icons per row, the limit and wrap direction are all Edit Mode's
--- (drag them there). Wrap "Up" gives the D3 look when placed just above the bars.
+-- (drag them there). Wrap "Up" gives the D3 look when placed just above the bars. The one
+-- exception is the debuffs' place once they're dragged by their own mover (#49, below).
 
 local BAR_H = 4
 local BAR_WARN = 10 -- seconds: the strip turns red
@@ -197,6 +198,184 @@ local function Hook(frame)
 	end
 end
 
+---------------------------------------------------------------------------
+-- The debuffs' own mover (#49): a bigger minimap can cover them where Edit Mode put them.
+--
+-- Until their mover is dragged nothing here touches DebuffFrame: Edit Mode places it, exactly
+-- as before. Once dragged, DebuffFrame is anchored by Edit Mode's own corner (the one its icons
+-- grow away from) to a holder frame of ours, and the mover drags the holder. Only ever out of
+-- combat: anything asked for in combat waits for PLAYER_REGEN_ENABLED. That is all we do to
+-- Blizzard's frame, ClearAllPoints and SetPoint; no field of theirs is written and none of
+-- their layout code is called (handing it back re-applies the anchor Edit Mode last set,
+-- read with GetPoint, rather than calling ApplySystemAnchor ourselves). Our hooks are
+-- hooksecurefunc post-hooks, which run after Blizzard's code and leave it untainted.
+
+local holder -- our stand-in for the debuffs' box; their mover drags it
+local editPoints -- DebuffFrame's anchor as Edit Mode last set it: { point, rel, relPoint, x, y } each
+local owned -- DebuffFrame is anchored to the holder
+local pendingPlace -- a placement waiting for the end of combat
+local editDragging -- Edit Mode is dragging the Debuff Frame
+
+local function Pos()
+	return Opt().debuffPos
+end
+
+-- Turned off, the buffs are Blizzard's again, place included.
+local function Held()
+	local opt = Opt()
+	return opt.enabled and opt.debuffPos.moved and true or false
+end
+
+-- DebuffFrame's anchor points, or nil while it hangs on our holder (not Edit Mode's then).
+local function ReadPoints(frame)
+	local points = {}
+	for i = 1, frame:GetNumPoints() do
+		local point, rel, relPoint, x, y = frame:GetPoint(i)
+		if rel == holder then return nil end
+		points[i] = { point, rel, relPoint, x, y }
+	end
+	return #points > 0 and points or nil
+end
+
+-- The corner Edit Mode anchors it by: the icons grow away from it, so it stays put.
+local function Corner()
+	local first = editPoints and editPoints[1]
+	return first and first[1] or "TOPRIGHT"
+end
+
+-- DebuffFrame's size in the holder's units, never too small to grab with no debuffs up.
+local function DebuffBox(frame)
+	local w, h = frame:GetSize()
+	local k = frame:GetEffectiveScale() / holder:GetEffectiveScale()
+	w, h = (w or 0) * k, (h or 0) * k
+	return math.max(w, BASE_ICON * 3), math.max(h, BASE_ICON)
+end
+
+local function PlaceHolder(frame)
+	local opt = Pos()
+	holder:ClearAllPoints()
+	if opt.moved then
+		if not (opt.w and opt.h) then
+			-- Just dropped: the box as it was dragged, so what you saw is where it stays.
+			local w, h = holder:GetSize()
+			if not w or w < 1 or not h or h < 1 then w, h = DebuffBox(frame) end
+			opt.w, opt.h = w, h
+		end
+		holder:SetSize(opt.w, opt.h)
+		local x, y = ns.MovedPoint(holder, opt)
+		holder:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
+	else
+		-- Over the debuffs where Edit Mode has them, so the mover starts there.
+		holder:SetSize(DebuffBox(frame))
+		local corner = Corner()
+		holder:SetPoint(corner, frame, corner)
+	end
+end
+
+-- Hang DebuffFrame on the holder (the holder must not hang on it by now).
+local function Take(frame)
+	if not owned then editPoints = ReadPoints(frame) or editPoints end
+	local corner = Corner()
+	frame:ClearAllPoints()
+	frame:SetPoint(corner, holder, corner)
+	owned = true
+end
+
+-- Back where Edit Mode last put it. Never left hanging on the holder (which is about to hang
+-- on it): with no anchor of Edit Mode's known, it stays where it is on the screen.
+local function GiveBack(frame)
+	owned = nil
+	if editPoints then
+		frame:ClearAllPoints()
+		for _, p in ipairs(editPoints) do
+			frame:SetPoint(p[1], p[2], p[3], p[4], p[5])
+		end
+	elseif not ReadPoints(frame) then
+		local left, top = frame:GetLeft(), frame:GetTop()
+		frame:ClearAllPoints()
+		frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left or 0, top or 0)
+	end
+end
+
+-- Apply the saved place (or Edit Mode's). Waits for the end of combat.
+function ns.Auras.PlaceDebuffs()
+	local _, frame = Frames()
+	if not frame or not holder then return end
+	if InCombatLockdown() then
+		pendingPlace = true
+		return
+	end
+	pendingPlace = nil
+	if Held() then
+		if not owned then editPoints = ReadPoints(frame) or editPoints end
+		PlaceHolder(frame)
+		Take(frame)
+	else
+		if owned then GiveBack(frame) end
+		PlaceHolder(frame)
+	end
+end
+
+function ns.Auras.ResetDebuffPosition()
+	local opt = Pos()
+	opt.moved, opt.mx, opt.my, opt.w, opt.h = false, 0, 0, nil, nil
+	ns.Refresh()
+end
+
+local function InitDebuffMover()
+	local _, frame = Frames()
+	if not frame or not ns.MakeMover then return end
+	holder = CreateFrame("Frame", "SanctuaryUIDebuffHolder", UIParent)
+	holder:SetSize(BASE_ICON * 3, BASE_ICON)
+	holder:EnableMouse(false)
+	editPoints = ReadPoints(frame)
+	PlaceHolder(frame)
+
+	local mover = ns.MakeMover(holder, "Debuffs", Pos, "Reset its position in /sanctuary > Your buffs.")
+	ns.Auras.mover = mover
+	-- Shown when frames unlock: over the debuffs as they are now.
+	mover:HookScript("OnShow", function()
+		if not InCombatLockdown() and not owned and not Pos().moved then PlaceHolder(frame) end
+	end)
+	-- Picked up: the debuffs ride along with the drag (released, the mover saves the spot).
+	mover:HookScript("OnDragStart", function()
+		if InCombatLockdown() or owned or not Opt().enabled then return end
+		local x, y = holder:GetCenter()
+		if not x then return end
+		editPoints = ReadPoints(frame) or editPoints
+		holder:ClearAllPoints()
+		holder:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
+		Take(frame)
+	end)
+
+	-- Edit Mode re-anchors it (login, layout change, its own reset): note where, then put it
+	-- back on the holder while it's ours.
+	if type(frame.ApplySystemAnchor) == "function" then
+		hooksecurefunc(frame, "ApplySystemAnchor", function(self)
+			editPoints = ReadPoints(self) or editPoints
+			owned = nil
+			if Held() and not editDragging then ns.Auras.PlaceDebuffs() end
+		end)
+	end
+	-- Dragged in Edit Mode: Edit Mode has it again, and our saved place goes.
+	if type(frame.OnDragStart) == "function" and type(frame.OnDragStop) == "function" then
+		hooksecurefunc(frame, "OnDragStart", function()
+			editDragging = true
+		end)
+		hooksecurefunc(frame, "OnDragStop", function(self)
+			editDragging = nil
+			local opt = Pos()
+			owned = nil
+			editPoints = ReadPoints(self) or editPoints
+			if opt.moved then
+				opt.moved, opt.mx, opt.my, opt.w, opt.h = false, 0, 0, nil, nil
+				ns.Print("debuffs: placed by Edit Mode again (their SanctuaryUI position is reset)")
+			end
+			if not InCombatLockdown() then PlaceHolder(self) end
+		end)
+	end
+end
+
 function ns.Auras.Update()
 	if not Opt().enabled then return end
 	local buffs, debuffs = Frames()
@@ -219,6 +398,7 @@ end
 
 function ns.Auras.ApplySettings()
 	if not ns.Auras.frame then return end
+	ns.Auras.PlaceDebuffs()
 	local enabled = Opt().enabled
 	for button, skin in pairs(skins) do
 		Dress(button, skin, enabled)
@@ -311,6 +491,8 @@ function ns.Auras.Report()
 			ns.Print(name .. ": missing")
 		end
 	end
+	ns.Print(("debuff position: %s%s"):format(Pos().moved and "SanctuaryUI mover" or "Edit Mode",
+		pendingPlace and " (waiting for the end of combat)" or ""))
 end
 
 function ns.Auras.Init()
@@ -321,6 +503,7 @@ function ns.Auras.Init()
 	local buffs, debuffs = Frames()
 	Hook(buffs)
 	Hook(debuffs)
+	InitDebuffMover()
 
 	local wait = 0
 	frame:SetScript("OnUpdate", function(_, elapsed)
@@ -332,7 +515,12 @@ function ns.Auras.Init()
 
 	frame:RegisterUnitEvent("UNIT_AURA", "player")
 	frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+	frame:RegisterEvent("PLAYER_REGEN_ENABLED")
 	frame:SetScript("OnEvent", function(_, event, _, info)
+		if event == "PLAYER_REGEN_ENABLED" then
+			if pendingPlace then ns.Auras.PlaceDebuffs() end
+			return
+		end
 		-- Probe for /sanctuary auras: can the event's own aura data be read in combat?
 		if event == "UNIT_AURA" and InCombatLockdown() then
 			pcall(function()
