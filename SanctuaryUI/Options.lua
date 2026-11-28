@@ -3166,6 +3166,16 @@ local function Build()
 					absorbPrediction = Toggle(2, "Absorb shields", "Damage shields (Power Word: Shield and the like) show as silver liquid above your health and incoming heals. A shield bigger than the room left, as at full health, lights a silver glow round the inside of the globe.", nil, "absorbPrediction"),
 					costPrediction = Toggle(3, "Spell cost", "While you cast, the part of your resource the spell will spend lights up at the top of the resource globe.", nil, "costPrediction"),
 				}),
+				pet = Card(5, "Pet globe", {
+					enabled = Toggle(1, "Pet health globe", "Your pet's health in a small globe of the same liquid as the other health globes, in a forged bezel sitting on the gargoyle, up and left of your health globe. It shows only while you have a pet (and while frames are unlocked, so it can be placed). Its number follows Show numbers. A hunter pet's happiness sits on the ring, with Blizzard's icon.", "petGlobe", "enabled"),
+					scale = (function()
+						local option = Range(2, "Pet globe size", "Of its default size, about a third of the health globe across. It follows the globe scale too. Capped at 150% so the bezel stays sharp.", "petGlobe", "scale", 0.5, 1.5, 0.01, true)
+						option.disabled = function() return not DB().petGlobe.enabled end
+						return option
+					end)(),
+					note = Note(3, UNLOCK),
+					reset = { type = "execute", order = 4, name = "Reset position", func = function() ns.Globes.ResetPetPosition() end, disabled = function() return not DB().petGlobe.moved end },
+				}),
 			}),
 			globeAuras = Page(12, "Globe auras", GlobeAuraArgs(), "tab"),
 			rail = Page(13, "XP & Reputation", {
